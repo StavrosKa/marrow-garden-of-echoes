@@ -33,3 +33,20 @@ Entries are appended. Earlier entries are never rewritten.
   - The Pages source was switched to GitHub Actions by hand in the repository settings, as Kiro had listed it as a manual step.
   - The run shows a Node 20 deprecation warning for `actions/configure-pages@v5` and an `upload-artifact` dependency. Both are forced onto Node 24 by GitHub, so nothing was changed.
 - Evidence: commit 2060076 "Deploy to GitHub Pages with GitHub Actions". Workflow run 43765797193, both jobs succeeded. https://stavroska.github.io/marrow-garden-of-echoes/ returns HTTP 200.
+
+## 2026-11-16 - Spec marrow-input: questions, answers, requirements
+
+- Kiro feature used: spec, requirements phase of the new spec `marrow-input` (model: Claude Opus 5.5)
+- What was built:
+  - Questions before requirements, as the prompt asked: 6 conflicts between the prompt and steering and 41 open questions (input, signal processing, calibration and placement, dwell, tracking lifecycle, help policy, React UI, playground), each with a recommended answer, saved in `.kiro/specs/marrow-input/questions.md`.
+  - My answers: all recommendations accepted, with five changes. A "Use the whole screen" control on the calibration screen in simulated-input mode only. An exact head-offset formula. Every value in `tuning.ts` labelled `tune` or `rule: change only with the user's approval`. Component tests approved in principle, with the package list (versions and licences) to be approved before install. The `@mediapipe/tasks-vision` version to be approved in design.md, and the WASM and model vendored in the app's public files with source URL, download date, licence and SHA-256 in `docs/licenses.md`.
+  - `.kiro/specs/marrow-input/requirements.md`: 28 requirements in EARS wording with 258 numbered acceptance criteria, 27 of them "FOR ALL" properties meant for fast-check, covering steering section 10 invariants 1, 2, 5 and 6. Four appendices: the steering numbers used, labelled tune or rule; 15 numbers that are new relative to steering; invariant coverage; and the decisions behind the document, including 11 choices that neither steering nor my answers settle. `questions.md` was deleted once its answers were folded in.
+  - The requirements follow the palette and placeholder rule I added to `art-and-motion.md` outside Kiro during this session: grey ramp and `lanternWarm` only, `--marrow-*` CSS properties in shared components.
+  - requirements.md is not approved yet. No code, dependency or test changed.
+- What Kiro got wrong or I changed, and why:
+  - Kiro's first reply used its whole output budget on internal reasoning and produced no message and no file. On the retry it saved the open questions to `questions.md` first, then asked them in chat.
+  - Kiro's summary of requirements.md said 30 criteria start with "FOR ALL". A recount during this wrap-up found 27; the first count had included three mentions in the prose. The numbers in this entry come from the recount.
+  - The head-offset formula I gave, sign(d) * (|d| - 0.05) / (0.25 - 0.05), has the opposite sign inside the dead zone (d = 0.01 gives -0.2). Kiro wrote max(0, |d| - 0.05) in Requirement 9.3, which gives 0 inside the dead zone and the same values outside it, and flagged the change for my confirmation.
+  - The prompt called every number in `interaction-invariants.md` a tuning value. Steering marks only some *(tune)*, and steering wins, so the unmarked values are listed as rules (Appendix A).
+  - I named six new numbers. Appendix B lists 15: Kiro added the calibration hand-hint delay, the inference-rate cap, the default volume, the debug overlay window, the preview width, the playground slots and tones, and the gain cap and ramp.
+- Evidence: commit subjects "Fill palette and type in art-and-motion steering from the approved mockups" and "Add marrow-input spec: requirements". No tests were added; requirements.md is not yet approved.
