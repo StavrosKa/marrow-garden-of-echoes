@@ -1,0 +1,13 @@
+{
+  "name": "world-view",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/core/index.ts",
+    "./pixi": "./src/pixi/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

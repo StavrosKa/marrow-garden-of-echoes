@@ -12,7 +12,7 @@ This file is the source of truth for how input becomes interaction. Numbers mark
 |---|---|
 | **Camera** | MediaPipe normalized image coordinates, x and y in 0..1, not mirrored |
 | **Screen** | Normalized viewport coordinates, x in 0..aspect, y in 0..1, origin top-left. Pointers and hit tests live here |
-| **World** | Scene coordinates of a glade: lateral x, height y, depth z along the path |
+| **World** | Scene coordinates of a stage: lateral x, height y, depth z along the path |
 
 - Mirroring happens exactly once, at camera -> screen (`x' = 1 - x`). The player's right hand appears on the right side of the screen. MediaPipe "left" landmarks belong to the player's left side.
 - Landmarks used: nose 0, shoulders 11 and 12, wrists 15 and 16. Hips are never required.
@@ -69,7 +69,8 @@ This file is the source of truth for how input becomes interaction. Numbers mark
 
 - Exactly one transition per completed stage. A repeated or late completion event never starts a second journey.
 - Travel starts 1-2 s after the completion reward and lasts 5-7 s with ease-in and ease-out *(tune)*.
-- During TRAVELLING, CELEBRATING, playback and any suspension: dwell cannot select, drawing is off, no gameplay completion can occur. Targets become active only after travel has fully stopped at the next glade.
+- The two door thresholds (into Whisper Hall, and out to the Bloom garden) are short travels of about 3 s *(tune)* through an opening door, made with the same travel engine and the same rules.
+- During TRAVELLING, CELEBRATING, playback and any suspension: dwell cannot select, drawing is off, no gameplay completion can occur. Targets become active only after travel has fully stopped at the next stage.
 
 ## 8. View: projection, head parallax, view lock
 
@@ -77,14 +78,14 @@ This file is the source of truth for how input becomes interaction. Numbers mark
 - `view` holds the travel distance along the path and the head offset. Depth scaling: an object's scale and screen position depend on its depth minus the travel distance; near groups grow and exit past the screen edges, the horizon stays almost still. A single flat image zoom is not acceptable.
 - Head offset: nose position minus the calibrated neutral nose, divided by the calibrated shoulder width, dead zone 0.05, clamped, smoothed *(tune)*. Do not subtract the current shoulder centre each frame: moving the whole upper body should move the view.
 - Direction (window effect): when the player's head moves to the right of the screen, near layers shift left, far layers barely move.
-- Limits at the nearest layer: +/-3% of viewport width, +/-2% of height. No roll, no head-driven zoom. Layers are drawn with overscan so no edge is ever exposed.
+- Limits at the nearest layer: +/-3% of viewport width, +/-2% of height. Inside Whisper Hall the limits are 60% of these *(tune)*, because the walls are close. No roll, no head-driven zoom. Layers are drawn with overscan so no edge is ever exposed.
 - Targets live in the world and take part in parallax, on an interaction layer whose factor is 0.2 of the nearest layer *(tune)*.
 - **View lock:** while any dwell is in progress on a target, and during a Bloom stroke, the interaction layer's head offset is held at the value it had when the hold or stroke began. It eases back when the hold ends. Decorative layers keep moving. The player's own reaching must never push the target out from under their hand.
 - A foreground object may reveal things behind it but never covers a required target.
 - Motion settings *(tune)*:
   - **Full**: everything as specified in this file and in art-and-motion.md.
   - **Gentle**: head offsets x0.5, ambient amplitude and speed x0.5, travel duration x1.3 (the 5-7 s travel range applies to Full only).
-  - **Reduced**: no head parallax, no particles (fireflies, falling leaves), leaf sway and fog drift at x0.25 amplitude, steady lantern and candle light (no flicker), no travel scaling: each journey becomes a 1.5 s cross-fade to the next glade, with the path brightening to show progress.
+  - **Reduced**: no head parallax, no particles (fireflies, falling leaves), leaf sway and fog drift at x0.25 amplitude, steady lantern and candle light (no flicker), no travel scaling: each journey becomes a 1.5 s cross-fade to the next stage, with the path or doorway brightening to show progress.
   - If the browser reports `prefers-reduced-motion`, start in Reduced. The setting can change at any time and takes effect within one frame.
 
 ## 9. Help and adaptation
@@ -103,4 +104,4 @@ This file is the source of truth for how input becomes interaction. Numbers mark
 5. Losing only the head never cancels a valid wrist hold; after more than 300 ms with no valid active wrist the session clock stops (not before), and it restarts only after 1 s of continuous valid tracking.
 6. At most one adaptation axis changes per round boundary; every help path reaches completion in a bounded number of steps.
 7. A stroke never connects across a tracking gap; save then reload reproduces the same plant; a corrupted or unknown-version save is ignored with a safe reset.
-8. Camera denied -> simulated input -> full completion, in both apps. Reduced motion and mute leave every stage completable.
+8. Camera denied -> simulated input -> full completion from Home to the saved garden. Reduced motion and mute leave every stage completable.

@@ -1,0 +1,17 @@
+{
+  "name": "marrow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": "./src/core/index.ts",
+    "./challenges": "./src/challenges/index.ts",
+    "./input": "./src/input/index.ts",
+    "./sim": "./src/sim/index.ts",
+    "./react": "./src/react/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "simulate": "node -e \"console.error('simulate: not implemented yet, packages/marrow/src/sim is empty'); process.exit(1)\""
+  }
+}

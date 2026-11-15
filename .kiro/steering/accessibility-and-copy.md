@@ -1,6 +1,6 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: ["apps/**", "templates/**", "packages/marrow/src/react/**"]
+fileMatchPattern: ["apps/**", "packages/marrow/src/react/**"]
 ---
 
 # Accessibility and wording
@@ -8,6 +8,7 @@ fileMatchPattern: ["apps/**", "templates/**", "packages/marrow/src/react/**"]
 ## Interaction
 
 - Every menu, overlay and settings control is a real DOM element (button, radio, slider) layered over the canvas, reachable by mouse, touch and keyboard, with a visible focus ring and an accessible name. Nothing essential exists only inside the canvas.
+- The haunting theme never costs usability. Themed controls stay real controls: styling does not remove focus rings, accessible names, hit size or contrast, and decorative fonts are used for titles only, never for instructions or buttons.
 - `Escape` opens Pause from anywhere after Home. `Enter` or `Space` activates the focused control. Bloom's Stop/Finish works by large button and by keyboard.
 - The current instruction is also exposed in an `aria-live="polite"` region.
 - Colour is never the only signal. Spirits and symbols always pair colour with shape (blue + drop, gold + leaf). Every sound cue has a visual equivalent, and the game is fully playable muted.
@@ -25,7 +26,7 @@ fileMatchPattern: ["apps/**", "templates/**", "packages/marrow/src/react/**"]
 
 ## Wording
 
-- All player-facing text is English and lives in the app's (or the template's) `copy/` folder. Shared components in `marrow/react` receive their text through the typed `MarrowCopy` object, which each app fills from its own `copy/`.
+- All player-facing text is English and lives in the app's `copy/` folder. Shared components in `marrow/react` receive their text through the typed `MarrowCopy` object, which the app fills from `copy/`.
 - One instruction at a time, at most about eight words, present tense, calm: "Hold your light on the lantern."
 - Never use: fail, failed, wrong, incorrect, error (to the player), lose, lost (about the player), score, points, time's up, hurry, patient, therapy, rehab, exercise, diagnosis, tremor.
 - The banned list applies to player-facing text only. Code, tests and developer docs may use words such as "error" in their technical sense. Docs may state what the project is not ("This is not a medical or therapy tool"); what is banned everywhere is claiming such a benefit.

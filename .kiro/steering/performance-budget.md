@@ -1,6 +1,6 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: ["apps/**/scene/**", "packages/world-view/**", "packages/marrow/src/input/**"]
+fileMatchPattern: ["apps/**/scene/**", "apps/**/stages/**", "apps/**/journeys/**", "packages/world-view/**", "packages/marrow/src/input/**"]
 ---
 
 # Performance budget
@@ -17,7 +17,7 @@ Targets on the reference computer (recorded in `docs/measured-results.md` with i
 
 ## Rules
 
-- A debug overlay behind `?debug=1` shows render fps, inference Hz, pointer validity, the comfort grid and all hit areas. It must work in both apps and the starter.
+- A debug overlay behind `?debug=1` shows render fps, inference Hz, pointer validity, the comfort grid and all hit areas. It works on every screen, including the input playground.
 - Never keep more than one video frame waiting for inference. Drop frames, do not queue them.
 - No per-frame allocation in the render loop for things that can be reused (points, arrays, graphics objects).
 - Redraw a procedural texture only when its inputs change. Static silhouettes are drawn once and cached.
