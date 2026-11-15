@@ -40,6 +40,8 @@ npm run test:e2e   # starts the dev server and loads the page in Chromium
 
 `npm run simulate` is reserved for the headless session simulator and does nothing yet.
 
+## How this was built
+This project is built with Kiro. Today that means seven steering files in [`.kiro/steering`](.kiro/steering) that set the product, structure and interaction rules, and a fast-check property test next to the Vitest tests. Specs for spec-driven development will go in [`.kiro/specs`](.kiro/specs) once the first spec is written, and agent hooks are not set up yet. [`docs/kiro-journal.md`](docs/kiro-journal.md) is the running build log.
 ## License
 
 MIT. See [LICENSE](LICENSE).

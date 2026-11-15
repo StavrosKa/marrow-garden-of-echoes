@@ -22,3 +22,14 @@ Entries are appended. Earlier entries are never rewritten.
   - `npm audit` reports 7 moderate findings in typescript-eslint's `minimatch`. The suggested fix is a downgrade outside the approved versions, so it was not applied.
   - `npm install` left three `extraneous` entries for the removed workspaces in `package-lock.json`. They were deleted by hand and `npm ci --dry-run` passes.
 - Evidence: commit subject "Scaffold monorepo: Marrow packages and the Garden of Echoes app". Tests: `tests/dependency-graph.test.ts` (11 tests), `packages/marrow/src/smoke.test.ts`, `packages/world-view/src/smoke.test.ts`, `apps/garden-of-echoes/src/smoke.test.ts`, `tests/e2e/garden-of-echoes.spec.ts`. Two temporary probes failed both ESLint and the dependency test, then were removed: the app importing `marrow/src/core/index`, and a package importing from the app. No failing fast-check seed.
+
+## 2026-11-15 - Deploy to GitHub Pages
+- Kiro feature used: vibe chat
+- What was built: `.github/workflows/deploy.yml`. On every push to `main` it runs `npm ci`, typecheck, lint and test on Node 24, builds `apps/garden-of-echoes` with `BASE_PATH=/<repository name>/`, and deploys `apps/garden-of-echoes/dist` to GitHub Pages in a separate job. The live URL is in the README and set as the repository website with `gh repo edit`. README section "How this was built" added.
+- What Kiro got wrong or I changed, and why:
+  - `gh` was not on the PATH of the Kiro terminal, so Kiro called it by its full install path.
+  - PowerShell reported the successful `git push` as an error because git writes progress to stderr. The push had worked.
+  - The requested README section listed spec-driven development and agent hooks, but `.kiro/specs` and `.kiro/hooks` do not exist yet. The text says so instead of claiming them.
+  - The Pages source was switched to GitHub Actions by hand in the repository settings, as Kiro had listed it as a manual step.
+  - The run shows a Node 20 deprecation warning for `actions/configure-pages@v5` and an `upload-artifact` dependency. Both are forced onto Node 24 by GitHub, so nothing was changed.
+- Evidence: commit 2060076 "Deploy to GitHub Pages with GitHub Actions". Workflow run 43765797193, both jobs succeeded. https://stavroska.github.io/marrow-garden-of-echoes/ returns HTTP 200.
