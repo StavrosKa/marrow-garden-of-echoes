@@ -8,6 +8,8 @@ Marrow is the input engine underneath: pose tracking, comfort map, dwell selecti
 
 Work in progress for Kiroween 2026.
 
+**Live:** https://stavroska.github.io/marrow-garden-of-echoes/
+
 ## Install
 
 Requires Node 22.13 or newer (`^22.13 || >=24`). `.nvmrc` pins Node 24 (`nvm use`).
