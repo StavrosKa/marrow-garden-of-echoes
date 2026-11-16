@@ -1,4 +1,4 @@
-# Requirements Document: marrow-input
+# Requirements Document
 
 ## Introduction
 
@@ -96,6 +96,7 @@ Component names used in the criteria: Tuning, PoseFrame, Camera Source, Pointer 
 5. THE repository SHALL record in `docs/licenses.md`, for each vendored file, its source URL, download date, licence and SHA-256.
 6. THE Camera Source SHALL never send, store or record video frames or pose data.
 7. THE Camera Source SHALL request the user-facing camera at 640 x 480 (ideal) and accept the size the browser delivers, setting the frame aspect from the delivered video.
+8. WHILE the camera track is open but no new inference result has arrived for longer than the stale-frame timeout (500 ms), THE Camera Source SHALL publish a new PoseFrame (a fresh object) with every landmark invalid, once per stall, until a new result arrives, so that a stalled model is treated as lost tracking rather than a frozen valid pointer.
 
 ### Requirement 5: Camera lifecycle and permission outcomes
 
@@ -389,7 +390,7 @@ Properties (steering section 10 invariant 6). Each is a named fast-check test. G
 
 1. THE Setup UI SHALL take every string it shows, including accessible names and debug labels, from a typed MarrowCopy object supplied through a React provider, and SHALL contain no player-facing string of its own.
 2. THE app SHALL fill MarrowCopy in `apps/garden-of-echoes/src/copy`, and a missing entry SHALL be a type error.
-3. THE MarrowCopy SHALL contain entries for: the camera explanation sentence; "Use the camera"; "Try without camera"; the denied, no-camera and model-failed messages; Retry; the hand choice question with Right, Left, Both and Continue; the painting instruction; the calm hold instruction; "Keep your face and shoulders in view"; "Skip head view"; "Use the whole screen"; the calibration hand hint; the no-usable-slot message with "Retry calibration"; Pause, Resume, Recalibrate, Exit; the settings labels (motion, Full, Gentle, Reduced, sound, mute, volume); "Step back into view"; Recover; the one-wrist hint; "Simulated input"; the camera preview's accessible name; and the debug overlay labels.
+3. THE MarrowCopy SHALL contain entries for: the start screen title and its Start control; the camera explanation sentence; "Use the camera"; "Try without camera"; the denied, no-camera and model-failed messages; Retry; the hand choice question with Right, Left, Both and Continue; the painting instruction; the calm hold instruction; "Keep your face and shoulders in view"; "Skip head view"; "Use the whole screen"; the calibration hand hint; the no-usable-slot message with "Retry calibration"; Pause, Resume, Recalibrate, Exit; the settings labels (motion, Full, Gentle, Reduced, sound, mute, volume); "Step back into view"; the accessible name of the tracking-lost placeholder picture; Recover; the one-wrist hint; "Simulated input"; the camera preview's accessible name; and the debug overlay labels.
 4. THE copy SHALL use these texts as written in steering: "Keep your face and shoulders in view", "Skip head view", "Step back into view", "Retry calibration", "Try without camera", "Simulated input", Retry, Recover, Exit.
 5. THE camera explanation SHALL be one sentence saying that the camera follows the player's hands and head, and that video stays on this device and is never recorded or sent anywhere.
 6. THE copy SHALL follow `accessibility-and-copy.md`: English, one instruction at a time, present tense, calm, describing what to do next.
@@ -555,6 +556,7 @@ All are starting values labelled `tune`. Engine values live in marrow's `tuning.
 | motor 0-2 (0.09, 0.11, 0.13), cognitive 0-2 | Help levels | marrow tuning | 19.6, 19.7 |
 | 1 s | Calibration hand hint delay | marrow tuning | 11.12 |
 | 20 Hz | Maximum inference rate (from the 15-20 Hz budget target) | marrow tuning | 4.3 |
+| 500 ms | Stale-frame timeout: landmarks invalid after no new inference result for this long | marrow tuning | 4.8 |
 | 0.6 | Default volume | marrow tuning | 20.6 |
 | 1 s | Debug overlay rate window | marrow tuning | 25.2 |
 | 320 CSS px | Maximum camera preview width | app | 22.5 |
