@@ -15,3 +15,10 @@ export {
   type PoseFrame,
 } from './frame';
 export { presenceDelta, sessionDelta, stepClocks } from './clocks';
+export {
+  createPointerFilter,
+  stepPointerFilter,
+  resetPointerFilter,
+  type PointerFilterState,
+  type PointerSample,
+} from './pointerFilter';

@@ -38,7 +38,7 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.8_
 
-- [ ] 4. Pointer filter
+- [x] 4. Pointer filter
   - Create `core/oneEuro.ts` (internal): `createOneEuro(cfg)`, `oneEuroStep(state, value, dtMs)`, `oneEuroReset(state)`. A delta of 0 leaves the output unchanged and never divides by zero.
   - Create `core/pointerFilter.ts`: one One Euro filter per active wrist with `oneEuroMinCutoffHz`, `oneEuroBeta` and `oneEuroDCutoffHz`; `stepPointerFilter(state, sample, dtMs)` takes the per-wrist samples of one consumed frame and the presence time since the previous consumed frame, both supplied by the caller; a wrist that turns valid after being invalid resets its filter and outputs the sample unchanged; `resetPointerFilter(state)` for resume after Pause or a hidden tab. An invalid wrist yields an invalid pointer with no position, so no logic can read its last filtered position.
   - Export `createPointerFilter`, `stepPointerFilter`, `resetPointerFilter` and `PointerFilterState` from `marrow/core`.
