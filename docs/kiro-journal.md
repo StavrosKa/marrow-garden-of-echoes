@@ -105,3 +105,22 @@ Entries are appended. Earlier entries are never rewritten.
   - Kiro named tests that design section 10 does not list, each for a criterion that had no named test: `tuning_shipped_valid_and_labelled` (1.7), `core_no_wall_clock` (16.8), `vendored_assets_match_licenses` (4.5), `driver_ignores_frame_timestamps` (2.7), `copy_banned_words_and_length` (21.7) and `ui_contrast_pairs` (24.6).
   - The kiro.dev documentation does not describe the tasks.md syntax, so the file uses the usual Kiro layout: numbered checkbox tasks, indented sub-tasks and `_Requirements:_` lines.
 - Evidence: commit subject "Add marrow-input tasks". The GitHub Actions run for the push is reported in chat.
+
+## 2026-11-16 - Spec marrow-input: design aligned with the task decisions
+
+- Kiro feature used: spec, follow-up to the tasks phase of `marrow-input` (model: Claude Opus 5.5)
+- What was built:
+  - design.md now holds the five decisions that were listed at the top of tasks.md:
+    - Sections 1 and 6: the calibration actions are `retryCalibration`, `chooseWholeScreen` and `skipHeadView`. `marrow/core` also exports `presenceDelta`, `sessionDelta` and the input, config, event and state types the app needs (`PointerSample`, `HeadViewInput`, `HitArea`, `PointerInput`, `TrackingConfig`, `TrackingInput`, `TrackingEvent`, `CalibrationConfig`, `CalibrationInput`, `CalibrationEvent`, plus the state types). Section 6 has a short reason for these exports and a naming rule: no export of any entry point may start with `use` unless it is a React hook.
+    - Section 4: every rule key carries the full comment `rule: change only with the user's approval`, and `cameraWidth` and `cameraHeight` are rules, because 640 x 480 comes from `tech.md` without *(tune)*. The header comment and the Req 1.7 test sentence match.
+    - Section 14.2: the play-area slot filter keeps only slots whose circle of radius r + m lies inside [0, A] x [0, 1]. The app applies it once per use, with the current play-area aspect, to the demand given to `createCalibration` and to every round. `createCalibration`'s config gains `frameAspect` and `playAspect`, as task 9.1 already said.
+    - Section 14.3: every round, the first included, filters the slots, rotates them to start at the cursor and calls `placeTargets`. So every round gets the overlap check of Req 14.4.
+    - Sections 14.4 and 14.5: the content file is checked by a hand-written validator, `src/dev/playgroundContent.ts`. `playground-content.schema.json` is gone.
+    - Section 14.5: the Camera Source is disposed on the `pagehide` event as well as on Exit, on switching to simulated input and on unmount. A tab switch only sets the hidden flag.
+  - The `MarrowCopy` key `useWholeScreen` (a string, not a function) is renamed `wholeScreen`, so the old name no longer appears anywhere.
+  - tasks.md: the decisions list and the sentence saying design.md still had the earlier text are replaced by one line saying the decisions are in design.md. The seven "decision N" references inside tasks now point to design sections.
+  - requirements.md is unchanged: none of the renamed identifiers appears in it, and Req 5.7 already says "page hide".
+- What Kiro got wrong or I changed, and why:
+  - The first version of design section 1 named an export `useWholeScreen`. React's hooks lint rule treats any `use…` name as a hook and would flag it when the app calls it from a click handler. I chose the new names, and the rule is now written in section 6.
+  - My first slot filter applied only to rounds. I extended it to the calibration demand, because otherwise calibration could decide the demand is met and play would then find fewer usable slots.
+- Evidence: `npm run typecheck`, `npm run lint` and `npm test` were run before the commit (results in chat). Commit subject "Align marrow-input design with task decisions". No code, test, dependency or tuning value changed.

@@ -7,20 +7,14 @@ Rules for every task:
 - A task is done only when `npm run typecheck`, `npm run lint` and `npm test` pass, plus `npm run test:e2e` for tasks that change UI (Req 28.12). Each task repeats its own line.
 - Every test in this plan is required, including every property test. None is optional. A failing fast-check seed is kept as a regression test and recorded in `docs/bugs-found.md` (Req 28.8).
 - Tests read numbers from `TUNING`, never from literals. Property tests use the generators in `packages/marrow/src/core/testgen.ts`, reached by relative import (design §10.1).
-- Each core task adds its public names to the `marrow/core` barrel (design §6, plus decision 1 below). Internals stay off the barrel.
+- Each core task adds its public names to the `marrow/core` barrel (design §6). Internals stay off the barrel.
 - No lint exception, no weakened rule in `eslint.config.js` or `tests/dependency-graph.test.ts` (Req 28.7), and no new dependency.
 
-Decisions approved in chat on 2026-11-16. They refine design.md, which still has the earlier text:
-
-1. `marrow/core` also exports `presenceDelta` and `sessionDelta` (the two-stage frame driver of design §3 lives in the app), the calibration actions `retryCalibration`, `chooseWholeScreen` and `skipHeadView`, and the input and state types the app needs (`HitArea`, `PointerInput`, `HeadViewState`, `PointerFilterState`, the calibration and tracking input and event types). Design §1 calls the first two actions `retry` and `useWholeScreen`; no export may start with `use` unless it is a React hook.
-2. The app keeps only slots whose hit circle plus margin (radius r + m) lies inside the current play area [0, A] x [0, 1]. It filters once per use, with the current play-area aspect: for the demand passed to `createCalibration`, and for every round. Every round calls `placeTargets` with the filtered slots rotated to start at the cursor (design §14.3 took the next three usable slots without the overlap check of Req 14.4).
-3. The playground content file is checked by a hand-written typed validator in `src/dev` that gives the readable messages of design §14.4. There is no `playground-content.schema.json` and no validator dependency.
-4. `cameraWidth` and `cameraHeight` are rules, because 640 x 480 comes from `tech.md` without *(tune)*. Every rule key carries the full comment `rule: change only with the user's approval` (Req 1.2), not the bare `rule` of design §4.
-5. "Page hide" in Req 5.7 is the `pagehide` event. A tab switch only sets the hidden flag (Req 16.3); the camera stays open, so play resumes as Req 8.4 describes.
+The five decisions approved in chat on 2026-11-16 (core exports and the names `retryCalibration`, `chooseWholeScreen` and `skipHeadView`, the play-area slot filter, the hand-written content validator, the full rule comments, and `pagehide`) are written into design.md sections 1, 4, 6 and 14.
 
 - [ ] 1. Tuning module and validation
   - Create `packages/marrow/src/core/tuning.ts` with the `Tuning` interface and the frozen `TUNING` object of design §4: every Appendix A value and every Appendix B engine value, but not the Appendix B app values. Freeze `motorRadii` on its own.
-  - Comment each key `tune` (steering *(tune)* values and Appendix B values) or `rule: change only with the user's approval` (every other value, including `cameraWidth` and `cameraHeight`; decision 4).
+  - Comment each key `tune` (steering *(tune)* values and Appendix B values) or `rule: change only with the user's approval` (every other value, including `cameraWidth` and `cameraHeight`; design §4).
   - Implement `validateTuning(t): TuningError[]` with one declared range per key, integer checks for grid sizes and counts, the steering ranges of Req 1.5 (hit radius 0.07-0.13, reach gain 1.0-1.6), non-finite values reported as out of range, and the cross-field checks of design §4. `formatTuningErrors` names the key, the value and the allowed range.
   - Export `TUNING`, `validateTuning`, `formatTuningErrors`, `Tuning` and `TuningError` from `marrow/core`. From this task on, core logic reads every steering and Appendix B number from the tuning object (Req 1.6).
   - Tests: `tuning_shipped_valid_and_labelled` (Req 1.7: the shipped object passes validation, and every key of the interface carries a `tune` or full `rule` comment, read from the source text); validation tests for each steering range edge, a NaN value and each cross-field check, including the message text.
@@ -37,7 +31,7 @@ Decisions approved in chat on 2026-11-16. They refine design.md, which still has
 
 - [ ] 3. Presence and session clocks
   - Create `core/clocks.ts`: `presenceDelta(rawDtMs, { paused, hidden }, tuning)` treats a negative or non-finite delta as 0, clamps to `maxClockStepMs`, and returns 0 while paused or hidden; `sessionDelta(presenceDt, holdActive)` returns 0 during a hold and `presenceDt` otherwise; `stepClocks(rawDtMs, { paused, hidden, holdActive }, tuning)` composes the two (design §3).
-  - Export all three from `marrow/core` (decision 1).
+  - Export all three from `marrow/core` (design §6).
   - Start `core/testgen.ts` with `genDt` (including 0, negative and non-finite values), `genDtClamped` (0..100) and `genClockFlags`.
   - Named tests (design §10.2): `clocks_delta_bounds` (16.6).
   - Other tests: one test each for 16.2, 16.3, 16.4 and 16.5; `core_no_wall_clock` in `tests/` (16.8), which scans every non-test file under `packages/marrow/src/core` and fails on `Date.now`, `performance.now`, `setTimeout`, `setInterval` or `requestAnimationFrame`.
@@ -104,11 +98,11 @@ Decisions approved in chat on 2026-11-16. They refine design.md, which still has
 
 - [ ] 9. Calibration
   - [ ] 9.1 Painting phase
-    - Create `core/calibration.ts`: `createCalibration(cfg)` with `cfg = { activeWrists, mode, demand, frameAspect, playAspect }`, where the app has already filtered the demand's slots to the play area (decision 2), and `stepCalibration(state, input, dtMs)`. The input holds, per active wrist, the validity and the filtered camera-space position, whether this step consumed a new frame, and the head landmarks for the calm hold.
+    - Create `core/calibration.ts`: `createCalibration(cfg)` with `cfg = { activeWrists, mode, demand, frameAspect, playAspect }`, where the app has already filtered the demand's slots to the play area (design §14.2), and `stepCalibration(state, input, dtMs)`. The input holds, per active wrist, the validity and the filtered camera-space position, whether this step consumed a new frame, and the head landmarks for the calm hold.
     - Painting: one empty grid per active wrist at the start; one sample per consumed frame for each valid active wrist; painting time on the presence clock, counted only in steps with a valid active wrist; the end rules at 20 s with the demand met, from 12 s with the demand met and no new valid cell for `calibEarlyQuietMs`, and at the 30 s cap; never before 12 s except through `chooseWholeScreen`; no samples after the end.
     - Demand check: `placeTargets` with the transform from `computeComfortTransform` on the current grids, run only in steps where a cell's validity changed (design §14.2). In simulated-input mode the transform is gain 1 and the play-area centre.
     - A hand-hint flag for the UI after `calibHandHintMs` without a valid active wrist, in camera mode only.
-    - `retryCalibration(state)` clears every grid, the head data and every timer and restarts painting; `chooseWholeScreen(state)` marks every cell of the pointer's grid valid and completes at once, skipping the calm hold (decision 1).
+    - `retryCalibration(state)` clears every grid, the head data and every timer and restarts painting; `chooseWholeScreen(state)` marks every cell of the pointer's grid valid and completes at once, skipping the calm hold (design §1, §6).
     - Export `createCalibration`, `stepCalibration`, `retryCalibration`, `chooseWholeScreen`, `CalibrationState` and the input and event types from `marrow/core`.
     - Named tests (design §10.2): `calibration_cell_needs_own_samples` (11.4), driven through `stepCalibration` with valid and invalid frames and compared with an independent per-cell count.
     - Other tests: scripted sequences for each end rule at its exact boundary; time counted only with a valid wrist; no samples after the end; the demand check runs only when validity changes; `retryCalibration`; `chooseWholeScreen`; the hand-hint flag.
@@ -299,7 +293,7 @@ Decisions approved in chat on 2026-11-16. They refine design.md, which still has
     - _Requirements: 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 24.5, 24.6, 26.12_
   - [ ] 17.2 Playground entry, content file and tuning check
     - `src/main.tsx` renders the current page unchanged without `playground=1`; with it, it lazy-loads `src/dev/playground.tsx` as a separate chunk that works under `BASE_PATH`.
-    - Add `src/dev/playground-content.json` (15 slots in order, target count 3) and its hand-written typed validator, whose message names the first bad field, for example `playground-content.json: slots[7].y = 1.4 is out of range [0, 1]` (decision 3).
+    - Add `src/dev/playground-content.json` (15 slots in order, target count 3) and its hand-written typed validator, whose message names the first bad field, for example `playground-content.json: slots[7].y = 1.4 is out of range [0, 1]` (design §14.4).
     - On load the playground runs `validateTuning(TUNING)` and, if it fails, shows the `formatTuningErrors` message instead of running.
     - Tests: the validator for a missing field, a wrong type, an out-of-range value and an extra property; the tuning check shows the message for an invalid tuning object.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
@@ -311,7 +305,7 @@ Decisions approved in chat on 2026-11-16. They refine design.md, which still has
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 6.10, 12.9, 18.11, 22.2, 22.3, 22.4, 22.8, 23.5, 23.6, 23.8, 23.9_
   - [ ] 17.4 Round controller and play-area slot filter
-    - Add `src/dev/roundController.ts` with the slot filter of decision 2: keep only slots whose circle of radius r + m lies inside [0, A] x [0, 1], applied with the current play aspect to the demand given to `createCalibration` (N = 3, r = `TUNING.hitRadius`, m = 0) and to every round.
+    - Add `src/dev/roundController.ts` with the play-area slot filter of design §14.2: keep only slots whose circle of radius r + m lies inside [0, A] x [0, 1], applied with the current play aspect to the demand given to `createCalibration` (N = 3, r = `TUNING.hitRadius`, m = 0) and to every round.
     - When calibration completes and at each new round, rotate the filtered slots to start at the cursor and call `placeTargets`: `simultaneous` shows three targets at once, `sequential` shows target i alone in usable slot i mod k, and `none` leads to the no-usable-slot screen. Each round has new activation ids, and the cursor moves on so that a round avoids the last round's slots when enough usable slots exist. A completed target is no longer supplied to the Dwell Engine.
     - Tests: slots outside or across the play-area edge are dropped; the targets of every round are pairwise disjoint; consecutive rounds use different slots when at least 6 slots are usable; the `sequential` order; new activation ids; pause and hold flags leave the round unchanged.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
@@ -336,7 +330,7 @@ Decisions approved in chat on 2026-11-16. They refine design.md, which still has
   - [ ] 17.8 Playground in camera mode
     - "Use the camera" starts `createCameraSource` from the click, with every URL under `BASE_PATH`. Outcome screens with Retry. Hand choice, and the mirrored preview of at most 320 CSS px during hand choice and calibration, removed and detached when play starts.
     - The tracking-lost overlay follows the tracking outputs. Recover disposes and restarts the source from the click, keeps calibration and keeps the overlay until the hold ends; an outcome other than `ready` shows that outcome's screen. "Try without camera" disposes the source and calibrates with the Pointer Source. During a hold the play area dims, eased over at least 300 ms, and every target stays where it is. The calibration hand hint's "Try without camera" works the same way. The one-wrist hint shows when tracking says so.
-    - The source is disposed on Exit, on switching to simulated input, on unmount and on `pagehide`, and not on a tab switch (decision 5).
+    - The source is disposed on Exit, on switching to simulated input, on unmount and on `pagehide`, and not on a tab switch (design §14.5).
     - Tests with a fake camera source: dispose on each of those events and not on `visibilitychange`; Recover restarts from the click handler.
     - Manual check with a webcam (Playwright never uses a camera): `?playground=1&debug=1` completes a round; record the inference rate the overlay shows in the journal, as measured.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).

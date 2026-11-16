@@ -20,17 +20,17 @@ One line per module and its public functions. Every function here is pure: same 
 | `geometry.ts` | types `Vec2`; `dist(a,b)`, `clamp(v,lo,hi)`, `sub/add/scale`, `lerp` | — | pure fns (internal) |
 | `frame.ts` | types `Landmark`, `PoseLandmarks`, `PoseFrame`; const `LANDMARK_INDEX`; `isLandmarkValid(visibility, pos, tuning): boolean` | 2 | types + pure fn |
 | `oneEuro.ts` | type `OneEuroState`; `createOneEuro(cfg)`, `oneEuroStep(state, value, dtMs)`, `oneEuroReset(state)` | 8 | pure reducer (internal) |
-| `pointerFilter.ts` | type `PointerFilterState`; `createPointerFilter(tuning)`, `stepPointerFilter(state, sample, dtMs)`, `resetPointerFilter(state)` | 8 | pure reducer |
-| `headView.ts` | type `HeadViewState`; `createHeadView()`, `stepHeadView(state, input, dtMs) -> { state, offset }` | 9 | pure reducer |
+| `pointerFilter.ts` | types `PointerFilterState`, `PointerSample`; `createPointerFilter(tuning)`, `stepPointerFilter(state, sample, dtMs)`, `resetPointerFilter(state)` | 8 | pure reducer |
+| `headView.ts` | types `HeadViewState`, `HeadViewInput`; `createHeadView()`, `stepHeadView(state, input, dtMs) -> { state, offset }` | 9 | pure reducer |
 | `mapping.ts` | types `MappingParams`, `Mapping`; `makeMapping(params): Mapping` with `toScreen(cam)`, `toCamera(screen)` | 10 | pure factory |
 | `comfortGrid.ts` | type `ComfortGrid`; `createGrid(tuning)`, `addSample(grid, camPos)`, `isCellValid(grid, col, row, tuning)`, `markAllValid(grid)`, `cellRectCamera(col, row, tuning)`, `validCells(grid, tuning)` | 11, 13 | pure fns |
-| `calibration.ts` | type `CalibrationState`; `createCalibration(cfg)`, `stepCalibration(state, input, dtMs) -> { state, events }`, `retry(state)`, `useWholeScreen(state)`, `skipHeadView(state)` | 11, 12 | pure reducer |
+| `calibration.ts` | types `CalibrationState`, `CalibrationConfig`, `CalibrationInput`, `CalibrationEvent`; `createCalibration(cfg)`, `stepCalibration(state, input, dtMs) -> { state, events }`, `retryCalibration(state)`, `chooseWholeScreen(state)`, `skipHeadView(state)` | 11, 12 | pure reducer |
 | `reachGain.ts` | `computeComfortTransform(grids, frameAspect, playAspect, tuning) -> { centre, gain }` | 13 | pure fn |
 | `placement.ts` | types `Demand`, `PlacementResult`; `placeTargets(demand, grids, mapping, tuning): PlacementResult`; `isSlotUsable(slot, grids, mapping, r, m): WristId \| null` | 14 | pure fn |
 | `aura.ts` | `auraIntensity(screenPt, grids, mapping, tuning): number` | 15 | pure fn |
 | `clocks.ts` | `presenceDelta(rawDtMs, { paused, hidden }, tuning): number`; `sessionDelta(presenceDt, holdActive): number`; `stepClocks(rawDtMs, { paused, hidden, holdActive }, tuning) -> { presenceDt, sessionDt }` (composes the two; tested by 16.6) | 16 | pure fns (stateless) |
-| `dwell.ts` | type `DwellState`, `DwellEvent`; `createDwell()`, `stepDwell(state, input) -> { state, events }`, `dwellView(state, targetId)` | 17 | pure reducer |
-| `tracking.ts` | type `TrackingState`; `createTracking(cfg)`, `stepTracking(state, input, dtMs) -> { state, events, holdActive, overlayVisible, oneWristHint }` | 18 | pure reducer |
+| `dwell.ts` | types `DwellState`, `DwellEvent`, `HitArea`, `PointerInput`; `createDwell()`, `stepDwell(state, input) -> { state, events }`, `dwellView(state, targetId)` | 17 | pure reducer |
+| `tracking.ts` | types `TrackingState`, `TrackingConfig`, `TrackingInput`, `TrackingEvent`; `createTracking(cfg)`, `stepTracking(state, input, dtMs) -> { state, events, holdActive, overlayVisible, oneWristHint }` | 18 | pure reducer |
 | `help.ts` | types `HelpState`, `HelpEvent`, `HelpOutput`; `createHelp()`, `stepHelp(state, event) -> { state, outputs }`, `helpRadiusForMotorLevel(level, tuning)` | 19 | pure reducer (event) |
 | `settings.ts` | types `Settings`, `MotionLevel`; `DEFAULT_SETTINGS`, `SETTINGS_VERSION`, `parseSettings(raw, env): Settings`, `serializeSettings(s): string` | 20 | pure fns |
 | `index.ts` | the `marrow/core` barrel (section 6) | — | re-export |
@@ -205,12 +205,15 @@ Per-frame ordering rules the driver follows:
 
 ## 4. `tuning.ts`
 
-One typed, frozen object holds every number this spec uses from steering (Appendix A) and every new engine number (Appendix B), except the values Appendix B marks as app values. Each key carries a `tune` or `rule` comment (Requirement 1.2). App values (camera-preview width, playground slots/targets, tone notes, master-gain cap, gain ramp) live beside the app code that uses them, validated by the playground JSON schema and the audio module, not here.
+One typed, frozen object holds every number this spec uses from steering (Appendix A) and every new engine number (Appendix B), except the values Appendix B marks as app values. Each key carries its own comment with one of two labels (Requirement 1.2): `tune` for values marked *(tune)* in steering and for new values from Appendix B, and the full text `rule: change only with the user's approval` for every other value. The camera request size 640 x 480 comes from `tech.md` without *(tune)* and is not in Appendix B, so `cameraWidth` and `cameraHeight` are rules. App values (camera-preview width, playground slots/targets, tone notes, master-gain cap, gain ramp) live beside the app code that uses them, checked by the playground content validator (§14.4) and the audio module, not here.
 
 ```ts
 // packages/marrow/src/core/tuning.ts
-// tune = starting value, adjusted with a real camera.
-// rule = change only with the user's approval.
+// Each key carries one of two labels (Requirement 1.2):
+//   tune: a starting value, adjusted with a real camera
+//         (marked *(tune)* in steering, or new in Appendix B).
+//   rule: change only with the user's approval
+//         (every other value from steering).
 
 export interface Tuning {
   // --- Landmark validity & One Euro filter (Req 2, 8) ---
@@ -229,15 +232,15 @@ export interface Tuning {
   headDeadZone: number;         // 0.05  tune   (invariants 8)
   headClamp: number;            // 0.25  tune   (Appendix B, Req 9.3)
   headSmoothingTauMs: number;   // 120   tune   (Appendix B, Req 9.4)
-  headEaseToCentreMs: number;   // 500   rule   (invariants 6; 0.5 s)
+  headEaseToCentreMs: number;   // 500   rule: change only with the user's approval (invariants 6; 0.5 s)
 
   // --- Calibration (Req 11, 12) ---
   calibNominalMs: number;       // 20000 tune   (invariants 3)
   calibEarliestMs: number;      // 12000 tune   (invariants 3)
   calibCapMs: number;           // 30000 tune   (invariants 3)
   calibEarlyQuietMs: number;    // 2000  tune   (Appendix B, Req 11.7)
-  calmHoldMs: number;           // 2000  rule   (invariants 3)
-  skipHeadViewAfterMs: number;  // 5000  rule   (invariants 3)
+  calmHoldMs: number;           // 2000  rule: change only with the user's approval (invariants 3)
+  skipHeadViewAfterMs: number;  // 5000  rule: change only with the user's approval (invariants 3)
   calibHandHintMs: number;      // 1000  tune   (Appendix B, Req 11.12)
   gridCols: number;             // 32    tune   (invariants 3)
   gridRows: number;             // 24    tune   (invariants 3)
@@ -248,16 +251,16 @@ export interface Tuning {
   hitRadiusMin: number;         // 0.07  tune   (invariants 4; range floor)
   hitRadiusMax: number;         // 0.13  tune   (invariants 4; range ceil)
   dwellMs: number;              // 1500  tune   (invariants 5)
-  outsideWindowMs: number;      // 150   rule   (invariants 5)
-  invalidWindowMs: number;      // 300   rule   (invariants 5)
-  maxClockStepMs: number;       // 100   rule   (invariants 6)
-  oneWristHintMs: number;       // 1000  rule   (invariants 6; 1 s)
-  trackingHoldAfterMs: number;  // 300   rule   (invariants 6)
-  trackingOverlayAfterMs: number;//1000  rule   (invariants 6; 1 s)
+  outsideWindowMs: number;      // 150   rule: change only with the user's approval (invariants 5)
+  invalidWindowMs: number;      // 300   rule: change only with the user's approval (invariants 5)
+  maxClockStepMs: number;       // 100   rule: change only with the user's approval (invariants 6)
+  oneWristHintMs: number;       // 1000  rule: change only with the user's approval (invariants 6; 1 s)
+  trackingHoldAfterMs: number;  // 300   rule: change only with the user's approval (invariants 6)
+  trackingOverlayAfterMs: number;//1000  rule: change only with the user's approval (invariants 6; 1 s)
   trackingResumeMs: number;     // 1000  tune   (invariants 6; 1 s)
 
   // --- Help policy (Req 19) ---
-  difficultiesBeforeHelp: number;// 2    rule   (invariants 9)
+  difficultiesBeforeHelp: number;// 2    rule: change only with the user's approval (invariants 9)
   motorRadii: readonly number[]; // [0.09,0.11,0.13] tune (Appendix B, Req 19.7)
   helpMaxLevel: number;          // 2    tune   (Appendix B, Req 19.6)
 
@@ -265,15 +268,15 @@ export interface Tuning {
   modelLoadTimeoutMs: number;   // 20000 tune   (Appendix B, Req 5.5)
   maxInferenceHz: number;       // 20    tune   (Appendix B, Req 4.3)
   staleFrameMs: number;         // 500   tune   (Appendix B, Req 4.8)
-  cameraWidth: number;          // 640   tune   (Appendix A, tech.md)
-  cameraHeight: number;         // 480   tune   (Appendix A, tech.md)
+  cameraWidth: number;          // 640   rule: change only with the user's approval (Appendix A, tech.md; not marked (tune))
+  cameraHeight: number;         // 480   rule: change only with the user's approval (Appendix A, tech.md; not marked (tune))
   defaultVolume: number;        // 0.6   tune   (Appendix B, Req 20.6)
   debugRateWindowMs: number;    // 1000  tune   (Appendix B, Req 25.2)
 
   // --- Shared-UI minimums (Req 24) ---
-  uiMinTextPx: number;          // 16    rule   (accessibility-and-copy.md)
-  uiMinButtonTextPx: number;    // 18    rule   (art-and-motion.md)
-  uiMinLightEaseMs: number;     // 300   rule   (accessibility-and-copy.md)
+  uiMinTextPx: number;          // 16    rule: change only with the user's approval (accessibility-and-copy.md)
+  uiMinButtonTextPx: number;    // 18    rule: change only with the user's approval (art-and-motion.md)
+  uiMinLightEaseMs: number;     // 300   rule: change only with the user's approval (accessibility-and-copy.md)
 }
 
 export const TUNING: Tuning = Object.freeze({
@@ -298,7 +301,7 @@ export const TUNING: Tuning = Object.freeze({
 
 ### Validation
 
-`validateTuning` checks each key against a declared range and runs a few cross-field checks, returning one `TuningError` per violation. `formatTuningErrors` joins them into a readable block. The playground validates `TUNING` on load and, if it fails, shows the message instead of running (Req 1.3, 1.4, 1.5). A test asserts the shipped object passes and that every key carries a `tune` or `rule` label (Req 1.7).
+`validateTuning` checks each key against a declared range and runs a few cross-field checks, returning one `TuningError` per violation. `formatTuningErrors` joins them into a readable block. The playground validates `TUNING` on load and, if it fails, shows the message instead of running (Req 1.3, 1.4, 1.5). A test asserts the shipped object passes and that every key carries `tune` or the full `rule: change only with the user's approval` label (Req 1.7).
 
 ```ts
 export interface TuningError {
@@ -355,7 +358,11 @@ The app imports Marrow only through `marrow/core`, `marrow/input` and `marrow/re
 
 ### `marrow/core`
 
-Exports — types: `Vec2`, `WristId`, `Landmark`, `PoseLandmarks`, `PoseFrame`, `MappingParams`, `Mapping`, `ComfortGrid`, `Demand`, `PlacementResult`, `DwellState`, `DwellEvent`, `TrackingState`, `HelpState`, `HelpEvent`, `HelpOutput`, `CalibrationState`, `Settings`, `MotionLevel`, `Tuning`, `TuningError`. Constants/functions: `TUNING`, `validateTuning`, `formatTuningErrors`, `LANDMARK_INDEX`, `isLandmarkValid`, `createPointerFilter`, `stepPointerFilter`, `resetPointerFilter`, `createHeadView`, `stepHeadView`, `makeMapping`, `createGrid`, `addSample`, `isCellValid`, `markAllValid`, `computeComfortTransform`, `auraIntensity`, `placeTargets`, `isSlotUsable`, `createCalibration`, `stepCalibration`, `createDwell`, `stepDwell`, `dwellView`, `createTracking`, `stepTracking`, `createHelp`, `stepHelp`, `helpRadiusForMotorLevel`, `stepClocks`, `parseSettings`, `serializeSettings`, `DEFAULT_SETTINGS`, `SETTINGS_VERSION`.
+Exports — types: `Vec2`, `WristId`, `Landmark`, `PoseLandmarks`, `PoseFrame`, `PointerFilterState`, `PointerSample`, `HeadViewState`, `HeadViewInput`, `MappingParams`, `Mapping`, `ComfortGrid`, `Demand`, `PlacementResult`, `HitArea`, `PointerInput`, `DwellState`, `DwellEvent`, `TrackingState`, `TrackingConfig`, `TrackingInput`, `TrackingEvent`, `HelpState`, `HelpEvent`, `HelpOutput`, `CalibrationState`, `CalibrationConfig`, `CalibrationInput`, `CalibrationEvent`, `Settings`, `MotionLevel`, `Tuning`, `TuningError`. Constants/functions: `TUNING`, `validateTuning`, `formatTuningErrors`, `LANDMARK_INDEX`, `isLandmarkValid`, `createPointerFilter`, `stepPointerFilter`, `resetPointerFilter`, `createHeadView`, `stepHeadView`, `makeMapping`, `createGrid`, `addSample`, `isCellValid`, `markAllValid`, `computeComfortTransform`, `auraIntensity`, `placeTargets`, `isSlotUsable`, `createCalibration`, `stepCalibration`, `retryCalibration`, `chooseWholeScreen`, `skipHeadView`, `createDwell`, `stepDwell`, `dwellView`, `createTracking`, `stepTracking`, `createHelp`, `stepHelp`, `helpRadiusForMotorLevel`, `presenceDelta`, `sessionDelta`, `stepClocks`, `parseSettings`, `serializeSettings`, `DEFAULT_SETTINGS`, `SETTINGS_VERSION`.
+
+Why these are on the barrel: the app's frame driver (§3, §14.5) calls `presenceDelta` and `sessionDelta` directly, because the two clock stages run on either side of `stepTracking`; the playground's controls call `retryCalibration`, `chooseWholeScreen` and `skipHeadView`; and the app builds the inputs and holds the states of the reducers it steps, so their input, config, event and state types are exported too. The app may import only through the entry points (Req 28.2), so anything it calls or names must be here.
+
+**Naming rule.** No export of any entry point (`marrow/core`, `marrow/input`, `marrow/react`) may have a name that starts with `use` unless it is a React hook. React and its hooks lint rule treat every `use…` name as a hook, so a plain function with such a name, called from a click handler, would be flagged. This is why the calibration actions are `retryCalibration`, `chooseWholeScreen` and `skipHeadView`. The only `use…` exports in this spec are the hooks `useMarrowCopy` and `useSettings` in `marrow/react`.
 
 Deliberately **not** exported: `oneEuro.ts` (the raw One Euro primitive), `geometry.ts` helpers, `cellRectCamera`/`validCells` grid internals, and every reducer's internal state fields beyond the opaque state type. Challenge and sim code (not built here). These are reachable only by relative import within `packages/marrow` and are used by the property tests as oracles.
 
@@ -393,7 +400,7 @@ export interface MarrowCopy {
   };
   hands: { question: string; right: string; left: string; both: string; continue: string };
   calibration: {
-    useWholeScreen: string;         // "Use the whole screen"
+    wholeScreen: string;            // "Use the whole screen"
     handHint: string;
     noUsableSlot: string;
     retryCalibration: string;       // "Retry calibration"
@@ -688,15 +695,23 @@ Simulated-input mode (Req 6.10, 22): START → "Try without camera" → CALIBRAT
 
 ### 14.2 Calibration config carries the demand
 
-`createCalibration(cfg)` takes `cfg = { activeWrists, mode, demand }`, where `demand = { slots, n, r, m }` is exactly what Placement needs for the end-of-painting check (Req 11.11): the playground's slots, `n = 3`, `r = TUNING.hitRadius`, `m = 0` (Req 26.4). `stepCalibration` runs that check — `placeTargets(demand, grids, transform-from-current-grids) === 'simultaneous'` — **only in a step in which a cell's validity changed** (a cell just reached `cellValidSamples`), not every frame, because the demand result can change only when the valid-cell set changes. That keeps painting cheap and the early-finish timing (Req 11.6, 11.7) deterministic. On completion the playground re-runs Placement with the final grids to pick `simultaneous` / `sequential` / `none` (Req 26.4).
+`createCalibration(cfg)` takes `cfg = { activeWrists, mode, demand, frameAspect, playAspect }`, where `demand = { slots, n, r, m }` is exactly what Placement needs for the end-of-painting check (Req 11.11): the playground's slots after the play-area filter below, `n = 3`, `r = TUNING.hitRadius`, `m = 0` (Req 26.4).
+
+**Play-area slot filter.** Placement checks only camera coverage, so a slot whose hit circle reaches past the edge of the current window could still count as usable. The app therefore keeps only slots whose circle of radius `r + m` lies inside the play area `[0, A] × [0, 1]`, with `A` the current play-area aspect. It applies this filter once per use: to the demand it passes to `createCalibration`, and again for every round (§14.3). Filtering the calibration demand the same way as the rounds means calibration cannot decide the demand is met when play would then find fewer usable slots. The filter lives in the app (`src/dev/roundController.ts`), not in the core, because the slots are app content. `stepCalibration` runs that check — `placeTargets(demand, grids, transform-from-current-grids) === 'simultaneous'` — **only in a step in which a cell's validity changed** (a cell just reached `cellValidSamples`), not every frame, because the demand result can change only when the valid-cell set changes. That keeps painting cheap and the early-finish timing (Req 11.6, 11.7) deterministic. On completion the playground re-runs Placement with the final grids to pick `simultaneous` / `sequential` / `none` (Req 26.4).
 
 ### 14.3 Round logic and slot rotation (Req 26.10)
 
-The playground keeps a rotation cursor over the usable slots. Each round takes `n = 3` targets, each with a fresh activation id, from the usable slots starting at the cursor and wrapping, then advances the cursor past the slots it used. So when at least `2·n` usable slots exist, consecutive rounds use different slots; when fewer exist, the rotation still spreads targets as widely as the usable set allows (Req 26.10). A `sequential` result shows target `i` alone in usable slot `i mod k` (Req 14.5). A completed target is shown with a changed shape as well as colour and plays its own tone, then stops being supplied to the Dwell Engine (Req 26.9, 24.8).
+The playground keeps a rotation cursor over the slot list. Every round, including the first after calibration, does the same three things:
 
-### 14.4 Content JSON and its schema (Req 26.3)
+1. Filter the slots to the current play area (§14.2), with the current play-area aspect.
+2. Rotate the filtered list so it starts at the cursor, wrapping.
+3. Call `placeTargets` with that list, `n = 3`, `r = TUNING.hitRadius`, `m = 0`, the final grids and the play Mapping.
 
-`src/dev/playground-content.json` holds the candidate slots (15, in order) and the target count (3), validated at load against `src/dev/playground-content.schema.json`, failing with a readable message that names the first bad field:
+So every round gets the one-pass overlap check of Req 14.4, and its `simultaneous` targets are pairwise disjoint (Req 14.10). Each target gets a fresh activation id. After the round the cursor moves past the slots it used, so when enough usable slots exist, consecutive rounds use different slots (Req 26.10). A `sequential` result shows target `i` alone in usable slot `i mod k` (Req 14.5). A `none` result leads to the no-usable-slot screen (Req 22.8). A completed target is shown with a changed shape as well as colour and plays its own tone, then stops being supplied to the Dwell Engine (Req 26.9, 24.8).
+
+### 14.4 Content JSON and its validator (Req 26.3)
+
+`src/dev/playground-content.json` holds the candidate slots (15, in order) and the target count (3). At load it is checked by a small hand-written typed validator in `src/dev/playgroundContent.ts`, which fails with a readable message that names the first bad field. There is no JSON Schema file and no validator dependency, so the format is defined in one place, the validator:
 
 ```jsonc
 {
@@ -708,16 +723,20 @@ The playground keeps a rotation cursor over the usable slots. Each round takes `
 }
 ```
 
-Schema: `targetCount` an integer ≥ 1; `slots` an array of 1..64 objects, each with numeric `x ≥ 0` and `y` in `0..1`; both required; no additional properties. Example error: `playground-content.json: slots[7].y = 1.4 is out of range [0, 1]`.
+Rules the validator checks: `targetCount` an integer ≥ 1; `slots` an array of 1..64 objects, each with numeric `x ≥ 0` and `y` in `0..1`; both required; no additional properties. Example error: `playground-content.json: slots[7].y = 1.4 is out of range [0, 1]`.
 
 ### 14.5 File layout for this spec
 
 ```
 apps/garden-of-echoes/src/
   dev/     playground.tsx (lazy chunk, ?playground=1), setupFlow.ts (pure state machine),
-           roundController.ts (rotation + activation ids), frameDriver.ts (the rAF loop of §3:
-           clocks, source, reducers), playground-content.json, playground-content.schema.json,
+           roundController.ts (play-area slot filter, rotation, placeTargets per round,
+           activation ids), frameDriver.ts (the rAF loop of §3: clocks, source, reducers),
+           playground-content.json, playgroundContent.ts (its hand-written validator),
            and the Debug Overlay wiring (Req 25)
+           The playground disposes the Camera Source on Exit, on switching to simulated input,
+           on unmount and on the `pagehide` event (Req 5.7). A tab switch only sets the hidden
+           flag (Req 16.3); the camera stays open and play resumes as Req 8.4 describes.
   audio/   tonePlayer.ts (Web Audio: AudioContext created from the Start handler; C5/E5/G5 sine
            ~400 ms; master gain = volume × 0.5; 100 ms ramps; Req 27)
   copy/    index.ts — the app's copy, including `marrow: MarrowCopy` and the playground's own
