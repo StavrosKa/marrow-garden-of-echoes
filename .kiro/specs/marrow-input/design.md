@@ -541,7 +541,7 @@ Every "FOR ALL" criterion in Requirements 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 
 - `genGrid` — a 32×24 comfort grid with random valid cells, **including grids with holes and several disjoint valid regions**; a paired `promote`/`demote` transformer that only adds samples or only removes a valid cell, holding gain and centre fixed (Req 14.8, 14.9).
 - `genDemand` — slots in `[0,A]×[0,1]`, `N ≥ 1`, `r` in 0.07..0.13, `m` in 0..0.05 (Req 14).
 - `genHeadFrames` — nose position and validity over time, with a variant that changes only the shoulder positions after calibration (Req 9.10), and head offsets reaching into and past the dead zone and clamp (Req 9.5).
-- `genClockFlags` — per-step `{ paused, hidden, hold }` booleans with `genDt` (Req 16.6).
+- `genClockFlags` — per-step `{ paused, hidden, holdActive }` booleans with `genDt` (Req 16.6).
 - `genHelpSession` — 1..8 rounds, `n` in 1..10, any interleaving of difficulties, step completions and "continue with help", random dwell/playback flags, motor-step-allowed true or false (Req 19).
 - `genSettingsString` — arbitrary strings plus structurally near-valid JSON with one corrupted field and wrong versions (Req 20.4).
 

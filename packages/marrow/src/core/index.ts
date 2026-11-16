@@ -14,3 +14,4 @@ export {
   type PoseLandmarks,
   type PoseFrame,
 } from './frame';
+export { presenceDelta, sessionDelta, stepClocks } from './clocks';

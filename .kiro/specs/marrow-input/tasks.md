@@ -29,7 +29,7 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 2.1, 2.2, 2.4, 2.5_
 
-- [ ] 3. Presence and session clocks
+- [x] 3. Presence and session clocks
   - Create `core/clocks.ts`: `presenceDelta(rawDtMs, { paused, hidden }, tuning)` treats a negative or non-finite delta as 0, clamps to `maxClockStepMs`, and returns 0 while paused or hidden; `sessionDelta(presenceDt, holdActive)` returns 0 during a hold and `presenceDt` otherwise; `stepClocks(rawDtMs, { paused, hidden, holdActive }, tuning)` composes the two (design §3).
   - Export all three from `marrow/core` (design §6).
   - Start `core/testgen.ts` with `genDt` (including 0, negative and non-finite values), `genDtClamped` (0..100) and `genClockFlags`.
