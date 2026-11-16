@@ -56,14 +56,17 @@ export interface Vec2 {
   readonly y: number;
 }
 
-/** The player's side, not MediaPipe's. MediaPipe "left" maps here to `left` (Req 2.3). */
+/** The player's side. MediaPipe "left" landmarks belong to the player's left side, so they map to `left` (Req 2.3). */
 export type WristId = 'left' | 'right';
 
 /** One landmark in camera space (0..1, origin top-left, not mirrored: Req 2.4). */
 export interface Landmark {
   /** Camera-space position; meaningful only when `valid` is true. */
   readonly pos: Vec2;
-  /** Computed by the source with `isLandmarkValid` (Req 2.2, 2.5, 2.6). */
+  /**
+   * Whether the landmark can be used. The camera source computes it with
+   * `isLandmarkValid`; the pointer and trace sources set it directly (Req 2.2, 2.5, 2.6).
+   */
   readonly valid: boolean;
 }
 

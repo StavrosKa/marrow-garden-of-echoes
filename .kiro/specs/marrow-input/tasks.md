@@ -21,7 +21,7 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 1.1, 1.2, 1.3, 1.5, 1.6, 1.7_
 
-- [ ] 2. Frame types, landmark validity and geometry
+- [x] 2. Frame types, landmark validity and geometry
   - Create `core/geometry.ts` (internal, not on the barrel): `Vec2` helpers `dist`, `clamp`, `add`, `sub`, `scale`, `lerp`.
   - Create `core/frame.ts` with the types of design §2.1 (`Vec2` defined once and shared with `geometry.ts`, `WristId`, `Landmark`, `PoseLandmarks`, `PoseFrame` with `t`, `aspect` and five camera-space landmarks that are not mirrored), `LANDMARK_INDEX`, and `isLandmarkValid(visibility, pos, tuning)`: valid if and only if visibility >= `minVisibility` and 0 <= x <= 1 and 0 <= y <= 1; NaN is invalid.
   - Export the frame types, `LANDMARK_INDEX` and `isLandmarkValid` from `marrow/core`.
