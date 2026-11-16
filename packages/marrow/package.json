@@ -10,6 +10,9 @@
     "./sim": "./src/sim/index.ts",
     "./react": "./src/react/index.ts"
   },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.2.3"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "simulate": "node -e \"console.error('simulate: not implemented yet, packages/marrow/src/sim is empty'); process.exit(1)\""
