@@ -48,7 +48,7 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7_
 
-- [ ] 5. Camera-to-screen mapping
+- [x] 5. Camera-to-screen mapping
   - Create `core/mapping.ts`: `MappingParams` (play aspect A, frame aspect a, gain g, centre c) and `makeMapping(params)` returning `toScreen` (mirror once, base scale k = max(A/a, 1), reach gain about c) and the exact closed-form inverse `toCamera` (design §9.1). This is the only conversion between camera space and screen space; the Pointer Source uses it too.
   - Export `makeMapping`, `MappingParams` and `Mapping` from `marrow/core`.
   - Add `genMappingParams` (A and a in 1.0..2.4, g in 1.0..1.6, c inside the play area), `genVec2Camera` (including out-of-frame points) and a screen-point generator to `testgen.ts`.

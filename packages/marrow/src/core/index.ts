@@ -22,3 +22,4 @@ export {
   type PointerFilterState,
   type PointerSample,
 } from './pointerFilter';
+export { makeMapping, type MappingParams, type Mapping } from './mapping';

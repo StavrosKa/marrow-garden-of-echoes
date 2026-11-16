@@ -4,6 +4,7 @@
 import fc from 'fast-check';
 import type { ClockFlags } from './clocks';
 import type { Landmark, Vec2 } from './frame';
+import type { MappingParams } from './mapping';
 import { TUNING } from './tuning';
 
 /**
@@ -114,4 +115,82 @@ export function genPointerPath(): fc.Arbitrary<PointerPathStep[]> {
       tail: fc.option(genValidRun(), { nil: undefined }),
     })
     .map(({ lead, body, tail }) => [...(lead ?? []), ...body.flat(2), ...(tail ?? [])]);
+}
+
+/**
+ * The range of the play aspect A and of the frame aspect a in the mapping properties
+ * (Req 10.3, 14.8). Test parameters, not tuning values (requirements Appendix B).
+ */
+export const ASPECT_MIN = 1.0;
+export const ASPECT_MAX = 2.4;
+
+/**
+ * How far outside its space a point from genVec2Camera or genVec2Screen can lie, on
+ * each axis. With 1, camera points lie in -1..2 on both axes, and screen points in
+ * -1..A + 1 on x and -1..2 on y. A test parameter, not a tuning value. It is finite,
+ * so no point holds NaN or an infinity.
+ */
+export const OUTSIDE_MARGIN = 1;
+
+/** Camera space is 0..1 on each axis, and screen space is 0..1 on y (glossary). Geometry, not a tuning value. */
+const UNIT_EXTENT = 1;
+
+/** A number in lo..hi, with lo and hi themselves drawn often. */
+function genClosed(lo: number, hi: number): fc.Arbitrary<number> {
+  return fc.oneof(fc.constantFrom(lo, hi), fc.double({ min: lo, max: hi, noNaN: true }));
+}
+
+/**
+ * A coordinate on an axis of a space that spans 0..extent: inside it, with both edges
+ * drawn often, or anywhere from OUTSIDE_MARGIN below it to OUTSIDE_MARGIN above it.
+ */
+function genAxis(extent: number): fc.Arbitrary<number> {
+  return fc.oneof(
+    genClosed(0, extent),
+    fc.double({ min: -OUTSIDE_MARGIN, max: extent + OUTSIDE_MARGIN, noNaN: true }),
+  );
+}
+
+/**
+ * Mapping parameters (Req 10.3, 14.8): A and a in ASPECT_MIN..ASPECT_MAX, the gain in
+ * reachGainMin..reachGainMax, and the centre inside the play area [0, A] x [0, 1].
+ * Every range includes its ends, and the ends are drawn often. In some samples a
+ * equals A exactly, so A > a, A < a and A = a all occur.
+ */
+export function genMappingParams(): fc.Arbitrary<MappingParams> {
+  const aspect = genClosed(ASPECT_MIN, ASPECT_MAX);
+  return fc
+    .record({
+      playAspect: aspect,
+      // undefined stands for a frame aspect equal to the play aspect.
+      frameAspect: fc.option(aspect, { nil: undefined }),
+      gain: genClosed(TUNING.reachGainMin, TUNING.reachGainMax),
+      // The centre as fractions of the play area's width and height. A fraction of
+      // exactly 1 gives exactly A, and no fraction gives more than A.
+      centre: fc.record({ x: genUnit(), y: genUnit() }),
+    })
+    .map(({ playAspect, frameAspect, gain, centre }) => ({
+      playAspect,
+      frameAspect: frameAspect ?? playAspect,
+      gain,
+      centre: { x: centre.x * playAspect, y: centre.y },
+    }));
+}
+
+/**
+ * A camera-space point (Req 10.3). Each coordinate lies in the frame, 0..1 with both
+ * edges, or outside it within OUTSIDE_MARGIN. So points occur inside the frame,
+ * outside it on one axis, and outside it on both. Never NaN or infinite.
+ */
+export function genVec2Camera(): fc.Arbitrary<Vec2> {
+  return fc.record({ x: genAxis(UNIT_EXTENT), y: genAxis(UNIT_EXTENT) });
+}
+
+/**
+ * A screen-space point for the play aspect A (Req 10.3). Each coordinate lies in the
+ * play area [0, A] x [0, 1], with every edge, or outside it within OUTSIDE_MARGIN.
+ * Never NaN or infinite.
+ */
+export function genVec2Screen(playAspect: number): fc.Arbitrary<Vec2> {
+  return fc.record({ x: genAxis(playAspect), y: genAxis(UNIT_EXTENT) });
 }
