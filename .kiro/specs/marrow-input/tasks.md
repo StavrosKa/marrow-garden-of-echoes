@@ -12,7 +12,7 @@ Rules for every task:
 
 The five decisions approved in chat on 2026-11-16 (core exports and the names `retryCalibration`, `chooseWholeScreen` and `skipHeadView`, the play-area slot filter, the hand-written content validator, the full rule comments, and `pagehide`) are written into design.md sections 1, 4, 6 and 14.
 
-- [ ] 1. Tuning module and validation
+- [x] 1. Tuning module and validation
   - Create `packages/marrow/src/core/tuning.ts` with the `Tuning` interface and the frozen `TUNING` object of design §4: every Appendix A value and every Appendix B engine value, but not the Appendix B app values. Freeze `motorRadii` on its own.
   - Comment each key `tune` (steering *(tune)* values and Appendix B values) or `rule: change only with the user's approval` (every other value, including `cameraWidth` and `cameraHeight`; design §4).
   - Implement `validateTuning(t): TuningError[]` with one declared range per key, integer checks for grid sizes and counts, the steering ranges of Req 1.5 (hit radius 0.07-0.13, reach gain 1.0-1.6), non-finite values reported as out of range, and the cross-field checks of design §4. `formatTuningErrors` names the key, the value and the allowed range.
