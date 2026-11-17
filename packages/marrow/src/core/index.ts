@@ -33,6 +33,13 @@ export {
 export { computeComfortTransform } from './reachGain';
 export { auraIntensity } from './aura';
 export {
+  createHeadView,
+  stepHeadView,
+  type HeadViewInput,
+  type HeadViewPointer,
+  type HeadViewState,
+} from './headView';
+export {
   createCalibration,
   stepCalibration,
   retryCalibration,

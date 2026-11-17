@@ -8,6 +8,15 @@ import {
   DEMAND_N_MAX,
   DEMAND_SLOTS_MAX,
   GAP_MAX_MS,
+  HEAD_EDGE_SHARE,
+  HEAD_RUN_MAX,
+  HEAD_NEUTRAL_MAX,
+  HEAD_NEUTRAL_MIN,
+  HEAD_REACH,
+  HEAD_SHOULDER_MAX,
+  HEAD_SHOULDER_MIN,
+  HEAD_WIDTH_MAX,
+  HEAD_WIDTH_MIN,
   MARGIN_MAX,
   NEAR_END_SHARE,
   OUTSIDE_MARGIN,
@@ -19,6 +28,7 @@ import {
   genDt,
   genDtClamped,
   genGrid,
+  genHeadFrames,
   genMappingParams,
   genPointerPath,
   genUnit,
@@ -56,6 +66,11 @@ function quarterSharesOf(values: readonly number[], lo: number, hi: number): num
   }
   return counts.map((count) => count / inRange.length);
 }
+
+/** How close to an edge the tight band of the genHeadFrames check lies, as a share of the edge width. A test parameter. */
+const HEAD_TIGHT_SHARE = 0.1;
+/** The least share of genHeadFrames offsets in each tight band: the generator gives about 1.5%, the spread alone 0.2%. A test parameter. */
+const HEAD_TIGHT_MIN_SHARE = 0.008;
 
 /** Whether cell (col, row) is valid at TUNING's threshold; false for a cell outside the grid. */
 const validAt = (grid: ComfortGrid, col: number, row: number): boolean => isCellValid(grid, col, row, TUNING);
@@ -463,6 +478,100 @@ describe('testgen', () => {
       return Math.min(...shares) >= MIN_QUARTER_SHARE ? [] : [`${name}: quarter shares ${shares.join(', ')}`];
     });
     expect(thin).toEqual([]);
+  });
+
+  it('genHeadFrames puts at least MIN_QUARTER_SHARE of each range in each quarter, and reaches the dead zone and the clamp from both sides, nose gaps that run the whole ease, and deltas of 0 and maxClockStepMs', () => {
+    const cases = fc.sample(genHeadFrames(), SAMPLE);
+    const steps = cases.flatMap((c) => c.steps);
+    const reach = TUNING.headClamp * HEAD_REACH;
+    const edge = TUNING.headDeadZone * HEAD_EDGE_SHARE;
+    const ranges: { name: string; values: number[]; lo: number; hi: number }[] = [
+      { name: 'd.x', values: steps.map((s) => s.d.x), lo: -reach, hi: reach },
+      { name: 'd.y', values: steps.map((s) => s.d.y), lo: -reach, hi: reach },
+      { name: 'dtMs', values: steps.map((s) => s.dtMs), lo: 0, hi: MAX },
+      { name: 'neutral nose x', values: cases.map((c) => c.neutral.nose.x), lo: HEAD_NEUTRAL_MIN, hi: HEAD_NEUTRAL_MAX },
+      { name: 'neutral nose y', values: cases.map((c) => c.neutral.nose.y), lo: HEAD_NEUTRAL_MIN, hi: HEAD_NEUTRAL_MAX },
+      { name: 'shoulder width', values: cases.map((c) => c.neutral.shoulderWidth), lo: HEAD_WIDTH_MIN, hi: HEAD_WIDTH_MAX },
+      { name: 'frame aspect', values: cases.map((c) => c.frameAspect), lo: ASPECT_MIN, hi: ASPECT_MAX },
+      {
+        name: 'shoulder x',
+        values: steps.flatMap((s) => [s.shoulders.left.pos.x, s.shoulders.right.pos.x, s.otherShoulders.left.pos.x, s.otherShoulders.right.pos.x]),
+        lo: HEAD_SHOULDER_MIN,
+        hi: HEAD_SHOULDER_MAX,
+      },
+      {
+        name: 'shoulder y',
+        values: steps.flatMap((s) => [s.shoulders.left.pos.y, s.shoulders.right.pos.y, s.otherShoulders.left.pos.y, s.otherShoulders.right.pos.y]),
+        lo: HEAD_SHOULDER_MIN,
+        hi: HEAD_SHOULDER_MAX,
+      },
+    ];
+    const thin = ranges.flatMap(({ name, values, lo, hi }) => {
+      const shares = quarterSharesOf(values, lo, hi);
+      const outside = values.filter((v) => !(v >= lo && v <= hi)).length;
+      return Math.min(...shares) >= MIN_QUARTER_SHARE && outside === 0 ? [] : [`${name}: quarter shares ${shares.join(', ')}, ${outside} outside`];
+    });
+    expect(thin).toEqual([]);
+
+    // Nose gaps: the longest run of invalid-nose steps, in presence time.
+    const longestGapMs = Math.max(
+      ...cases.map((c) => {
+        let run = 0;
+        let longest = 0;
+        for (const s of c.steps) {
+          run = s.noseValid ? 0 : run + s.dtMs;
+          longest = Math.max(longest, run);
+        }
+        return longest;
+      }),
+    );
+    const nearDz = (d: number): boolean => Math.abs(Math.abs(d) - TUNING.headDeadZone) <= edge;
+    const nearClamp = (d: number): boolean => Math.abs(Math.abs(d) - TUNING.headClamp) <= edge;
+    const ds = steps.flatMap((s) => [s.d.x, s.d.y]);
+    // The offsets that are not found by the spread over the whole range alone: within a tenth of
+    // the edge width of the dead zone or the clamp, a few per cent of them, where the spread over
+    // the range would give a fraction of one per cent.
+    const tight = edge * HEAD_TIGHT_SHARE;
+    const shareWithin = (target: number): number =>
+      ds.filter((d) => Math.abs(Math.abs(d) - target) <= tight).length / ds.length;
+    expect({
+      tightAtDeadZone: shareWithin(TUNING.headDeadZone) >= HEAD_TIGHT_MIN_SHARE,
+      tightAtClamp: shareWithin(TUNING.headClamp) >= HEAD_TIGHT_MIN_SHARE,
+      longSequences: steps.length / cases.length >= HEAD_RUN_MAX,
+    }).toEqual({ tightAtDeadZone: true, tightAtClamp: true, longSequences: true });
+    expect({
+      insideDeadZone: ds.some((d) => Math.abs(d) < TUNING.headDeadZone - edge),
+      justInsideDeadZone: ds.some((d) => nearDz(d) && Math.abs(d) <= TUNING.headDeadZone),
+      justOutsideDeadZone: ds.some((d) => nearDz(d) && Math.abs(d) > TUNING.headDeadZone),
+      justInsideClamp: ds.some((d) => nearClamp(d) && Math.abs(d) < TUNING.headClamp),
+      justOutsideClamp: ds.some((d) => nearClamp(d) && Math.abs(d) >= TUNING.headClamp),
+      beyondClamp: ds.some((d) => Math.abs(d) > TUNING.headClamp + edge),
+      bothSigns: ds.some((d) => d < 0) && ds.some((d) => d > 0),
+      noseValid: steps.some((s) => s.noseValid),
+      noseInvalid: steps.some((s) => !s.noseValid),
+      gapRunsWholeEase: longestGapMs >= TUNING.headEaseToCentreMs,
+      deltaZero: steps.some((s) => s.dtMs === 0),
+      deltaMax: steps.some((s) => s.dtMs === MAX),
+      shoulderValid: steps.some((s) => s.shoulders.left.valid && s.shoulders.right.valid),
+      shoulderInvalid: steps.some((s) => !s.shoulders.left.valid || !s.shoulders.right.valid),
+      shouldersDiffer: steps.some((s) => s.shoulders.left.pos.x !== s.otherShoulders.left.pos.x),
+    }).toEqual({
+      insideDeadZone: true,
+      justInsideDeadZone: true,
+      justOutsideDeadZone: true,
+      justInsideClamp: true,
+      justOutsideClamp: true,
+      beyondClamp: true,
+      bothSigns: true,
+      noseValid: true,
+      noseInvalid: true,
+      gapRunsWholeEase: true,
+      deltaZero: true,
+      deltaMax: true,
+      shoulderValid: true,
+      shoulderInvalid: true,
+      shouldersDiffer: true,
+    });
   });
 
   it('genDemand stays in range and reaches, for the slots, both edges, near both edges and at least MIN_QUARTER_SHARE in each quarter of each axis; r and m at both ends and between; n of 1 and DEMAND_N_MAX; 1 and DEMAND_SLOTS_MAX slots; and n above the slot count', () => {

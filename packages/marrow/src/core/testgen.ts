@@ -11,7 +11,8 @@ import {
   type CellIndex,
   type ComfortGrid,
 } from './comfortGrid';
-import type { Landmark, Vec2 } from './frame';
+import type { NeutralHead } from './calibration';
+import type { Landmark, PoseLandmarks, Vec2 } from './frame';
 import { clamp } from './geometry';
 import type { MappingParams } from './mapping';
 import type { Demand } from './placement';
@@ -376,6 +377,155 @@ export function demote(grid: ComfortGrid): fc.Arbitrary<ComfortGrid> {
       const at = cell.row * grid.cols + cell.col;
       return { ...grid, counts: grid.counts.map((count, i) => (i === at ? samples : count)) };
     });
+}
+
+/** The range of the neutral nose's x and y in genHeadFrames, in camera space. A test parameter. */
+export const HEAD_NEUTRAL_MIN = 0.3;
+export const HEAD_NEUTRAL_MAX = 0.7;
+/** The range of the neutral shoulder width in genHeadFrames, in aspect-corrected units. A test parameter. */
+export const HEAD_WIDTH_MIN = 0.1;
+export const HEAD_WIDTH_MAX = 0.25;
+/** The range of a shoulder's x and y in genHeadFrames, in camera space. A test parameter. */
+export const HEAD_SHOULDER_MIN = 0.1;
+export const HEAD_SHOULDER_MAX = 0.9;
+/** How far past headClamp the offsets of genHeadFrames reach, as a multiple of headClamp. A test parameter. */
+export const HEAD_REACH = 1.5;
+/** How near headDeadZone and headClamp the offsets near them lie, as a share of headDeadZone. A test parameter. */
+export const HEAD_EDGE_SHARE = 0.5;
+/** The most steps in one run of genHeadFrames with the nose valid or with it invalid. A test parameter. */
+export const HEAD_RUN_MAX = 12;
+/** The most runs in a genHeadFrames sequence. A test parameter. */
+export const HEAD_RUNS_MAX = 6;
+
+/** One step of a genHeadFrames sequence: the head's offset, whether the nose is valid, the delta, and two sets of shoulders. */
+export interface HeadFrameStep {
+  /** The normalised offset d of the nose from the neutral nose (Req 9.2), per axis. */
+  readonly d: Vec2;
+  readonly noseValid: boolean;
+  /** The presence delta of the step, 0..maxClockStepMs. */
+  readonly dtMs: number;
+  /** The shoulders of the frame as calibrated. */
+  readonly shoulders: { readonly left: Landmark; readonly right: Landmark };
+  /** Other shoulders: the variant in which only the shoulders change after calibration (Req 9.10). */
+  readonly otherShoulders: { readonly left: Landmark; readonly right: Landmark };
+}
+
+/** A sequence of head frames after calibration (Req 9, 18.12). */
+export interface HeadFramesCase {
+  /** The neutral head data that calibration recorded. */
+  readonly neutral: NeutralHead;
+  /** The frame aspect a. */
+  readonly frameAspect: number;
+  readonly steps: readonly HeadFrameStep[];
+}
+
+/** A signed offset near an edge: |d| within HEAD_EDGE_SHARE * headDeadZone of it, either sign. */
+function genNearEdge(edge: number): fc.Arbitrary<number> {
+  const width = TUNING.headDeadZone * HEAD_EDGE_SHARE;
+  return fc
+    .tuple(fc.boolean(), genSpread(Math.max(0, edge - width), edge + width))
+    .map(([negative, magnitude]) => (negative ? -magnitude : magnitude));
+}
+
+/** One axis of the head's offset: spread over the whole range, or around the dead zone's edge, or around the clamp. */
+function genHeadOffset(): fc.Arbitrary<number> {
+  const reach = TUNING.headClamp * HEAD_REACH;
+  return fc.oneof(genSpread(-reach, reach), genNearEdge(TUNING.headDeadZone), genNearEdge(TUNING.headClamp));
+}
+
+/** A shoulder: its position anywhere in the middle of the frame, valid or not. */
+function genShoulder(): fc.Arbitrary<Landmark> {
+  return fc.record(
+    {
+      pos: fc.record(
+        { x: genSpread(HEAD_SHOULDER_MIN, HEAD_SHOULDER_MAX), y: genSpread(HEAD_SHOULDER_MIN, HEAD_SHOULDER_MAX) },
+        { noNullPrototype: true },
+      ),
+      valid: fc.boolean(),
+    },
+    { noNullPrototype: true },
+  );
+}
+
+function genShoulders(): fc.Arbitrary<{ left: Landmark; right: Landmark }> {
+  return fc.record({ left: genShoulder(), right: genShoulder() }, { noNullPrototype: true });
+}
+
+/**
+ * Head frames after calibration (design section 10.1, Req 9.5, 9.9, 9.10, 18.12): a neutral
+ * nose and shoulder width, a frame aspect, and 1 to HEAD_RUNS_MAX runs of 1 to HEAD_RUN_MAX steps with the nose
+ * valid or invalid, so there are nose gaps, some long enough to run the whole ease to
+ * centre. Each step has the offset d of the nose on each axis, drawn across -1.5 to 1.5
+ * headClamp and, one time in three each, around the dead zone's edge and around the clamp;
+ * a delta from 0 to maxClockStepMs with both ends; and two sets of shoulders, the frame's and
+ * a variant that differs in the shoulders only. All numbers come from genSpread.
+ */
+export function genHeadFrames(): fc.Arbitrary<HeadFramesCase> {
+  const step = fc.record(
+    {
+      d: fc.record({ x: genHeadOffset(), y: genHeadOffset() }, { noNullPrototype: true }),
+      dtMs: genSpread(0, TUNING.maxClockStepMs),
+      shoulders: genShoulders(),
+      otherShoulders: genShoulders(),
+    },
+    { noNullPrototype: true },
+  );
+  const run = fc.record(
+    {
+      noseValid: fc.boolean(),
+      steps: fc.array(step, { minLength: 1, maxLength: HEAD_RUN_MAX, size: 'max' }),
+    },
+    { noNullPrototype: true },
+  );
+  return fc
+    .record(
+      {
+        neutral: fc.record(
+          {
+            nose: fc.record(
+              { x: genSpread(HEAD_NEUTRAL_MIN, HEAD_NEUTRAL_MAX), y: genSpread(HEAD_NEUTRAL_MIN, HEAD_NEUTRAL_MAX) },
+              { noNullPrototype: true },
+            ),
+            shoulderWidth: genSpread(HEAD_WIDTH_MIN, HEAD_WIDTH_MAX),
+          },
+          { noNullPrototype: true },
+        ),
+        frameAspect: genSpread(ASPECT_MIN, ASPECT_MAX),
+        runs: fc.array(run, { minLength: 1, maxLength: HEAD_RUNS_MAX, size: 'max' }),
+      },
+      { noNullPrototype: true },
+    )
+    .map(({ neutral, frameAspect, runs }) => ({
+      neutral,
+      frameAspect,
+      steps: runs.flatMap((r) => r.steps.map((s) => ({ ...s, noseValid: r.noseValid }))),
+    }));
+}
+
+/**
+ * The landmarks of one step of a HeadFramesCase: the nose at the offset d from the neutral
+ * nose (invalid when the step says so), the step's shoulders or, with `other`, the variant
+ * shoulders, and wrists at fixed valid positions. The camera-space nose is the inverse of
+ * the head's offset: d.x = ((1 - x) - (1 - nx)) * a / w, so x = nx - d.x * w / a, and
+ * d.y = (y - ny) / w, so y = ny + d.y * w.
+ */
+export function headCaseLandmarks(frames: HeadFramesCase, step: HeadFrameStep, other: boolean): PoseLandmarks {
+  const { neutral, frameAspect } = frames;
+  const shoulders = other ? step.otherShoulders : step.shoulders;
+  const WRIST_AT: Vec2 = { x: 0.5, y: 0.5 };
+  return {
+    nose: {
+      pos: {
+        x: neutral.nose.x - (step.d.x * neutral.shoulderWidth) / frameAspect,
+        y: neutral.nose.y + step.d.y * neutral.shoulderWidth,
+      },
+      valid: step.noseValid,
+    },
+    leftShoulder: shoulders.left,
+    rightShoulder: shoulders.right,
+    leftWrist: { pos: WRIST_AT, valid: true },
+    rightWrist: { pos: WRIST_AT, valid: true },
+  };
 }
 
 /** The largest parallax margin m genDemand draws: the 0..0.05 of design section 10.1. A test parameter. */

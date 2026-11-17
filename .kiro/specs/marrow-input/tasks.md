@@ -119,7 +119,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.10_
 
-- [ ] 10. Head view signal
+- [x] 10. Head view signal
   - Create `core/headView.ts`: `createHeadView()` and `stepHeadView(state, input, dtMs) -> { state, offset }`. The input carries the frame's landmarks (shoulders included but never read), the neutral head data or none, the skip flag, the mode, and in simulated-input mode the pointer's screen position and the play aspect.
   - Camera mode: per axis d = (nose - neutral nose) / shoulder width in aspect-corrected units, x mirrored once (design §13 question 4) and y growing downwards; raw with the dead zone `headDeadZone` and the clamp `headClamp`; exponential smoothing with `headSmoothingTauMs`. When the nose is invalid, a linear ramp from the output at the moment of loss reaches exactly 0 after `headEaseToCentreMs` (design §9.6); when it returns, smoothing continues from the current output. Skip, or no neutral data, gives (0, 0).
   - Simulated-input mode: x = `simulatedHeadStrength` * (s.x - A/2) / (A/2) and y = 0, with no dead zone and no smoothing; an invalid pointer uses the same ramp to 0.
