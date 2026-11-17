@@ -1,18 +1,22 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { createGrid, isCellValid, markAllValid, validCells, type ComfortGrid } from './comfortGrid';
 import type { Vec2 } from './frame';
 import {
   ASPECT_MAX,
   ASPECT_MIN,
   GAP_MAX_MS,
   OUTSIDE_MARGIN,
+  demote,
   genClockFlags,
   genDt,
   genDtClamped,
+  genGrid,
   genMappingParams,
   genPointerPath,
   genVec2Camera,
   genVec2Screen,
+  promote,
   type PointerPathStep,
 } from './testgen';
 import { TUNING } from './tuning';
@@ -22,6 +26,57 @@ import { TUNING } from './tuning';
 // these tests, the same on every run.
 const SAMPLE = { numRuns: 1000, seed: 42 };
 const MAX = TUNING.maxClockStepMs;
+
+/** Whether cell (col, row) is valid at TUNING's threshold; false for a cell outside the grid. */
+const validAt = (grid: ComfortGrid, col: number, row: number): boolean => isCellValid(grid, col, row, TUNING);
+
+/**
+ * The number of separate valid regions: groups of valid cells joined along a side or at
+ * a corner. Two regions counted apart do not touch, not even at a corner.
+ */
+function regionCount(grid: ComfortGrid): number {
+  const seen = new Set<number>();
+  let regions = 0;
+  for (let row = 0; row < grid.rows; row++) {
+    for (let col = 0; col < grid.cols; col++) {
+      if (!validAt(grid, col, row) || seen.has(row * grid.cols + col)) continue;
+      regions += 1;
+      seen.add(row * grid.cols + col);
+      const stack = [{ col, row }];
+      for (let cell = stack.pop(); cell !== undefined; cell = stack.pop()) {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const c = cell.col + dc;
+            const r = cell.row + dr;
+            if (validAt(grid, c, r) && !seen.has(r * grid.cols + c)) {
+              seen.add(r * grid.cols + c);
+              stack.push({ col: c, row: r });
+            }
+          }
+        }
+      }
+    }
+  }
+  return regions;
+}
+
+/** Whether some cell that is not valid has a valid cell on each of its four sides: a hole in a region. */
+function hasHole(grid: ComfortGrid): boolean {
+  for (let row = 0; row < grid.rows; row++) {
+    for (let col = 0; col < grid.cols; col++) {
+      if (
+        !validAt(grid, col, row) &&
+        validAt(grid, col - 1, row) &&
+        validAt(grid, col + 1, row) &&
+        validAt(grid, col, row - 1) &&
+        validAt(grid, col, row + 1)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 describe('testgen', () => {
   it('genDt reaches 0, negative, non-finite, in-range and above-range deltas', () => {
@@ -221,5 +276,122 @@ describe('testgen', () => {
       top: samples.some(({ s }) => s.y === 0),
       bottom: samples.some(({ s }) => s.y === 1),
     }).toEqual({ inside: true, outside: true, left: true, right: true, top: true, bottom: true });
+  });
+
+  it('genGrid has the size of TUNING and reaches no valid cell, one, several separate regions, holes, short cells and valid cells on every edge', () => {
+    const grids = fc.sample(genGrid(), SAMPLE);
+    const { gridCols: cols, gridRows: rows, cellValidSamples: needed } = TUNING;
+    const valid = grids.map((grid) => validCells(grid, TUNING));
+
+    expect(
+      grids.filter(
+        (grid) =>
+          !(
+            grid.cols === cols &&
+            grid.rows === rows &&
+            grid.counts.length === cols * rows &&
+            !grid.allValid &&
+            grid.counts.every((count) => Number.isInteger(count) && count >= 0)
+          ),
+      ),
+    ).toEqual([]);
+    expect({
+      noValidCell: valid.some((cells) => cells.length === 0),
+      oneValidCell: valid.some((cells) => cells.length === 1),
+      severalRegions: grids.some((grid) => regionCount(grid) >= 2),
+      hole: grids.some(hasHole),
+      shortCell: grids.some((grid) => grid.counts.some((count) => count > 0 && count < needed)),
+      exactlyNeeded: grids.some((grid) => grid.counts.includes(needed)),
+      aboveNeeded: grids.some((grid) => grid.counts.some((count) => count > needed)),
+      firstColumn: valid.some((cells) => cells.some((cell) => cell.col === 0)),
+      lastColumn: valid.some((cells) => cells.some((cell) => cell.col === cols - 1)),
+      firstRow: valid.some((cells) => cells.some((cell) => cell.row === 0)),
+      lastRow: valid.some((cells) => cells.some((cell) => cell.row === rows - 1)),
+    }).toEqual({
+      noValidCell: true,
+      oneValidCell: true,
+      severalRegions: true,
+      hole: true,
+      shortCell: true,
+      exactlyNeeded: true,
+      aboveNeeded: true,
+      firstColumn: true,
+      lastColumn: true,
+      firstRow: true,
+      lastRow: true,
+    });
+  });
+
+  it('promote only adds samples, at least one, and reaches promotions that make a cell valid and ones that leave every cell as valid as it was', () => {
+    const pairs = fc.sample(genGrid().chain((grid) => fc.tuple(fc.constant(grid), promote(grid))), SAMPLE);
+    const total = (grid: ComfortGrid): number => grid.counts.reduce((sum, count) => sum + count, 0);
+    const validCount = (grid: ComfortGrid): number => validCells(grid, TUNING).length;
+
+    expect(
+      pairs.filter(
+        ([before, after]) =>
+          !(
+            after.cols === before.cols &&
+            after.rows === before.rows &&
+            after.allValid === before.allValid &&
+            after.counts.length === before.counts.length &&
+            after.counts.every((count, i) => count >= (before.counts[i] ?? Infinity)) &&
+            total(after) > total(before)
+          ),
+      ),
+    ).toEqual([]);
+    expect({
+      newValidCell: pairs.some(([before, after]) => validCount(after) > validCount(before)),
+      sameValidCells: pairs.some(([before, after]) => validCount(after) === validCount(before)),
+    }).toEqual({ newValidCell: true, sameValidCells: true });
+  });
+
+  it('demote leaves exactly one valid cell short of valid and every other count as it was, and returns a grid with no valid cell as it is', () => {
+    const needed = TUNING.cellValidSamples;
+    const pairs = fc.sample(genGrid().chain((grid) => fc.tuple(fc.constant(grid), demote(grid))), SAMPLE);
+    const results = pairs.map(([before, after]) => {
+      const changed = before.counts.flatMap((count, i) => (after.counts[i] === count ? [] : [i]));
+      const at = changed[0];
+      return {
+        hadValid: validCells(before, TUNING).length > 0,
+        same: after === before,
+        sizeAndMark:
+          after.cols === before.cols &&
+          after.rows === before.rows &&
+          after.allValid === before.allValid &&
+          after.counts.length === before.counts.length,
+        changed: changed.length,
+        was: at === undefined ? undefined : before.counts[at],
+        now: at === undefined ? undefined : after.counts[at],
+        lostValid: validCells(before, TUNING).length - validCells(after, TUNING).length,
+      };
+    });
+
+    expect(results.filter((r) => !r.hadValid && !r.same)).toEqual([]);
+    expect(
+      results.filter(
+        (r) =>
+          r.hadValid &&
+          !(
+            r.sizeAndMark &&
+            r.changed === 1 &&
+            r.was !== undefined &&
+            r.was >= needed &&
+            r.now !== undefined &&
+            r.now >= 0 &&
+            r.now < needed &&
+            r.lostValid === 1
+          ),
+      ),
+    ).toEqual([]);
+    expect({
+      noValidCell: results.some((r) => !r.hadValid),
+      toZero: results.some((r) => r.hadValid && r.now === 0),
+      toShort: results.some((r) => r.hadValid && r.now !== undefined && r.now > 0),
+    }).toEqual({ noValidCell: true, toZero: true, toShort: true });
+  });
+
+  it('demote refuses a grid marked all-valid, on which no cell can stop being valid', () => {
+    expect(() => demote(markAllValid(createGrid(TUNING)))).toThrow('all-valid');
   });
 });

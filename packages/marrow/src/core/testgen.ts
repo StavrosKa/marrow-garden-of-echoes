@@ -3,6 +3,14 @@
 // ranges are test parameters, not tuning values (requirements Appendix B).
 import fc from 'fast-check';
 import type { ClockFlags } from './clocks';
+import {
+  addSample,
+  cellRectCamera,
+  createGrid,
+  validCells,
+  type CellIndex,
+  type ComfortGrid,
+} from './comfortGrid';
 import type { Landmark, Vec2 } from './frame';
 import type { MappingParams } from './mapping';
 import { TUNING } from './tuning';
@@ -193,4 +201,125 @@ export function genVec2Camera(): fc.Arbitrary<Vec2> {
  */
 export function genVec2Screen(playAspect: number): fc.Arbitrary<Vec2> {
   return fc.record({ x: genAxis(playAspect), y: genAxis(UNIT_EXTENT) });
+}
+
+/** A cell of a grid of TUNING's size: column 0..gridCols - 1 and row 0..gridRows - 1. */
+function genCell(): fc.Arbitrary<CellIndex> {
+  return fc.record({
+    col: fc.integer({ min: 0, max: TUNING.gridCols - 1 }),
+    row: fc.integer({ min: 0, max: TUNING.gridRows - 1 }),
+  });
+}
+
+/**
+ * The most cells a small block of genGrid reaches over on each axis. About half the
+ * blocks are no larger, so that several blocks often lie apart. A test parameter.
+ */
+const SMALL_BLOCK = 4;
+
+/** A block's length on an axis of n cells: 1..n, and at most SMALL_BLOCK in about half the samples. */
+function genLength(n: number): fc.Arbitrary<number> {
+  return fc.oneof(
+    fc.integer({ min: 1, max: Math.min(SMALL_BLOCK, n) }),
+    fc.integer({ min: 1, max: n }),
+  );
+}
+
+/** One block of genGrid: a rectangle of cells from its first cell, and the samples each of its cells holds. */
+interface Block {
+  readonly first: CellIndex;
+  readonly width: number;
+  readonly height: number;
+  readonly samples: number;
+}
+
+/**
+ * A comfort grid of TUNING's size, gridCols x gridRows (Req 11.1, design section 10.1),
+ * never marked all-valid. Up to 5 blocks of cells, each holding cellValidSamples to
+ * twice cellValidSamples samples, are cut off at the grid's edges; blocks may overlap
+ * and merge. Then up to 30 single cells get 0 to cellValidSamples - 1 samples, which
+ * punches holes in the blocks and leaves cells short of valid between them. So the
+ * samples include grids with no valid cell, with one, with several separate valid
+ * regions, with holes, and with valid cells on every edge of the frame.
+ */
+export function genGrid(): fc.Arbitrary<ComfortGrid> {
+  const needed = TUNING.cellValidSamples;
+  const block: fc.Arbitrary<Block> = fc.record({
+    first: genCell(),
+    width: genLength(TUNING.gridCols),
+    height: genLength(TUNING.gridRows),
+    samples: fc.integer({ min: needed, max: 2 * needed }),
+  });
+  const shortCell = fc.record({ cell: genCell(), samples: fc.integer({ min: 0, max: needed - 1 }) });
+  return fc
+    .record({
+      blocks: fc.array(block, { maxLength: 5 }),
+      shortCells: fc.array(shortCell, { maxLength: 30 }),
+    })
+    .map(({ blocks, shortCells }) => {
+      const empty = createGrid(TUNING);
+      const { cols, rows } = empty;
+      const counts = [...empty.counts];
+      for (const { first, width, height, samples } of blocks) {
+        for (let row = first.row; row < Math.min(first.row + height, rows); row++) {
+          for (let col = first.col; col < Math.min(first.col + width, cols); col++) {
+            counts[row * cols + col] = samples;
+          }
+        }
+      }
+      for (const { cell, samples } of shortCells) counts[cell.row * cols + cell.col] = samples;
+      return { ...empty, counts };
+    });
+}
+
+/** The camera-space centre of a cell of a grid of TUNING's size, halfway between its edges. */
+function cellCentre({ col, row }: CellIndex): Vec2 {
+  const { x0, y0, x1, y1 } = cellRectCamera(col, row, TUNING);
+  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+}
+
+/**
+ * The transformer that only adds samples (Req 14.9, design section 10.1). For a grid of
+ * TUNING's size: the grid after 1 to cellValidSamples more samples in each of 1 to 10
+ * cells, added with addSample at the cells' centres. No count goes down and the
+ * all-valid mark stays as it is, so a valid cell stays valid; a cell turns valid once
+ * it holds cellValidSamples.
+ */
+export function promote(grid: ComfortGrid): fc.Arbitrary<ComfortGrid> {
+  const addition = fc.record({
+    cell: genCell(),
+    samples: fc.integer({ min: 1, max: TUNING.cellValidSamples }),
+  });
+  return fc.array(addition, { minLength: 1, maxLength: 10 }).map((additions) => {
+    let result = grid;
+    for (const { cell, samples } of additions) {
+      const pos = cellCentre(cell);
+      for (let i = 0; i < samples; i++) result = addSample(result, pos);
+    }
+    return result;
+  });
+}
+
+/**
+ * The transformer that only removes one valid cell (Req 14.9, design section 10.1). For
+ * a grid of TUNING's size: the grid with one of its valid cells left with 0 to
+ * cellValidSamples - 1 samples, and every other count as it was. A grid with no valid
+ * cell has none to remove and comes back as it is. On a grid marked all-valid every cell
+ * stays valid whatever its count, so demote refuses one.
+ */
+export function demote(grid: ComfortGrid): fc.Arbitrary<ComfortGrid> {
+  if (grid.allValid) {
+    throw new Error('demote: on a grid marked all-valid no cell can stop being valid');
+  }
+  const cells = validCells(grid, TUNING);
+  if (cells.length === 0) return fc.constant(grid);
+  return fc
+    .record({
+      cell: fc.constantFrom(...cells),
+      samples: fc.integer({ min: 0, max: TUNING.cellValidSamples - 1 }),
+    })
+    .map(({ cell, samples }) => {
+      const at = cell.row * grid.cols + cell.col;
+      return { ...grid, counts: grid.counts.map((count, i) => (i === at ? samples : count)) };
+    });
 }

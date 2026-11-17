@@ -30,3 +30,4 @@ export {
   markAllValid,
   type ComfortGrid,
 } from './comfortGrid';
+export { computeComfortTransform } from './reachGain';
