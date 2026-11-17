@@ -1,12 +1,30 @@
 # Design Document
 
-## Introduction
+## Overview
 
 This design turns `requirements.md` into a buildable shape for the input and interaction core in `packages/marrow` (`src/core`, `src/input`, `src/react`) and the neutral playground in `apps/garden-of-echoes/src/dev`.
 
 It keeps every rule from the steering files: logic is pure and headless (`tech.md` rule 1), no wall-clock time in logic (rule 2), one input contract (rule 3), rendering decoupled from inference (rule 5), inference on the main thread behind `PoseSource` (rule 6), one typed tuning module validated at startup (rule 7), and the dependency zones in `structure.md`. Requirement numbers below refer to `requirements.md`; invariant numbers refer to `interaction-invariants.md` section 10.
 
+---
+
+## Architecture
+
 Scope note: the requirement set labels Requirements 8–19 "logic". Every one of them is realised here as a pure function or a `step` reducer in `packages/marrow/src/core`, importing nothing from React, PixiJS, the DOM or MediaPipe. The input sources (Requirements 3–7) and the React UI (Requirements 21–24) wrap that core; they hold the IO and the pixels.
+
+Section 1 lists the core modules, section 3 the data flow through them, section 6 what each entry point exports, and section 11 why inference runs on the main thread.
+
+---
+
+## Components and Interfaces
+
+The components are the core modules of section 1; the three input sources behind the `PoseSource` contract of section 2.2; the shared setup UI in `marrow/react`, which takes its strings from `MarrowCopy` (section 7) and its colours from the `--marrow-*` properties (section 8); and the playground that wires them together (section 14). Section 6 lists the public surface of each entry point.
+
+---
+
+## Data Models
+
+The frame types every source emits (`PoseFrame`, `PoseLandmarks`, `Landmark`, `WristId`, `Vec2`) are in section 2.1, the tuning object and its validation errors in section 4, the stored settings and their versioned JSON in section 5, and the playground content file in section 14.4. The types of each core module, such as `ComfortGrid`, `MappingParams`, `Demand`, `PlacementResult` and the reducer states and events, are named in the module table of section 1, and the cell rectangles are defined in section 9.2.
 
 ---
 
@@ -528,6 +546,118 @@ All-invalid landmarks make the pointer invalid (freezing dwell by the Invalid ru
 
 ---
 
+## Error Handling
+
+Each failure this spec handles, with its response and where the rule is:
+
+- **Invalid tuning.** `validateTuning` reports every key out of range with its value and allowed range, and the playground shows that message instead of running (Req 1.3, 1.4; section 4).
+- **Camera start.** `start()` resolves with exactly one outcome: `ready`, `denied`, `no-camera` or `model-failed` (Req 5.2–5.5; section 2.2). Each outcome other than `ready` has its own calm message with Retry and "Try without camera" (Req 22.3; section 14.1), and a model that fails to load stops every camera track it opened (Req 5.5).
+- **Camera lost while running.** A track that ends makes every landmark invalid until the source is restarted (Req 5.8). A model that stalls while the track is open makes the stale-frame guard publish a new all-invalid frame once per stall (Req 4.8; section 9.7). During play both reach the tracking lifecycle as lost tracking, whose overlay offers Recover, "Try without camera" and Exit; a Recover that does not report `ready` shows that outcome's screen (Req 18.3, 18.4, 23.7–23.9).
+- **No usable slot.** Placement returns `none`, and the no-usable-slot screen offers "Retry calibration" with "Try without camera" in camera mode, or with "Use the whole screen" in simulated-input mode (Req 14.6, 22.8; section 14.1). No code enlarges a comfort grid to make a placement succeed (Req 14.7).
+- **Stored settings.** Data that is not valid JSON or has an unknown version gives every default, one invalid field gives only that field's default, and reading never throws (Req 20.3, 20.4; section 5). If localStorage is unavailable or a write fails, the settings stay in memory with no message (Req 20.5).
+- **Malformed input files.** A malformed trace is rejected with a message naming its first bad frame (Req 7.5; section 2.2), and a malformed playground content file with a message naming its first bad field (Req 26.3; section 14.4).
+
+---
+
+## Correctness Properties
+
+Each property below is one named fast-check test (Req 28.8). Its statement is the "FOR ALL" criterion it validates, and section 10.2 lists the generators it uses. The list follows the table of section 10.2, in the same order, and must be kept in that order.
+
+Property 1: `filter_gap_independence`
+**Validates: Requirements 8.5**
+
+Property 2: `filter_finite_outputs`
+**Validates: Requirements 8.6**
+
+Property 3: `headview_deadzone_clamp_lipschitz`
+**Validates: Requirements 9.5**
+
+Property 4: `headview_output_bounded`
+**Validates: Requirements 9.9**
+
+Property 5: `headview_ignores_shoulders`
+**Validates: Requirements 9.10**
+
+Property 6: `mapping_mirrors_once`
+**Validates: Requirements 10.2**
+
+Property 7: `mapping_roundtrip`
+**Validates: Requirements 10.3**
+
+Property 8: `mapping_gain_about_centre`
+**Validates: Requirements 10.1**
+
+Property 9: `calibration_cell_needs_own_samples`
+**Validates: Requirements 11.4**
+
+Property 10: `reachgain_in_range_and_cells_stable`
+**Validates: Requirements 13.6**
+
+Property 11: `placement_covers_every_point`
+**Validates: Requirements 14.8**
+
+Property 12: `placement_monotone_in_cells`
+**Validates: Requirements 14.9**
+
+Property 13: `placement_simultaneous_disjoint`
+**Validates: Requirements 14.10**
+
+Property 14: `aura_positive_only_in_valid_cells`
+**Validates: Requirements 15.2**
+
+Property 15: `clocks_delta_bounds`
+**Validates: Requirements 16.6**
+
+Property 16: `dwell_progress_only_owner_inside`
+**Validates: Requirements 17.16**
+
+Property 17: `dwell_select_sums_inside_time`
+**Validates: Requirements 17.17**
+
+Property 18: `dwell_select_requires_valid_inside`
+**Validates: Requirements 17.18**
+
+Property 19: `dwell_owner_isolated_from_other_pointer`
+**Validates: Requirements 17.19**
+
+Property 20: `dwell_reentry_between_selections`
+**Validates: Requirements 17.20**
+
+Property 21: `dwell_release_timers_exact`
+**Validates: Requirements 17.21**
+
+Property 22: `dwell_bounded_stints_never_release`
+**Validates: Requirements 17.22**
+
+Property 23: `tracking_head_only_loss_harmless`
+**Validates: Requirements 18.12**
+
+Property 24: `tracking_hold_timing_and_session_clock`
+**Validates: Requirements 18.13**
+
+Property 25: `tracking_resume_needs_full_second`
+**Validates: Requirements 18.14**
+
+Property 26: `help_at_most_one_axis_per_event`
+**Validates: Requirements 19.11**
+
+Property 27: `help_completes_in_bounded_steps`
+**Validates: Requirements 19.12**
+
+Property 28: `help_at_most_four_changes`
+**Validates: Requirements 19.13**
+
+Property 29: `settings_parse_never_throws`
+**Validates: Requirements 20.4**
+
+---
+
+## Testing Strategy
+
+Every "FOR ALL" criterion becomes one named fast-check test (Req 28.8), listed under Correctness Properties above, and component tests (Req 28.9) and Playwright paths in simulated-input mode (Req 28.10) cover the UI. Section 10 gives the generators (10.1), the property tests by name (10.2), how the placement properties check coverage (10.3), and the component and end-to-end tests (10.4).
+
+---
+
 ## 10. Testing strategy
 
 Every "FOR ALL" criterion in Requirements 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19 and 20 becomes one named fast-check test (Req 28.8). These are required, not optional: they are how invariants 1, 2, 5 and 6 are proven (Appendix C). A failing seed is kept as a regression test and recorded in `docs/bugs-found.md` (Req 28.8; `tech.md` testing rules). Component tests (Req 28.9) and Playwright paths (Req 28.10) are listed after the property tests.
@@ -558,6 +688,7 @@ Every "FOR ALL" criterion in Requirements 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 
 | `headview_ignores_shoulders` | 9.10 | `genHeadFrames` shoulder-only variant |
 | `mapping_mirrors_once` | 10.2 | `genMappingParams`, two camera points same `y` |
 | `mapping_roundtrip` | 10.3 | `genMappingParams`, `genVec2Camera`, screen points |
+| `mapping_gain_about_centre` | 10.1 | `genMappingParams`, `genVec2Camera` |
 | `calibration_cell_needs_own_samples` | 11.4 | `genPointerPath` into a grid |
 | `reachgain_in_range_and_cells_stable` | 13.6 | `genGrid` |
 | `placement_covers_every_point` | 14.8 | `genGrid` (holes, disjoint), `genMappingParams`, `genDemand` |
