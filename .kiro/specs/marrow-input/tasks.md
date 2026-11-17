@@ -58,7 +58,7 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
   - _Requirements: 10.1, 10.2, 10.3_
 
 - [ ] 6. Comfort grid and reach gain
-  - [ ] 6.1 Comfort grid
+  - [x] 6.1 Comfort grid
     - Create `core/comfortGrid.ts`: `createGrid(tuning)` (`gridCols` x `gridRows` sample counts), `addSample(grid, camPos)` into column min(floor(x * cols), cols - 1) and row min(floor(y * rows), rows - 1), `isCellValid` (at least `cellValidSamples`), `markAllValid`, and the internal `cellRectCamera` (half-open rectangles, design §9.2) and `validCells`. Grids are never mutated; every change returns a new grid.
     - Export `createGrid`, `addSample`, `isCellValid`, `markAllValid` and `ComfortGrid` from `marrow/core`, but not `cellRectCamera` or `validCells`.
     - Tests: x = 1 and y = 1 fall in the last cell; a point on a cell's upper or right edge belongs to the next cell; 3 samples leave a cell invalid and 4 make it valid; `markAllValid`; inputs are unchanged after each call.

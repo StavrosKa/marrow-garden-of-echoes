@@ -194,7 +194,7 @@ Component names used in the criteria: Tuning, PoseFrame, Camera Source, Pointer 
 #### Acceptance Criteria
 
 1. WHEN the painting phase starts, THE Calibration SHALL create one empty comfort grid (32 x 24 cells over camera space) per active wrist.
-2. WHEN a frame is consumed in which an active wrist is valid, THE Calibration SHALL add one sample to that wrist's grid, in the cell containing the wrist's camera-space position after the Pointer Filter stage: column min(floor(x * 32), 31), row min(floor(y * 24), 23).
+2. WHEN a frame is consumed in which an active wrist is valid, THE Calibration SHALL add one sample to that wrist's grid, in the cell containing the wrist's camera-space position after the Pointer Filter stage: column min(floor(x * 32), 31), row min(floor(y * 24), 23). The cell containing a position is the cell whose half-open rectangle [col / 32, (col + 1) / 32) x [row / 24, (row + 1) / 24), with each edge computed as that division in floating point, contains it, with x = 1 and y = 1 in the last column and row; floor(x * 32) and floor(y * 24) are the usual way to find it, corrected by one where floating-point rounding disagrees.
 3. THE Calibration SHALL treat a cell as valid if and only if it holds at least 4 samples.
 4. FOR ALL sample sequences, a cell SHALL be valid only if at least 4 valid samples fell inside it; cells inside the bounding box, the convex hull or the gaps between sampled cells SHALL never become valid without their own samples.
 5. THE Calibration SHALL measure painting time on the presence clock and count it only in steps in which at least one active wrist is valid.

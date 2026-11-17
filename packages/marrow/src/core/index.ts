@@ -23,3 +23,10 @@ export {
   type PointerSample,
 } from './pointerFilter';
 export { makeMapping, type MappingParams, type Mapping } from './mapping';
+export {
+  createGrid,
+  addSample,
+  isCellValid,
+  markAllValid,
+  type ComfortGrid,
+} from './comfortGrid';
