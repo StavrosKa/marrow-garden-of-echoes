@@ -1,5 +1,7 @@
 # Implementation Plan
 
+## Overview
+
 This plan builds the marrow-input spec in an order where each task starts from finished, tested work. Requirement numbers refer to `requirements.md`; section numbers refer to `design.md`.
 
 Rules for every task:
@@ -10,7 +12,7 @@ Rules for every task:
 - Each core task adds its public names to the `marrow/core` barrel (design §6). Internals stay off the barrel.
 - No lint exception, no weakened rule in `eslint.config.js` or `tests/dependency-graph.test.ts` (Req 28.7), and no new dependency.
 
-The five decisions approved in chat on 2026-11-16 (core exports and the names `retryCalibration`, `chooseWholeScreen` and `skipHeadView`, the play-area slot filter, the hand-written content validator, the full rule comments, and `pagehide`) are written into design.md sections 1, 4, 6 and 14.
+## Tasks
 
 - [x] 1. Tuning module and validation
   - Create `packages/marrow/src/core/tuning.ts` with the `Tuning` interface and the frozen `TUNING` object of design §4: every Appendix A value and every Appendix B engine value, but not the Appendix B app values. Freeze `motorRadii` on its own.
@@ -352,3 +354,63 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
   - Run `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e`, and record their output.
   - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass.
   - _Requirements: 1.6, 28.1, 28.2, 28.3, 28.4, 28.7, 28.8, 28.12_
+
+## Notes
+
+The five decisions approved in chat on 2026-11-16 (core exports and the names `retryCalibration`, `chooseWholeScreen` and `skipHeadView`, the play-area slot filter, the hand-written content validator, the full rule comments, and `pagehide`) are written into design.md sections 1, 4, 6 and 14.
+
+## Task Dependency Graph
+
+Each wave holds one leaf task, in plan order, so no two tasks run in parallel. A task with sub-tasks is not listed: its sub-tasks are.
+
+```json
+{
+  "waves": [
+    { "id": 0, "tasks": ["1"] },
+    { "id": 1, "tasks": ["2"] },
+    { "id": 2, "tasks": ["3"] },
+    { "id": 3, "tasks": ["4"] },
+    { "id": 4, "tasks": ["5"] },
+    { "id": 5, "tasks": ["6.1"] },
+    { "id": 6, "tasks": ["6.2"] },
+    { "id": 7, "tasks": ["7.1"] },
+    { "id": 8, "tasks": ["7.2"] },
+    { "id": 9, "tasks": ["8"] },
+    { "id": 10, "tasks": ["9.1"] },
+    { "id": 11, "tasks": ["9.2"] },
+    { "id": 12, "tasks": ["10"] },
+    { "id": 13, "tasks": ["11.1"] },
+    { "id": 14, "tasks": ["11.2"] },
+    { "id": 15, "tasks": ["11.3"] },
+    { "id": 16, "tasks": ["12.1"] },
+    { "id": 17, "tasks": ["12.2"] },
+    { "id": 18, "tasks": ["13.1"] },
+    { "id": 19, "tasks": ["13.2"] },
+    { "id": 20, "tasks": ["14.1"] },
+    { "id": 21, "tasks": ["14.2"] },
+    { "id": 22, "tasks": ["15.1"] },
+    { "id": 23, "tasks": ["15.2"] },
+    { "id": 24, "tasks": ["15.3"] },
+    { "id": 25, "tasks": ["15.4"] },
+    { "id": 26, "tasks": ["15.5"] },
+    { "id": 27, "tasks": ["15.6"] },
+    { "id": 28, "tasks": ["16.1"] },
+    { "id": 29, "tasks": ["16.2"] },
+    { "id": 30, "tasks": ["16.3"] },
+    { "id": 31, "tasks": ["16.4"] },
+    { "id": 32, "tasks": ["16.5"] },
+    { "id": 33, "tasks": ["16.6"] },
+    { "id": 34, "tasks": ["17.1"] },
+    { "id": 35, "tasks": ["17.2"] },
+    { "id": 36, "tasks": ["17.3"] },
+    { "id": 37, "tasks": ["17.4"] },
+    { "id": 38, "tasks": ["17.5"] },
+    { "id": 39, "tasks": ["17.6"] },
+    { "id": 40, "tasks": ["17.7"] },
+    { "id": 41, "tasks": ["17.8"] },
+    { "id": 42, "tasks": ["17.9"] },
+    { "id": 43, "tasks": ["17.10"] },
+    { "id": 44, "tasks": ["18"] }
+  ]
+}
+```
