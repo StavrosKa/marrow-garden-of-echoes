@@ -54,3 +54,4 @@ Target: desktop Chrome and Edge on Windows, webcam at 640x480.
 - If a requirement conflicts with steering, or is ambiguous, stop and ask instead of guessing.
 - Never weaken, skip or delete a failing test to make it pass. Fix the code, or explain why the test is wrong and wait for approval.
 - Report measured numbers only. Do not write that something is fast, accessible or verified unless a test or measurement in this repo shows it.
+- Put every throwaway file (mutation-check scripts, source copies, probes, harnesses) in `.scratch/` at the repository root, never in `%TEMP%` or anywhere else outside the repository. `.scratch/` is git-ignored and is not part of the structure in `structure.md`. Empty it when a task is done.
