@@ -1148,6 +1148,48 @@ it('regression: a non-valid cell above the disc, whose gap falls between the two
   expect(isSlotUsable(Y_REGRESSION_SLOT, grids, mapping, r, m, TUNING)).toBeNull();
 });
 
+// Regression, the frame test. The seed 29 and y tests above pin the semi-axis; nothing
+// pinned the frame test, and a frame test taken back to the centre plus or minus the +R
+// side's distance (the form of the committed "Add slot placement") passed every test.
+// The construction is from the 7.2 journal and docs/bugs-found.md. Every cell is valid, so
+// only the frame can make the slot unusable. The mapping has gain reachGainMax, a centre
+// of (1.5925199925867558e-115, 0) and r + m = hitRadiusMin. The slot lies left of the play
+// area. Its sample at theta = pi, the point (slot.x + R * cos(pi), slot.y), maps to
+// camera x = 1.0000000000000002, outside the closed frame, by one ULP. The extreme on the
+// other side maps to 0.9635416666666669, and its distance from the centre, added to the
+// centre, comes to exactly 1, so the +R-side frame test accepted the slot.
+const FRAME_REGRESSION_MAPPING: MappingParams = {
+  playAspect: 1.2487618507787965,
+  frameAspect: 2.4,
+  gain: TUNING.reachGainMax,
+  centre: { x: 1.5925199925867558e-115, y: 0 },
+};
+const FRAME_REGRESSION_SLOT: Vec2 = { x: -0.8509905193769635, y: 0.8333333333333333 };
+
+it('regression: a disc whose sample at theta = pi maps to camera x = 1.0000000000000002 leaves the frame, though the centre plus the distance to the +R side extreme stays inside', () => {
+  const mapping = makeMapping(FRAME_REGRESSION_MAPPING);
+  const slot = FRAME_REGRESSION_SLOT;
+  const r = TUNING.hitRadiusMin;
+  const m = NO_MARGIN;
+  const reach = r + m;
+  const grids: WristGrids = { right: ALL_VALID };
+  const centre = mapping.toCamera(slot);
+  // The sample at theta = pi, written as the sampled layer of the properties writes it.
+  const sample = mapping.toCamera({ x: slot.x + reach * Math.cos(Math.PI), y: slot.y + reach * Math.sin(Math.PI) });
+  const east = mapping.toCamera({ x: slot.x + reach, y: slot.y });
+
+  // The construction is as described above.
+  expect(sample.x).toBe(1.0000000000000002);
+  expect(east.x).toBe(0.9635416666666669);
+  expect(sample.x).toBeGreaterThan(1);
+  // The frame test of "Add slot placement": the centre plus the +R-side distance stays inside.
+  expect(centre.x + Math.abs(east.x - centre.x)).toBeLessThanOrEqual(1);
+
+  expect(isSlotUsable(slot, grids, mapping, r, m, TUNING)).toBeNull();
+  expect(isSlotUsable(slot, { left: ALL_VALID }, mapping, r, m, TUNING)).toBeNull();
+  expect(placeTargets({ slots: [slot], n: 1, r, m }, grids, mapping, TUNING)).toEqual({ kind: 'none' });
+});
+
 describe('marrow/core', () => {
   it('exports placeTargets, isSlotUsable, Demand and PlacementResult (design section 6)', () => {
     expect(core.placeTargets).toBe(placeTargets);
