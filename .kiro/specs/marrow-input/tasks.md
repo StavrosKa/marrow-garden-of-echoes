@@ -99,7 +99,7 @@ Rules for every task:
   - _Requirements: 15.1, 15.2, 15.3, 15.4_
 
 - [ ] 9. Calibration
-  - [ ] 9.1 Painting phase
+  - [x] 9.1 Painting phase
     - Create `core/calibration.ts`: `createCalibration(cfg)` with `cfg = { activeWrists, mode, demand, frameAspect, playAspect }`, where the app has already filtered the demand's slots to the play area (design §14.2), and `stepCalibration(state, input, dtMs)`. The input holds, per active wrist, the validity and the filtered camera-space position, whether this step consumed a new frame, and the head landmarks for the calm hold.
     - Painting: one empty grid per active wrist at the start; one sample per consumed frame for each valid active wrist; painting time on the presence clock, counted only in steps with a valid active wrist; the end rules at 20 s with the demand met, from 12 s with the demand met and no new valid cell for `calibEarlyQuietMs`, and at the 30 s cap; never before 12 s except through `chooseWholeScreen`; no samples after the end.
     - Demand check: `placeTargets` with the transform from `computeComfortTransform` on the current grids, run only in steps where a cell's validity changed (design §14.2). In simulated-input mode the transform is gain 1 and the play-area centre.

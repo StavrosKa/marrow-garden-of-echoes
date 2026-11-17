@@ -33,6 +33,23 @@ export {
 export { computeComfortTransform } from './reachGain';
 export { auraIntensity } from './aura';
 export {
+  createCalibration,
+  stepCalibration,
+  retryCalibration,
+  chooseWholeScreen,
+  type CalibrationState,
+  type CalibrationConfig,
+  type CalibrationInput,
+  type CalibrationEvent,
+  type CalibrationMode,
+  type CalibrationPhase,
+  type CalibrationResult,
+  type CalibrationStep,
+  type HeadLandmarks,
+  type NeutralHead,
+  type PaintingEndReason,
+} from './calibration';
+export {
   placeTargets,
   isSlotUsable,
   type Demand,
