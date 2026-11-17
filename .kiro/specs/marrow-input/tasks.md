@@ -98,7 +98,7 @@ Rules for every task:
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 15.1, 15.2, 15.3, 15.4_
 
-- [ ] 9. Calibration
+- [x] 9. Calibration
   - [x] 9.1 Painting phase
     - Create `core/calibration.ts`: `createCalibration(cfg)` with `cfg = { activeWrists, mode, demand, frameAspect, playAspect }`, where the app has already filtered the demand's slots to the play area (design §14.2), and `stepCalibration(state, input, dtMs)`. The input holds, per active wrist, the validity and the filtered camera-space position, whether this step consumed a new frame, and the head landmarks for the calm hold.
     - Painting: one empty grid per active wrist at the start; one sample per consumed frame for each valid active wrist; painting time on the presence clock, counted only in steps with a valid active wrist; the end rules at 20 s with the demand met, from 12 s with the demand met and no new valid cell for `calibEarlyQuietMs`, and at the 30 s cap; never before 12 s except through `chooseWholeScreen`; no samples after the end.
@@ -110,7 +110,7 @@ Rules for every task:
     - Other tests: scripted sequences for each end rule at its exact boundary; time counted only with a valid wrist; no samples after the end; the demand check runs only when validity changes; `retryCalibration`; `chooseWholeScreen`; the hand-hint flag.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 11.1, 11.2, 11.4, 11.5, 11.6, 11.7, 11.8, 11.9, 11.10, 11.11, 11.12, 11.13, 11.15, 13.7_
-  - [ ] 9.2 Calm hold, "Skip head view" and completion
+  - [x] 9.2 Calm hold, "Skip head view" and completion
     - The calm hold starts when painting ends other than through `chooseWholeScreen`. It completes after `calmHoldMs` of continuous presence time in which the nose and both shoulders are valid in every consumed frame; an invalid one restarts the timer and raises a keep-in-view flag until all three are valid again. Wrists are not required and the head need not be still.
     - On completion it records the neutral nose (mean camera-space position) and the shoulder width (mean aspect-corrected distance) over the frames of the completing window, computes gain and centre once, and emits a completion event with the grids, the transform and the head data.
     - A skip-offer flag after `skipHeadViewAfterMs` of presence time from the start of the calm hold; `skipHeadView(state)` completes without head data. In simulated-input mode the calm hold completes after `calmHoldMs`, because the synthetic landmarks are always valid.

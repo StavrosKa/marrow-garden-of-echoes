@@ -12,6 +12,7 @@ import {
   chooseWholeScreen,
   createCalibration,
   retryCalibration,
+  skipHeadView,
   stepCalibration,
   type CalibrationConfig,
   type CalibrationEvent,
@@ -19,7 +20,7 @@ import {
   type CalibrationState,
   type HeadLandmarks,
 } from './calibration';
-import type { Vec2 } from './frame';
+import type { Landmark, Vec2 } from './frame';
 import * as core from './index';
 import { makeMapping } from './mapping';
 import type { FilteredPointers } from './pointerFilter';
@@ -532,11 +533,283 @@ it(
   60_000,
 );
 
+// ---------------------------------------------------------------------------------
+// The calm hold, "Skip head view" and completion (Req 12, task 9.2).
+
+/** One step of the calm hold: the head landmarks of the latest frame, whether it is a new frame, and the delta. */
+interface CalmMove {
+  readonly head: HeadLandmarks;
+  readonly consumed?: boolean;
+  readonly dt?: number;
+}
+
+const landmark = (x: number, y: number, valid = true): Landmark => ({ pos: { x, y }, valid });
+
+/**
+ * Head landmarks that differ from frame to frame, all inside the frame: the head moves and the
+ * shoulders drift, since the calm hold does not need the head to be still (Req 12.5).
+ */
+function headAt(i: number, valid: { nose?: boolean; left?: boolean; right?: boolean } = {}): HeadLandmarks {
+  const DRIFT = 0.004;
+  return {
+    nose: landmark(0.45 + DRIFT * i, 0.3 + DRIFT * (i % 5), valid.nose ?? true),
+    leftShoulder: landmark(0.7 + DRIFT * (i % 3), 0.75 + DRIFT * i, valid.left ?? true),
+    rightShoulder: landmark(0.25 + DRIFT * (i % 4), 0.78, valid.right ?? true),
+  };
+}
+
+const goodMove = (i: number, extra: Partial<CalmMove> = {}): CalmMove => ({ head: headAt(i), ...extra });
+const good = (count: number, from = 0): CalmMove[] => Array.from({ length: count }, (_, i) => goodMove(from + i));
+
+function calmInput(move: CalmMove): CalibrationInput {
+  return { pointers: { right: { valid: false } }, frameConsumed: move.consumed ?? true, head: move.head };
+}
+
+function playCalm(start: CalibrationState, moves: readonly CalmMove[]): Played {
+  const states: CalibrationState[] = [];
+  const events: CalibrationEvent[][] = [];
+  let state = start;
+  for (const move of moves) {
+    const step = stepCalibration(state, calmInput(move), move.dt ?? STEP);
+    state = step.state;
+    states.push(state);
+    events.push([...step.events]);
+  }
+  return { states, events };
+}
+
+/** A simulated-input calibration whose painting phase has just ended. */
+function simCalm(): CalibrationState {
+  const earliest = stepsIn(TUNING.calibEarliestMs);
+  const state = play(createCalibration(simConfig(CELL_A)), rest(CELL_A, earliest)).states.at(-1);
+  expect(state?.phase).toBe('calm');
+  return state ?? createCalibration(simConfig(CELL_A));
+}
+
+/** A camera-mode calibration whose painting phase has ended at the cap, with one valid cell. */
+function cameraCalm(): CalibrationState {
+  const cap = stepsIn(TUNING.calibCapMs);
+  const config = cameraConfig({ slots: [], n: 1, r: TUNING.hitRadius, m: 0 });
+  const state = play(createCalibration(config), rest(CELL_A, cap)).states.at(-1);
+  expect(state?.phase).toBe('calm');
+  return state ?? createCalibration(config);
+}
+
+const completedAt = (played: Played): number | null => {
+  const i = played.events.findIndex((step) => step.some((e) => e.kind === 'completed'));
+  return i < 0 ? null : i + 1;
+};
+
+describe('the calm hold (Req 12.1-12.5)', () => {
+  const calmSteps = stepsIn(TUNING.calmHoldMs);
+
+  it('starts when painting ends, in the next step: the step that ended painting adds nothing to it (Req 12.1)', () => {
+    const calm = simCalm();
+    expect(calm.calm).toEqual(createCalibration(simConfig(CELL_A)).calm);
+    expect(calm.keepInView).toBe(false);
+    expect(calm.skipOffered).toBe(false);
+    expect(calm.result).toBeNull();
+  });
+
+  it('completes in exactly the step in which calmHoldMs of valid presence time is reached, one step earlier it does not (Req 12.2)', () => {
+    const played = playCalm(simCalm(), good(calmSteps + 5));
+    expect(played.states[calmSteps - 2]?.phase).toBe('calm');
+    expect(played.states[calmSteps - 2]?.calm.validMs).toBe(ms(calmSteps - 1));
+    expect(completedAt(played)).toBe(calmSteps);
+    expect(played.states[calmSteps - 1]?.phase).toBe('complete');
+    expect(played.events.slice(calmSteps).every((events) => events.length === 0)).toBe(true);
+  });
+
+  it('an invalid nose or shoulder in a consumed frame restarts the time, just before the end as well, and raises the keep-in-view flag until all three are valid (Req 12.3)', () => {
+    for (const bad of [{ nose: false }, { left: false }, { right: false }]) {
+      const moves: CalmMove[] = [
+        ...good(calmSteps - 1),
+        { head: headAt(0, bad) },
+        ...good(calmSteps - 1),
+        ...good(1, 40),
+      ];
+      const played = playCalm(simCalm(), moves);
+      const restartAt = calmSteps; // 1-based step of the invalid frame
+      expect(played.states[restartAt - 2]?.keepInView).toBe(false);
+      expect(played.states[restartAt - 1]?.keepInView).toBe(true);
+      expect(played.states[restartAt - 1]?.calm.validMs).toBe(0);
+      expect(played.states[restartAt - 1]?.calm.frames).toBe(0);
+      // The first valid frame lowers the flag and its own dt is counted.
+      expect(played.states[restartAt]?.keepInView).toBe(false);
+      expect(played.states[restartAt]?.calm.validMs).toBe(STEP);
+      // Not complete one step before the new 2 s are full, complete at it.
+      expect(completedAt(played)).toBe(restartAt + calmSteps);
+      expect(played.states[restartAt + calmSteps - 2]?.phase).toBe('calm');
+    }
+  });
+
+  it('judges the head only in consumed frames: steps without one count while the last frame was valid, and not before the first (Req 12.2)', () => {
+    // 5 steps with no frame at all: nothing is known yet, so no time counts.
+    const before = playCalm(simCalm(), Array.from({ length: 5 }, () => goodMove(0, { consumed: false })));
+    expect(before.states.at(-1)?.calm.validMs).toBe(0);
+    // Then one consumed frame and unconsumed steps: they count, so it completes after calmSteps steps from the frame.
+    const moves = [...before.states.map(() => goodMove(0, { consumed: false })), goodMove(0), ...Array.from({ length: calmSteps }, () => goodMove(1, { consumed: false }))];
+    const played = playCalm(simCalm(), moves);
+    expect(completedAt(played)).toBe(5 + calmSteps);
+    // An unconsumed step with an invalid head in its input restarts nothing: only a consumed frame can.
+    const held = playCalm(simCalm(), [goodMove(0), { head: headAt(0, { nose: false }), consumed: false }]);
+    expect(held.states[1]?.keepInView).toBe(false);
+    expect(held.states[1]?.calm.validMs).toBe(2 * STEP);
+  });
+
+  it('with the presence clock stopped (delta 0) time stands still and nothing restarts (Req 12.2)', () => {
+    const moves: CalmMove[] = [
+      ...good(calmSteps - 1),
+      ...Array.from({ length: 30 }, () => goodMove(3, { consumed: false, dt: 0 })),
+      goodMove(4),
+    ];
+    const played = playCalm(simCalm(), moves);
+    expect(played.states[calmSteps - 1 + 29]?.calm.validMs).toBe(ms(calmSteps - 1));
+    expect(played.states[calmSteps - 1 + 29]?.phase).toBe('calm');
+    expect(completedAt(played)).toBe(calmSteps + 30);
+  });
+
+  it('the wrists are not needed, and the head need not be still (Req 12.5)', () => {
+    // The pointers are invalid in every scripted step, and the head moves in every frame.
+    const played = playCalm(cameraCalm(), good(calmSteps));
+    expect(completedAt(played)).toBe(calmSteps);
+    expect(played.states[calmSteps - 1]?.result?.head).not.toBeNull();
+  });
+});
+
+describe('the neutral head data (Req 12.4)', () => {
+  const calmSteps = stepsIn(TUNING.calmHoldMs);
+
+  /** The expected mean over consumed frames, computed here with the aspect-corrected distance written out. */
+  function expectedMeans(heads: readonly HeadLandmarks[], aspect: number) {
+    const n = heads.length;
+    const nose = {
+      x: heads.reduce((sum, h) => sum + h.nose.pos.x, 0) / n,
+      y: heads.reduce((sum, h) => sum + h.nose.pos.y, 0) / n,
+    };
+    const shoulderWidth =
+      heads.reduce((sum, h) => {
+        const dx = (h.leftShoulder.pos.x - h.rightShoulder.pos.x) * aspect;
+        const dy = h.leftShoulder.pos.y - h.rightShoulder.pos.y;
+        return sum + Math.sqrt(dx * dx + dy * dy);
+      }, 0) / n;
+    return { nose, shoulderWidth };
+  }
+
+  it('records the mean nose and the mean aspect-corrected shoulder distance over the frames of the completing stretch, the last frame included', () => {
+    const moves = good(calmSteps);
+    const played = playCalm(cameraCalm(), moves);
+    const head = played.states[calmSteps - 1]?.result?.head;
+    const want = expectedMeans(moves.map((m) => m.head), FRAME_ASPECT);
+    expect(head?.nose.x).toBeCloseTo(want.nose.x, 12);
+    expect(head?.nose.y).toBeCloseTo(want.nose.y, 12);
+    expect(head?.shoulderWidth).toBeCloseTo(want.shoulderWidth, 12);
+    // The aspect correction matters here: the same frames at aspect 1 give another width.
+    const flat = expectedMeans(moves.map((m) => m.head), IDENTITY_GAIN);
+    expect(Math.abs((head?.shoulderWidth ?? 0) - flat.shoulderWidth)).toBeGreaterThan(1e-3);
+  });
+
+  it('after a restart only the frames since it count; frames before it are not in the mean', () => {
+    const before = good(calmSteps - 1, 100);
+    const after = good(calmSteps, 0);
+    const played = playCalm(cameraCalm(), [...before, { head: headAt(0, { nose: false }) }, ...after]);
+    const head = played.states.at(-1)?.result?.head;
+    const want = expectedMeans(after.map((m) => m.head), FRAME_ASPECT);
+    expect(head?.nose.x).toBeCloseTo(want.nose.x, 12);
+    expect(head?.shoulderWidth).toBeCloseTo(want.shoulderWidth, 12);
+  });
+
+  it('steps without a new frame add no sample: the mean is over the consumed frames only', () => {
+    const frames = good(calmSteps / 2);
+    const moves: CalmMove[] = [...frames, ...Array.from({ length: calmSteps / 2 }, () => goodMove(99, { consumed: false }))];
+    const played = playCalm(cameraCalm(), moves);
+    expect(completedAt(played)).toBe(calmSteps);
+    const head = played.states.at(-1)?.result?.head;
+    const want = expectedMeans(frames.map((m) => m.head), FRAME_ASPECT);
+    expect(head?.nose.x).toBeCloseTo(want.nose.x, 12);
+    expect(head?.nose.y).toBeCloseTo(want.nose.y, 12);
+    expect(head?.shoulderWidth).toBeCloseTo(want.shoulderWidth, 12);
+  });
+});
+
+describe('completion (Req 12.8, 13.7)', () => {
+  const calmSteps = stepsIn(TUNING.calmHoldMs);
+
+  it('in camera mode emits one completion event with the grids, the transform computed from them once, and the head data', () => {
+    const start = cameraCalm();
+    const played = playCalm(start, [...good(calmSteps), ...good(10, 50)]);
+    const done = played.states[calmSteps - 1];
+    const transform = computeComfortTransform(start.grids, FRAME_ASPECT, PLAY_ASPECT, TUNING);
+    expect(played.events[calmSteps - 1]).toEqual([{ kind: 'completed', result: done?.result }]);
+    expect(done?.result?.grids).toEqual(start.grids);
+    expect(done?.result?.transform).toEqual(transform);
+    expect(done?.result?.head).not.toBeNull();
+    // Nothing more is emitted or changed after completion.
+    expect(played.states.at(-1)).toBe(done);
+    expect(played.events.slice(calmSteps).flat()).toEqual([]);
+  });
+
+  it('in simulated input the calm hold completes after calmHoldMs, and the transform is the identity gain about the play-area centre', () => {
+    const start = simCalm();
+    const played = playCalm(start, good(calmSteps));
+    expect(completedAt(played)).toBe(calmSteps);
+    expect(played.states[calmSteps - 2]?.phase).toBe('calm');
+    const result = played.states[calmSteps - 1]?.result;
+    expect(result?.transform).toEqual({ centre: { x: PLAY_ASPECT * HALF, y: HALF }, gain: IDENTITY_GAIN });
+    expect(result?.head).not.toBeNull();
+    expect(result?.grids).toEqual(start.grids);
+  });
+});
+
+describe('"Skip head view" (Req 12.6, 12.7)', () => {
+  const calmSteps = stepsIn(TUNING.calmHoldMs);
+  const skipSteps = stepsIn(TUNING.skipHeadViewAfterMs);
+
+  it('the offer appears exactly at skipHeadViewAfterMs of presence time since the calm hold started, restarts included', () => {
+    // An invalid consumed frame in every step: the hold restarts all the time and never completes.
+    const played = playCalm(simCalm(), Array.from({ length: skipSteps + 3 }, () => ({ head: headAt(0, { nose: false }) })));
+    expect(played.states[skipSteps - 2]?.skipOffered).toBe(false);
+    expect(played.states[skipSteps - 2]?.calm.elapsedMs).toBe(ms(skipSteps - 1));
+    expect(played.states[skipSteps - 1]?.skipOffered).toBe(true);
+    expect(played.states.at(-1)?.skipOffered).toBe(true);
+    expect(played.states.at(-1)?.keepInView).toBe(true);
+    expect(completedAt(played)).toBeNull();
+  });
+
+  it('the offer is not shown before the calm hold, and completing the hold in time does not need it', () => {
+    expect(simCalm().skipOffered).toBe(false);
+    expect(calmSteps).toBeLessThan(skipSteps);
+  });
+
+  it('completes without head data, with the grids and the transform, and does nothing outside the calm hold', () => {
+    const calm = cameraCalm();
+    const { state, events } = skipHeadView(calm);
+    expect(state.phase).toBe('complete');
+    expect(state.result?.head).toBeNull();
+    expect(state.result?.grids).toEqual(calm.grids);
+    expect(state.result?.transform).toEqual(computeComfortTransform(calm.grids, FRAME_ASPECT, PLAY_ASPECT, TUNING));
+    expect(events).toEqual([{ kind: 'completed', result: state.result }]);
+    expect(skipHeadView(state)).toEqual({ state, events: [] });
+    const painting = createCalibration(simConfig(CELL_A));
+    expect(skipHeadView(painting)).toEqual({ state: painting, events: [] });
+    // After completion nothing more happens.
+    expect(stepCalibration(state, calmInput(goodMove(0)), STEP)).toEqual({ state, events: [] });
+  });
+
+  it('leaves the state it is given unchanged', () => {
+    const calm = cameraCalm();
+    const before = structuredClone(calm);
+    skipHeadView(calm);
+    expect(calm).toStrictEqual(before);
+  });
+});
+
 describe('marrow/core', () => {
-  it('exports the painting-phase names (design section 6) but not the calm-hold action yet', () => {
+  it('exports the calibration names (design section 6)', () => {
     expect(core.createCalibration).toBe(createCalibration);
     expect(core.stepCalibration).toBe(stepCalibration);
     expect(core.retryCalibration).toBe(retryCalibration);
     expect(core.chooseWholeScreen).toBe(chooseWholeScreen);
+    expect(core.skipHeadView).toBe(skipHeadView);
   });
 });

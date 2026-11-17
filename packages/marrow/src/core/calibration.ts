@@ -31,6 +31,25 @@
 //    raw time. noWristMs is the presence time since the last step with a valid active wrist
 //    or since painting started, and is 0 again in any step with a valid wrist. The hint
 //    shows while noWristMs > calibHandHintMs, in camera mode and the painting phase only.
+//  - The calm hold (Req 12) starts in the step after painting ends; the step that ended
+//    painting is not part of it. It runs on the presence clock. The head is judged only in
+//    consumed frames: headOk is set from the latest consumed frame and holds between frames,
+//    so presence time in steps with no consumed frame counts while headOk is true, and it
+//    does not count before the first consumed frame of the hold or after an invalid one. In
+//    a consumed frame with the nose or a shoulder invalid, the 2 s timer and the frame sums
+//    restart from 0, that step's dt is not added, and the keep-in-view flag is raised until a
+//    consumed frame has all three valid. "Continuous" is a property of validity, not of
+//    wall time: a paused clock gives dt = 0, so time stands still and nothing restarts.
+//  - The calm hold completes in the first step in which the valid time reaches calmHoldMs.
+//    The "completing 2 s" of Req 12.4 is the run of consumed frames since the last restart,
+//    up to and including the completing step's frame: every consumed frame of the
+//    continuous valid stretch that completed, each counting once. The neutral nose is the
+//    mean of their camera-space nose positions and the shoulder width the mean of their
+//    aspect-corrected shoulder distances, the camera-space x scaled by cfg.frameAspect.
+//  - The skip offer (Req 12.6) is raised when the presence time since the calm hold started,
+//    restarts included, reaches skipHeadViewAfterMs. skipHeadView completes without head data
+//    from any step of the calm hold, and does nothing in the other phases; the offer is for
+//    the UI to gate.
 //  - In simulated-input mode the transform is the identity gain about the play-area centre
 //    (Req 13.7), for the demand check and at completion: computeComfortTransform with no
 //    grid gives exactly that, so no gain literal is written here.
@@ -118,9 +137,40 @@ export interface CalibrationState {
   readonly noWristMs: number;
   /** Whether the Setup UI shows the calibration hand hint (Req 11.12). */
   readonly handHint: boolean;
+  /** The calm hold's timers and sums (Req 12.2, 12.4). */
+  readonly calm: CalmHoldState;
+  /** Whether the Setup UI shows "Keep your face and shoulders in view" (Req 12.3). */
+  readonly keepInView: boolean;
+  /** Whether the Setup UI also offers "Skip head view" (Req 12.6). */
+  readonly skipOffered: boolean;
   /** Set once calibration completes. */
   readonly result: CalibrationResult | null;
 }
+
+/** The calm hold's running values. All zero before the hold starts and after a restart. */
+export interface CalmHoldState {
+  /** Presence time since the calm hold started, restarts included (Req 12.6). */
+  readonly elapsedMs: number;
+  /** Continuous presence time with the nose and both shoulders valid in every consumed frame (Req 12.2). */
+  readonly validMs: number;
+  /** Whether the latest consumed frame had all three valid. False before the first one. */
+  readonly headOk: boolean;
+  /** The consumed frames of the current valid stretch. */
+  readonly frames: number;
+  /** The sum of their camera-space nose positions. */
+  readonly noseSum: Vec2;
+  /** The sum of their aspect-corrected shoulder distances. */
+  readonly widthSum: number;
+}
+
+const NO_CALM: CalmHoldState = {
+  elapsedMs: 0,
+  validMs: 0,
+  headOk: false,
+  frames: 0,
+  noseSum: { x: 0, y: 0 },
+  widthSum: 0,
+};
 
 /** What the actions and the step return. */
 export interface CalibrationStep {
@@ -142,6 +192,9 @@ export function createCalibration(cfg: CalibrationConfig): CalibrationState {
     demandMet: false,
     noWristMs: 0,
     handHint: false,
+    calm: NO_CALM,
+    keepInView: false,
+    skipOffered: false,
     result: null,
   };
 }
@@ -185,7 +238,7 @@ function complete(
 ): CalibrationStep {
   const result: CalibrationResult = { grids, transform: transformFor(state.cfg, grids), head };
   return {
-    state: { ...state, phase: 'complete', grids, handHint: false, result },
+    state: { ...state, phase: 'complete', grids, handHint: false, keepInView: false, skipOffered: false, result },
     events: [...events, { kind: 'completed', result }],
   };
 }
@@ -247,14 +300,72 @@ function stepPainting(state: CalibrationState, input: CalibrationInput, dtMs: nu
   };
 }
 
+/** One step of the calm hold (Req 12.2-12.6): see the decisions in the header. */
+function stepCalm(state: CalibrationState, input: CalibrationInput, dtMs: number): CalibrationStep {
+  const { cfg } = state;
+  const t = cfg.tuning;
+  const elapsedMs = state.calm.elapsedMs + dtMs;
+  let { validMs, headOk, frames, noseSum, widthSum } = state.calm;
+  let keepInView = state.keepInView;
+
+  if (input.frameConsumed) {
+    const { nose, leftShoulder, rightShoulder } = input.head;
+    if (nose.valid && leftShoulder.valid && rightShoulder.valid) {
+      headOk = true;
+      keepInView = false;
+      frames += 1;
+      noseSum = { x: noseSum.x + nose.pos.x, y: noseSum.y + nose.pos.y };
+      // The distance between the shoulders in aspect-corrected units (x scaled by the frame aspect).
+      widthSum += Math.hypot(
+        (leftShoulder.pos.x - rightShoulder.pos.x) * cfg.frameAspect,
+        leftShoulder.pos.y - rightShoulder.pos.y,
+      );
+    } else {
+      // Restart (Req 12.3): the 2 s and the frames of the stretch so far are dropped.
+      headOk = false;
+      keepInView = true;
+      validMs = 0;
+      frames = 0;
+      noseSum = NO_CALM.noseSum;
+      widthSum = 0;
+    }
+  }
+  if (headOk) validMs += dtMs;
+
+  const calm: CalmHoldState = { elapsedMs, validMs, headOk, frames, noseSum, widthSum };
+  const next: CalibrationState = {
+    ...state,
+    calm,
+    keepInView,
+    skipOffered: elapsedMs >= t.skipHeadViewAfterMs,
+  };
+  if (!headOk || frames === 0 || validMs < t.calmHoldMs) return { state: next, events: [] };
+  const head: NeutralHead = {
+    nose: { x: noseSum.x / frames, y: noseSum.y / frames },
+    shoulderWidth: widthSum / frames,
+  };
+  return complete(next, next.grids, head, []);
+}
+
 /**
  * One step of calibration with presence delta dtMs (Req 11, 12). In the painting phase it
  * adds samples, counts painting time, runs the demand check and applies the end rules; after
- * the painting phase ends no sample is added (Req 11.8). The arguments are only read.
+ * the painting phase ends no sample is added (Req 11.8). In the calm hold it times the head
+ * and, when the hold completes, emits the completion event. The arguments are only read.
  */
 export function stepCalibration(state: CalibrationState, input: CalibrationInput, dtMs: number): CalibrationStep {
   if (state.phase === 'painting') return stepPainting(state, input, dtMs);
+  if (state.phase === 'calm') return stepCalm(state, input, dtMs);
   return { state, events: [] };
+}
+
+/**
+ * "Skip head view" (Req 12.7): completes without neutral head data, in the calm hold. In any
+ * other phase it does nothing.
+ */
+export function skipHeadView(state: CalibrationState): CalibrationStep {
+  if (state.phase !== 'calm') return { state, events: [] };
+  return complete(state, state.grids, null, []);
 }
 
 /** Retry (Req 11.13): every grid, the head data and every timer cleared, and painting restarted. */

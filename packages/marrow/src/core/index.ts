@@ -37,6 +37,8 @@ export {
   stepCalibration,
   retryCalibration,
   chooseWholeScreen,
+  skipHeadView,
+  type CalmHoldState,
   type CalibrationState,
   type CalibrationConfig,
   type CalibrationInput,
