@@ -31,6 +31,7 @@ export {
   type ComfortGrid,
 } from './comfortGrid';
 export { computeComfortTransform } from './reachGain';
+export { auraIntensity } from './aura';
 export {
   placeTargets,
   isSlotUsable,

@@ -19,8 +19,9 @@
 // and leaves the counts alone, so every cell of a marked grid is valid at any
 // threshold, and the counts stay the samples that were really added.
 //
-// cellRectCamera and validCells are internal (design section 6): reached by relative
-// import inside packages/marrow, not exported from marrow/core.
+// cellIndex, cellRectCamera and validCells are internal (design section 6): reached by
+// relative import inside packages/marrow, not exported from marrow/core. aura.ts uses
+// cellIndex, so a point is in the cell addSample counts it in.
 import type { Vec2 } from './frame';
 import type { Tuning } from './tuning';
 
@@ -76,8 +77,9 @@ function inFrame(v: number): boolean {
  * sizes the largest number below an edge, times n, rounds up to the edge's index. So
  * the index moves down by one when v is below its interval, and up by one when v is at
  * or past the interval's end. For the sizes validateTuning allows, one step is enough.
+ * Internal: addSample and the aura use it, and it is not on the marrow/core barrel.
  */
-function cellIndex(v: number, n: number): number {
+export function cellIndex(v: number, n: number): number {
   let i = Math.floor(v * n);
   if (v < i / n) i -= 1;
   else if (v >= (i + 1) / n) i += 1;

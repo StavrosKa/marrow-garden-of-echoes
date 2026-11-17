@@ -90,7 +90,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 14.8, 14.9, 14.10, 28.8_
 
-- [ ] 8. Comfort aura
+- [x] 8. Comfort aura
   - Create `core/aura.ts`: `auraIntensity(screenPt, grids, mapping, tuning)` in 0..1. It is above 0 only where `toCamera(screenPt)` lies inside the frame and in a valid cell of an active wrist; cells with 1 to 3 samples give 0; it softens only inwards, for example from the share of valid cells among a cell's neighbours (design §13 question 8). If the curve needs a new number, it goes into `tuning.ts` and Appendix B only with the user's approval.
   - Export `auraIntensity` from `marrow/core`.
   - Named tests (design §10.2): `aura_positive_only_in_valid_cells` (15.2).
