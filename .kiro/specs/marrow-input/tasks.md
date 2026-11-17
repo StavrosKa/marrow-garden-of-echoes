@@ -73,7 +73,7 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6_
 
-- [ ] 7. Placement in the comfort region
+- [x] 7. Placement in the comfort region
   - [x] 7.1 Slot usability and placement
     - Create `core/placement.ts` with `Demand` (slots in order, n, r, m) and `PlacementResult` (`simultaneous`, `sequential`, `none`).
     - `isSlotUsable(slot, grids, mapping, r, m, tuning): WristId | null` uses the test of design §9.2: map the disc of radius r + m to camera space and rescale it to a circle; the slot is unusable if the disc leaves the closed camera frame or meets a non-valid cell (closed test: the distance to the cell's closed rectangle at most the radius). Each wrist is checked alone, never combined with the other.
@@ -82,7 +82,7 @@ The five decisions approved in chat on 2026-11-16 (core exports and the names `r
     - Tests with hand-built grids: a slot covered only by the two wrists together is unusable; overlapping slots are skipped in the pass; `sequential` order and the i mod k rule; `none`; a disc that leaves the frame; grids are deep-equal before and after.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
-  - [ ] 7.2 Placement property tests
+  - [x] 7.2 Placement property tests
     - Add `genDemand` to `testgen.ts`: slots in [0, A] x [0, 1], N >= 1, r in 0.07..0.13, m in 0..0.05.
     - Named tests (design §10.2): `placement_covers_every_point` (14.8), using the two layers of design §10.3: an exact cell-level oracle, written separately from `isSlotUsable` with the same closed predicate, decides the result, and boundary and interior points mapped with `toCamera` corroborate it; `placement_monotone_in_cells` (14.9), with `promote` and `demote` at a fixed gain and centre; `placement_simultaneous_disjoint` (14.10).
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.

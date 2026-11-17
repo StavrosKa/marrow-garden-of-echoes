@@ -12,7 +12,9 @@ import {
   type ComfortGrid,
 } from './comfortGrid';
 import type { Landmark, Vec2 } from './frame';
+import { clamp } from './geometry';
 import type { MappingParams } from './mapping';
+import type { Demand } from './placement';
 import { TUNING } from './tuning';
 
 /**
@@ -203,6 +205,57 @@ export function genVec2Screen(playAspect: number): fc.Arbitrary<Vec2> {
   return fc.record({ x: genAxis(playAspect), y: genAxis(UNIT_EXTENT) });
 }
 
+/**
+ * How many steps genEven divides its range into: Number.MAX_SAFE_INTEGER, finer than the
+ * spacing of doubles in any range these generators use. A test parameter.
+ */
+const EVEN_STEPS = Number.MAX_SAFE_INTEGER;
+
+/**
+ * How near an end genSpread's near-end draws lie, as a share of the range's width: 2^-20,
+ * about 1e-6. A test parameter.
+ */
+export const NEAR_END_SHARE = 2 ** -20;
+
+/**
+ * A number spread evenly over lo..hi, both included: k / EVEN_STEPS of the way from lo to
+ * hi, for a whole k drawn with fc.noBias. Without it fast-check favours small k, and so
+ * values near lo. Exactly lo at k = 0 and exactly hi at k = EVEN_STEPS.
+ */
+function genEven(lo: number, hi: number): fc.Arbitrary<number> {
+  return fc.noBias(fc.integer({ min: 0, max: EVEN_STEPS })).map((k) => {
+    const t = k / EVEN_STEPS;
+    return clamp(lo * (1 - t) + hi * t, lo, hi);
+  });
+}
+
+/** A number within (hi - lo) * NEAR_END_SHARE of lo or of hi, inside lo..hi; often the end itself. */
+function genNearEnd(lo: number, hi: number): fc.Arbitrary<number> {
+  const width = (hi - lo) * NEAR_END_SHARE;
+  return fc
+    .tuple(fc.boolean(), fc.double({ min: 0, max: width, noNaN: true }))
+    .map(([nearHi, offset]) => (nearHi ? hi - offset : lo + offset));
+}
+
+/**
+ * A number in lo..hi, both included, that covers the whole range: lo or hi exactly
+ * (weight 1), a number spread evenly between them (weight 3), or one within
+ * NEAR_END_SHARE of the range's width from an end (weight 1).
+ *
+ * Use this, not fc.double, for a number in a range. fc.double spreads its draws evenly
+ * over bit patterns, not values, so a range that starts at 0 is dominated by tiny numbers:
+ * over 0..1 about 91% of its draws lie below 1e-6, and the middle half of the range is
+ * almost never drawn (seed 42, 1000 samples). Within one binade, such as 1..1.6, its draws
+ * are even. The generators above this one still draw with fc.double.
+ */
+export function genSpread(lo: number, hi: number): fc.Arbitrary<number> {
+  return fc.oneof(
+    { arbitrary: fc.constantFrom(lo, hi), weight: 1 },
+    { arbitrary: genEven(lo, hi), weight: 3 },
+    { arbitrary: genNearEnd(lo, hi), weight: 1 },
+  );
+}
+
 /** A cell of a grid of TUNING's size: column 0..gridCols - 1 and row 0..gridRows - 1. */
 function genCell(): fc.Arbitrary<CellIndex> {
   return fc.record({
@@ -322,4 +375,38 @@ export function demote(grid: ComfortGrid): fc.Arbitrary<ComfortGrid> {
       const at = cell.row * grid.cols + cell.col;
       return { ...grid, counts: grid.counts.map((count, i) => (i === at ? samples : count)) };
     });
+}
+
+/** The largest parallax margin m genDemand draws: the 0..0.05 of design section 10.1. A test parameter. */
+export const MARGIN_MAX = 0.05;
+
+/** The most targets a demand from genDemand asks for. A test parameter. */
+export const DEMAND_N_MAX = 4;
+
+/** The most slots in a demand from genDemand: as many as the playground's content file holds (design section 14.4). A test parameter. */
+export const DEMAND_SLOTS_MAX = 15;
+
+/**
+ * A placement demand for the play aspect A (Req 14.1, design section 10.1): 1 to
+ * DEMAND_SLOTS_MAX slots in [0, A] x [0, 1], n in 1..DEMAND_N_MAX (Req 14.1 needs N >= 1),
+ * the hit radius r in hitRadiusMin..hitRadiusMax and the margin m in 0..MARGIN_MAX. The
+ * coordinates, r and m come from genSpread, so each range is covered at its ends, near
+ * them and in the middle. The objects are plain, so structuredClone gives back equal ones.
+ */
+export function genDemand(playAspect: number): fc.Arbitrary<Demand> {
+  const slot = fc.record(
+    { x: genSpread(0, playAspect), y: genSpread(0, UNIT_EXTENT) },
+    { noNullPrototype: true },
+  );
+  return fc.record(
+    {
+      // size 'max': with only maxLength, fast-check's default size never drew more than
+      // 12 slots in 1000 samples (seed 42).
+      slots: fc.array(slot, { minLength: 1, maxLength: DEMAND_SLOTS_MAX, size: 'max' }),
+      n: fc.integer({ min: 1, max: DEMAND_N_MAX }),
+      r: genSpread(TUNING.hitRadiusMin, TUNING.hitRadiusMax),
+      m: genSpread(0, MARGIN_MAX),
+    },
+    { noNullPrototype: true },
+  );
 }

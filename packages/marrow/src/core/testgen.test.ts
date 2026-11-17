@@ -5,10 +5,15 @@ import type { Vec2 } from './frame';
 import {
   ASPECT_MAX,
   ASPECT_MIN,
+  DEMAND_N_MAX,
+  DEMAND_SLOTS_MAX,
   GAP_MAX_MS,
+  MARGIN_MAX,
+  NEAR_END_SHARE,
   OUTSIDE_MARGIN,
   demote,
   genClockFlags,
+  genDemand,
   genDt,
   genDtClamped,
   genGrid,
@@ -26,6 +31,14 @@ import { TUNING } from './tuning';
 // these tests, the same on every run.
 const SAMPLE = { numRuns: 1000, seed: 42 };
 const MAX = TUNING.maxClockStepMs;
+/** The quarters of a range that the genDemand check counts slot coordinates in. */
+const QUARTERS = 4;
+/**
+ * The least share of slot coordinates genDemand must put in each quarter of an axis, so
+ * that a return to fc.double's spread, which leaves the middle quarters almost empty,
+ * fails the check. A test parameter.
+ */
+const MIN_QUARTER_SHARE = 0.1;
 
 /** Whether cell (col, row) is valid at TUNING's threshold; false for a cell outside the grid. */
 const validAt = (grid: ComfortGrid, col: number, row: number): boolean => isCellValid(grid, col, row, TUNING);
@@ -393,5 +406,82 @@ describe('testgen', () => {
 
   it('demote refuses a grid marked all-valid, on which no cell can stop being valid', () => {
     expect(() => demote(markAllValid(createGrid(TUNING)))).toThrow('all-valid');
+  });
+
+  it('genDemand stays in range and reaches, for the slots, both edges, near both edges and at least MIN_QUARTER_SHARE in each quarter of each axis; r and m at both ends and between; n of 1 and DEMAND_N_MAX; 1 and DEMAND_SLOTS_MAX slots; and n above the slot count', () => {
+    const samples = fc.sample(
+      genMappingParams().chain(({ playAspect }) =>
+        genDemand(playAspect).map((demand) => ({ A: playAspect, demand })),
+      ),
+      SAMPLE,
+    );
+    const { hitRadiusMin, hitRadiusMax } = TUNING;
+    // Each slot coordinate with the extent of its axis: 0..A for x, 0..1 for y.
+    const xs = samples.flatMap(({ A, demand }) => demand.slots.map((s) => ({ v: s.x, extent: A })));
+    const ys = samples.flatMap(({ demand }) => demand.slots.map((s) => ({ v: s.y, extent: 1 })));
+    const quarterShares = (values: readonly { v: number; extent: number }[]): number[] => {
+      const counts = [0, 0, 0, 0];
+      for (const { v, extent } of values) {
+        const quarter = Math.min(QUARTERS - 1, Math.floor((v / extent) * QUARTERS));
+        counts[quarter] = (counts[quarter] ?? 0) + 1;
+      }
+      return counts.map((count) => count / values.length);
+    };
+    const near = (d: number, extent: number): boolean => d > 0 && d <= extent * NEAR_END_SHARE;
+    const reaches = (values: readonly { v: number; extent: number }[]) => ({
+      atStart: values.some(({ v }) => v === 0),
+      atEnd: values.some(({ v, extent }) => v === extent),
+      nearStart: values.some(({ v, extent }) => near(v, extent)),
+      nearEnd: values.some(({ v, extent }) => near(extent - v, extent)),
+    });
+    const allTrue = { atStart: true, atEnd: true, nearStart: true, nearEnd: true };
+
+    expect(
+      samples.filter(
+        ({ A, demand: { slots, n, r, m } }) =>
+          !(
+            slots.length >= 1 &&
+            slots.length <= DEMAND_SLOTS_MAX &&
+            slots.every((s) => s.x >= 0 && s.x <= A && s.y >= 0 && s.y <= 1) &&
+            Number.isInteger(n) &&
+            n >= 1 &&
+            n <= DEMAND_N_MAX &&
+            r >= hitRadiusMin &&
+            r <= hitRadiusMax &&
+            m >= 0 &&
+            m <= MARGIN_MAX
+          ),
+      ),
+    ).toEqual([]);
+    for (const share of [...quarterShares(xs), ...quarterShares(ys)]) {
+      expect(share).toBeGreaterThanOrEqual(MIN_QUARTER_SHARE);
+    }
+    expect({ x: reaches(xs), y: reaches(ys) }).toEqual({ x: allTrue, y: allTrue });
+    const demands = samples.map((s) => s.demand);
+    expect({
+      rMin: demands.some((d) => d.r === hitRadiusMin),
+      rMax: demands.some((d) => d.r === hitRadiusMax),
+      rBetween: demands.some((d) => d.r > hitRadiusMin && d.r < hitRadiusMax),
+      mZero: demands.some((d) => d.m === 0),
+      mMax: demands.some((d) => d.m === MARGIN_MAX),
+      mBetween: demands.some((d) => d.m > 0 && d.m < MARGIN_MAX),
+      nOne: demands.some((d) => d.n === 1),
+      nMax: demands.some((d) => d.n === DEMAND_N_MAX),
+      oneSlot: demands.some((d) => d.slots.length === 1),
+      mostSlots: demands.some((d) => d.slots.length === DEMAND_SLOTS_MAX),
+      moreTargetsThanSlots: demands.some((d) => d.n > d.slots.length),
+    }).toEqual({
+      rMin: true,
+      rMax: true,
+      rBetween: true,
+      mZero: true,
+      mMax: true,
+      mBetween: true,
+      nOne: true,
+      nMax: true,
+      oneSlot: true,
+      mostSlots: true,
+      moreTargetsThanSlots: true,
+    });
   });
 });

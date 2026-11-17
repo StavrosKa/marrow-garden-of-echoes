@@ -1,8 +1,10 @@
+import fc from 'fast-check';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
   addSample,
   cellRectCamera,
   createGrid,
+  isCellValid,
   markAllValid,
   validCells,
   type CellIndex,
@@ -11,9 +13,10 @@ import {
 import type { Vec2, WristId } from './frame';
 import { dist } from './geometry';
 import * as core from './index';
-import { makeMapping, type Mapping } from './mapping';
+import { makeMapping, type Mapping, type MappingParams } from './mapping';
 import { isSlotUsable, placeTargets, type Demand, type PlacementResult } from './placement';
-import type { WristGrids } from './reachGain';
+import { computeComfortTransform, type WristGrids } from './reachGain';
+import { MARGIN_MAX, demote, genDemand, genGrid, genMappingParams, promote } from './testgen';
 import { TUNING, type Tuning } from './tuning';
 
 // The grid size, the samples a cell needs and the hit radius r come from TUNING or from
@@ -534,6 +537,615 @@ describe('inputs are unchanged (Req 14.7)', () => {
     for (const slot of demand.slots) isSlotUsable(slot, grids, REALISTIC, demand.r, demand.m, tuning);
     expect({ grids, demand, tuning }).toStrictEqual(before);
   });
+});
+
+// ---------------------------------------------------------------------------------
+// Property tests (Req 14.8-14.10, design sections 10.2 and 10.3).
+//
+// Each input holds the grids of the right wrist, the left wrist or both, each from
+// genGrid; a mapping whose aspects come from genMappingParams and whose gain and centre
+// come, in half the inputs each, from genMappingParams or from computeComfortTransform
+// on the same grids, which can put the centre outside the play area; and a demand from
+// genDemand with up to ANCHORS_MAX more slots at the screen centres of valid cells, put
+// at random places in the slot list. Without those slots nine inputs in ten end in none.
+// They can lie outside the play area, which "for all slots" in Req 14.8 allows.
+
+/** Runs of placement_covers_every_point and placement_simultaneous_disjoint: most inputs end in none. A test parameter. */
+const PLACEMENT_RUNS = 1000;
+/**
+ * The time limit of each test below, in milliseconds. With PLACEMENT_RUNS runs,
+ * placement_covers_every_point took 6.9 s on one seed, over vitest's default limit of 5 s,
+ * and 1.4 to 4.5 s on eight others. A test parameter.
+ */
+const PROPERTY_TIMEOUT_MS = 60_000;
+/** The most slots an input adds at the screen centres of valid cells. A test parameter. */
+const ANCHORS_MAX = 4;
+/** Draws the same inputs on every run, for the coverage check of the inputs. */
+const SAMPLE = { numRuns: 1000, seed: 42 };
+/** Both wrists, right first: the order in which isSlotUsable tries them (Req 17.4). */
+const RIGHT_FIRST: readonly WristId[] = ['right', 'left'];
+/** A full turn, in radians. */
+const FULL_TURN = 2 * Math.PI;
+/** Points on the boundary of each sampled disc, evenly spaced in angle (design section 10.3). A test parameter. */
+const BOUNDARY_POINTS = 64;
+/**
+ * The spacing of the lattice inside each sampled disc, in screen units: half the smallest
+ * side a cell can have on screen. A cell is g * k * a / gridCols wide and g * k / gridRows
+ * tall there, and g, k * a and k are all at least 1, so every cell that lies wholly inside
+ * a disc holds a lattice point.
+ */
+const LATTICE_SPACING = HALF / Math.max(COLS, ROWS);
+
+/** Where the gain and centre of an input's mapping come from. */
+type CentreSource = 'genMappingParams' | 'computeComfortTransform';
+
+/** One input of the placement properties. */
+interface PlacementCase {
+  readonly params: MappingParams;
+  readonly source: CentreSource;
+  readonly grids: WristGrids;
+  readonly demand: Demand;
+}
+
+/** The active wrists of the grids, right first. */
+function activeWrists(grids: WristGrids): WristId[] {
+  return RIGHT_FIRST.filter((wrist) => grids[wrist] !== undefined);
+}
+
+/** The camera-space centre of a cell, halfway between its edges. */
+function cellCentre({ col, row }: CellIndex): Vec2 {
+  const { x0, y0, x1, y1 } = cellRectCamera(col, row, TUNING);
+  return { x: (x0 + x1) * HALF, y: (y0 + y1) * HALF };
+}
+
+/** The grids of the active wrists: the right wrist's, the left wrist's or both, each from genGrid, as plain objects. */
+function genWristGrids(): fc.Arbitrary<WristGrids> {
+  return fc.oneof(
+    genGrid().map((right): WristGrids => ({ right })),
+    genGrid().map((left): WristGrids => ({ left })),
+    fc.record({ left: genGrid(), right: genGrid() }, { noNullPrototype: true }),
+  );
+}
+
+/** One input of the placement properties, as the comment above the section describes. */
+function genPlacementCase(): fc.Arbitrary<PlacementCase> {
+  return fc
+    .record({ base: genMappingParams(), grids: genWristGrids(), fromTransform: fc.boolean() })
+    .chain(({ base, grids, fromTransform }) => {
+      const params: MappingParams = fromTransform
+        ? { ...base, ...computeComfortTransform(grids, base.frameAspect, base.playAspect, TUNING) }
+        : base;
+      const source: CentreSource = fromTransform ? 'computeComfortTransform' : 'genMappingParams';
+      const mapping = makeMapping(params);
+      const valid = activeWrists(grids).flatMap((wrist) => validCells(grids[wrist] ?? EMPTY, TUNING));
+      const anchors: fc.Arbitrary<[CellIndex, number][]> =
+        valid.length === 0
+          ? fc.constant([])
+          : fc.array(fc.tuple(fc.constantFrom(...valid), fc.nat()), { maxLength: ANCHORS_MAX });
+      return fc.tuple(genDemand(params.playAspect), anchors).map(([demand, picks]) => {
+        const slots = [...demand.slots];
+        for (const [cell, at] of picks) {
+          slots.splice(at % (slots.length + 1), 0, mapping.toScreen(cellCentre(cell)));
+        }
+        return { params, source, grids, demand: { ...demand, slots } };
+      });
+    });
+}
+
+// The oracle (design section 10.3), written apart from placement.ts. It must decide a
+// tangent case the way the implementation does, so it takes the ellipse the same way:
+// the centre is toCamera of the slot, the extremes on each axis are toCamera of the slot
+// minus and plus (R, 0) and (0, R), the frame test compares those extreme coordinates
+// themselves with 0 and 1, and each semi-axis is the larger of the two distances from the
+// centre to its extremes. The cell and overlap tests are the same expressions. A semi-axis
+// in closed form, such as R / (g k a), differs from the toCamera one in the last bit for
+// most inputs, and a frame test on the centre plus or minus a semi-axis need not round back
+// to the mapped point; at a tangency either can change the verdict. The rest is its own
+// code: it lists, wrist by wrist, the cells that are not valid and that the ellipse meets,
+// and makes its own pass over the usable slots.
+
+/** The oracle's verdict on one slot: the active wrists whose cells alone cover its disc, right first, and the ellipse. */
+interface OracleVerdict {
+  readonly wrists: readonly WristId[];
+  readonly cx: number;
+  readonly cy: number;
+  readonly rx: number;
+  readonly ry: number;
+}
+
+/** A cell that is not valid, with its closed rectangle as cellRectCamera computes it. */
+interface BlockedCell {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+/** Each active wrist, right first, with the cells of its grid that are not valid. */
+type BlockedByWrist = readonly { readonly wrist: WristId; readonly cells: readonly BlockedCell[] }[];
+
+/** The cells of each active wrist's grid that are not valid: found once for an input, then tested against every slot. */
+function blockedByWrist(grids: WristGrids): BlockedByWrist {
+  return activeWrists(grids).map((wrist) => {
+    const grid = grids[wrist] ?? EMPTY;
+    const cells: BlockedCell[] = [];
+    for (let row = 0; row < grid.rows; row++) {
+      for (let col = 0; col < grid.cols; col++) {
+        if (!isCellValid(grid, col, row, TUNING)) cells.push(cellRectCamera(col, row, TUNING));
+      }
+    }
+    return { wrist, cells };
+  });
+}
+
+/** Whether the closed ellipse meets the cell's closed rectangle (design section 9.2 step 3). */
+function meetsCell({ x0, y0, x1, y1 }: BlockedCell, cx: number, cy: number, rx: number, ry: number): boolean {
+  const u = Math.max(x0 - cx, 0, cx - x1) / rx;
+  const v = Math.max(y0 - cy, 0, cy - y1) / ry;
+  return u * u + v * v <= 1;
+}
+
+/** The oracle's verdict on a slot (Req 14.2, 14.3). */
+function oracleVerdict(slot: Vec2, blocked: BlockedByWrist, mapping: Mapping, r: number, m: number): OracleVerdict {
+  const R = r + m;
+  const centre = mapping.toCamera(slot);
+  const cx = centre.x;
+  const cy = centre.y;
+  const west = mapping.toCamera({ x: slot.x - R, y: slot.y });
+  const east = mapping.toCamera({ x: slot.x + R, y: slot.y });
+  const north = mapping.toCamera({ x: slot.x, y: slot.y - R });
+  const south = mapping.toCamera({ x: slot.x, y: slot.y + R });
+  const xLo = Math.min(west.x, east.x);
+  const xHi = Math.max(west.x, east.x);
+  const yLo = Math.min(north.y, south.y);
+  const yHi = Math.max(north.y, south.y);
+  const rx = Math.max(xHi - cx, cx - xLo);
+  const ry = Math.max(yHi - cy, cy - yLo);
+  const inFrame = xLo >= 0 && xHi <= 1 && yLo >= 0 && yHi <= 1;
+  if (!inFrame) return { wrists: [], cx, cy, rx, ry };
+  const wrists = blocked
+    .filter(({ cells }) => !cells.some((cell) => meetsCell(cell, cx, cy, rx, ry)))
+    .map(({ wrist }) => wrist);
+  return { wrists, cx, cy, rx, ry };
+}
+
+/** What placeTargets must return, from the oracle's verdicts (Req 14.4-14.6). */
+function oracleResult(
+  slots: readonly Vec2[],
+  verdicts: readonly OracleVerdict[],
+  n: number,
+  r: number,
+  m: number,
+): PlacementResult {
+  const reach = r + m;
+  const usable = slots.filter((_, i) => (verdicts[i]?.wrists.length ?? 0) > 0);
+  const chosen: Vec2[] = [];
+  for (const slot of usable) {
+    if (chosen.length === n) break;
+    if (chosen.every((other) => dist(slot, other) > reach + reach)) chosen.push(slot);
+  }
+  if (chosen.length === n) return { kind: 'simultaneous', slots: chosen };
+  if (usable.length === 0) return { kind: 'none' };
+  const targetSlots = Array.from({ length: n }, (_, i) => usable[i % usable.length]).filter(
+    (slot): slot is Vec2 => slot !== undefined,
+  );
+  return { kind: 'sequential', slots: usable, targetSlots };
+}
+
+/** The start of each column and of each row in camera space, as cellRectCamera computes them. */
+const COLUMN_STARTS = Array.from({ length: COLS }, (_, col) => cellRectCamera(col, 0, TUNING).x0);
+const ROW_STARTS = Array.from({ length: ROWS }, (_, row) => cellRectCamera(0, row, TUNING).y0);
+
+/**
+ * The index of the cell that holds v on one axis, for v in 0..1: the last cell that starts
+ * at or before v, so a point on an edge belongs to the cell after it and 1 to the last cell
+ * (Req 11.2).
+ */
+function cellOn(starts: readonly number[], v: number): number {
+  let i = 0;
+  while (i + 1 < starts.length && (starts[i + 1] ?? Infinity) <= v) i++;
+  return i;
+}
+
+/**
+ * The sampled layer (design section 10.3): points on the boundary of the disc of radius
+ * reach around the slot and on a lattice inside it, each mapped with toCamera, that do not
+ * lie in the frame and in a valid cell of the grid. Each is described for the failure
+ * message, with the distance of its cell's closed rectangle from the ellipse's centre in
+ * radii: 1 means tangent. Empty when every point is covered.
+ */
+function uncoveredPoints(slot: Vec2, grid: ComfortGrid, mapping: Mapping, reach: number, verdict: OracleVerdict): string[] {
+  const points: Vec2[] = [];
+  for (let j = 0; j < BOUNDARY_POINTS; j++) {
+    const angle = (FULL_TURN * j) / BOUNDARY_POINTS;
+    points.push({ x: slot.x + reach * Math.cos(angle), y: slot.y + reach * Math.sin(angle) });
+  }
+  const steps = Math.floor(reach / LATTICE_SPACING);
+  for (let i = -steps; i <= steps; i++) {
+    for (let j = -steps; j <= steps; j++) {
+      const p = { x: slot.x + i * LATTICE_SPACING, y: slot.y + j * LATTICE_SPACING };
+      if (dist(p, slot) <= reach) points.push(p);
+    }
+  }
+  const problems: string[] = [];
+  for (const p of points) {
+    const q = mapping.toCamera(p);
+    const at = `point (${p.x}, ${p.y}) of the disc around (${slot.x}, ${slot.y}) maps to (${q.x}, ${q.y})`;
+    if (!(q.x >= 0 && q.x <= 1 && q.y >= 0 && q.y <= 1)) {
+      problems.push(`${at}, outside the frame`);
+      continue;
+    }
+    const col = cellOn(COLUMN_STARTS, q.x);
+    const row = cellOn(ROW_STARTS, q.y);
+    if (isCellValid(grid, col, row, TUNING)) continue;
+    const { x0, y0, x1, y1 } = cellRectCamera(col, row, TUNING);
+    const u = Math.max(x0 - verdict.cx, 0, verdict.cx - x1) / verdict.rx;
+    const v = Math.max(y0 - verdict.cy, 0, verdict.cy - y1) / verdict.ry;
+    problems.push(`${at}, in cell (${col}, ${row}), not valid, ${Math.sqrt(u * u + v * v)} radii from the centre`);
+  }
+  return problems;
+}
+
+/** The slots a result holds: for sequential, its usable slots, which include every target slot. */
+const resultSlots = (result: PlacementResult): readonly Vec2[] => (result.kind === 'none' ? [] : result.slots);
+
+// Req 14.8, with the two layers of design section 10.3. Layer 1: the oracle decides for
+// each slot which wrists cover it, so what isSlotUsable must return, and what placeTargets
+// must return for the demand. Layer 2: every sampled point of the disc of each returned
+// slot maps into the frame and into a valid cell of the wrist isSlotUsable returned. The
+// messages start with "oracle" or "sampled layer", so a failure says which layer found it.
+it('placement_covers_every_point', () => {
+  fc.assert(
+    fc.property(genPlacementCase(), ({ params, grids, demand }) => {
+      const mapping = makeMapping(params);
+      const { slots, n, r, m } = demand;
+      const blocked = blockedByWrist(grids);
+      const verdicts = slots.map((slot) => oracleVerdict(slot, blocked, mapping, r, m));
+      const wrists = slots.map((slot) => isSlotUsable(slot, grids, mapping, r, m, TUNING));
+      expect(wrists, 'oracle: isSlotUsable').toEqual(verdicts.map((verdict) => verdict.wrists[0] ?? null));
+      const result = placeTargets(demand, grids, mapping, TUNING);
+      const expected = oracleResult(slots, verdicts, n, r, m);
+      expect(result, 'oracle: placeTargets').toEqual(expected);
+      const expectedSlots = [...resultSlots(expected), ...(expected.kind === 'sequential' ? expected.targetSlots : [])];
+      [...resultSlots(result), ...(result.kind === 'sequential' ? result.targetSlots : [])].forEach((slot, i) =>
+        expect(slot, 'oracle: the caller slot objects').toBe(expectedSlots[i]),
+      );
+      const discRadius = demand.r + demand.m;
+      const problems = resultSlots(result).flatMap((slot) => {
+        const i = slots.indexOf(slot);
+        const wrist = wrists[i] ?? null;
+        const grid = wrist === null ? undefined : grids[wrist];
+        const verdict = verdicts[i];
+        if (grid === undefined || verdict === undefined) return [`slot (${slot.x}, ${slot.y}) has no wrist`];
+        return uncoveredPoints(slot, grid, mapping, discRadius, verdict);
+      });
+      expect(problems, 'sampled layer').toEqual([]);
+    }),
+    // includeErrorInReport puts the error that failed the property into fast-check's report,
+    // so the report says whether the oracle or the sampled layer found the failure.
+    { numRuns: PLACEMENT_RUNS, includeErrorInReport: true },
+  );
+}, PROPERTY_TIMEOUT_MS);
+
+/** An input of placement_monotone_in_cells: a placement input, and one active wrist's grid after promote or demote. */
+interface MonotoneCase extends PlacementCase {
+  readonly wrist: WristId;
+  readonly grow: boolean;
+  readonly after: ComfortGrid;
+}
+
+/** The most cells a targeted promotion changes in one grid. A test parameter. */
+const TARGETED_CELLS_MAX = 4;
+/**
+ * How often a monotone input changes cells next to its slots, against promote and demote of
+ * testgen.ts, which choose their cells over the whole grid: 3 to 1. A test parameter.
+ */
+const TARGETED_WEIGHT = 3;
+
+/**
+ * The cells whose columns and rows the disc of the given radius around the slot covers in
+ * camera space, from the camera x and y of its four mapped extreme points. Those are the
+ * cells the disc can meet, and so the only ones whose change can change the slot's verdict.
+ */
+function cellsAround(slot: Vec2, mapping: Mapping, reach: number): CellIndex[] {
+  const west = mapping.toCamera({ x: slot.x - reach, y: slot.y });
+  const east = mapping.toCamera({ x: slot.x + reach, y: slot.y });
+  const north = mapping.toCamera({ x: slot.x, y: slot.y - reach });
+  const south = mapping.toCamera({ x: slot.x, y: slot.y + reach });
+  const col0 = cellOn(COLUMN_STARTS, Math.min(west.x, east.x));
+  const col1 = cellOn(COLUMN_STARTS, Math.max(west.x, east.x));
+  const row0 = cellOn(ROW_STARTS, Math.min(north.y, south.y));
+  const row1 = cellOn(ROW_STARTS, Math.max(north.y, south.y));
+  const cells: CellIndex[] = [];
+  for (let row = row0; row <= row1; row++) {
+    for (let col = col0; col <= col1; col++) cells.push({ col, row });
+  }
+  return cells;
+}
+
+/** The cells around any of the input's slots, each once. */
+function cellsAroundSlots({ params, demand }: PlacementCase): CellIndex[] {
+  const mapping = makeMapping(params);
+  const reach = demand.r + demand.m;
+  const seen = new Set<number>();
+  const cells: CellIndex[] = [];
+  for (const slot of demand.slots) {
+    for (const cell of cellsAround(slot, mapping, reach)) {
+      const key = cell.row * COLS + cell.col;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cells.push(cell);
+    }
+  }
+  return cells;
+}
+
+/**
+ * One active wrist's grid after a change. Generic: promote or demote of testgen.ts, which
+ * choose their cells over the whole grid, so they seldom reach a cell inside a usable
+ * slot's disc. Targeted: from the cells around the input's slots only, where Req 14.9 can
+ * be broken. A targeted promotion adds 1 to cellValidSamples samples to each of 1 to
+ * TARGETED_CELLS_MAX of them, so a cell with exactly cellValidSamples samples can go past
+ * it; a targeted demotion leaves one valid cell of them with 0 to cellValidSamples - 1
+ * samples, and falls back to demote when none of them is valid. genGrid never marks a grid
+ * all-valid, and these inputs use no other grids, so demote, which refuses a grid marked
+ * all-valid, never throws here.
+ */
+function genChangedGrid(input: PlacementCase, wrist: WristId, grow: boolean, targeted: boolean): fc.Arbitrary<ComfortGrid> {
+  const grid = input.grids[wrist] ?? EMPTY;
+  if (!targeted) return grow ? promote(grid) : demote(grid);
+  const around = cellsAroundSlots(input);
+  if (grow) {
+    const addition = fc.tuple(fc.constantFrom(...around), fc.integer({ min: 1, max: NEEDED }));
+    return fc.array(addition, { minLength: 1, maxLength: TARGETED_CELLS_MAX }).map((additions) => {
+      let result = grid;
+      for (const [cell, samples] of additions) {
+        for (let i = 0; i < samples; i++) result = addSample(result, cellCentre(cell));
+      }
+      return result;
+    });
+  }
+  const valid = around.filter(({ col, row }) => isCellValid(grid, col, row, TUNING));
+  if (valid.length === 0) return demote(grid);
+  return fc
+    .tuple(fc.constantFrom(...valid), fc.integer({ min: 0, max: NEEDED - 1 }))
+    .map(([cell, samples]) => ({
+      ...grid,
+      counts: grid.counts.map((count, i) => (i === cell.row * COLS + cell.col ? samples : count)),
+    }));
+}
+
+/** A placement input with one active wrist's grid after a generic or a targeted change (genChangedGrid), promote or demote. */
+function genMonotoneCase(): fc.Arbitrary<MonotoneCase> {
+  return genPlacementCase().chain((input) =>
+    fc
+      .tuple(
+        fc.constantFrom(...activeWrists(input.grids)),
+        fc.boolean(),
+        fc.oneof({ arbitrary: fc.constant(false), weight: 1 }, { arbitrary: fc.constant(true), weight: TARGETED_WEIGHT }),
+      )
+      .chain(([wrist, grow, targeted]) =>
+        genChangedGrid(input, wrist, grow, targeted).map((after) => ({ ...input, wrist, grow, after })),
+      ),
+  );
+}
+
+// Req 14.9: promote never makes a usable slot unusable, and demote never makes an
+// unusable slot usable. The mapping's gain and centre come from the grids before the
+// change and stay fixed (design section 10.3): recomputed, they would move the mapping.
+// Usability is compared as true or false, because the wrist can change, for example from
+// left to right once the right wrist's grid is promoted.
+it('placement_monotone_in_cells', () => {
+  fc.assert(
+    fc.property(genMonotoneCase(), ({ params, grids, demand, wrist, grow, after }) => {
+      const mapping = makeMapping(params);
+      const changed: WristGrids = { ...grids, [wrist]: after };
+      for (const slot of demand.slots) {
+        const before = isSlotUsable(slot, grids, mapping, demand.r, demand.m, TUNING) !== null;
+        const now = isSlotUsable(slot, changed, mapping, demand.r, demand.m, TUNING) !== null;
+        if (grow) expect(before && !now, 'promote made a usable slot unusable').toBe(false);
+        else expect(!before && now, 'demote made an unusable slot usable').toBe(false);
+      }
+    }),
+    { numRuns: PLACEMENT_RUNS, includeErrorInReport: true },
+  );
+}, PROPERTY_TIMEOUT_MS);
+
+// Req 14.10: in every simultaneous result the n expanded circles are pairwise disjoint.
+// Hit circles are closed (Req 17.3), so disjoint means more than 2(r + m) apart.
+it('placement_simultaneous_disjoint', () => {
+  fc.assert(
+    fc.property(genPlacementCase(), ({ params, grids, demand }) => {
+      const result = placeTargets(demand, grids, makeMapping(params), TUNING);
+      if (result.kind !== 'simultaneous') return;
+      expect(result.slots).toHaveLength(demand.n);
+      const expanded = demand.r + demand.m;
+      result.slots.forEach((a, i) => {
+        for (const b of result.slots.slice(i + 1)) expect(dist(a, b)).toBeGreaterThan(expanded + expanded);
+      });
+    }),
+    { numRuns: PLACEMENT_RUNS, includeErrorInReport: true },
+  );
+}, PROPERTY_TIMEOUT_MS);
+
+// A property is only as strong as its inputs. These are drawn as for the properties, from
+// a fixed seed, so the check is the same on every run.
+// For placement_monotone_in_cells, each half needs inputs of its own kind, and the change
+// has to reach a cell inside the disc of the slot it is tested on, because only such a
+// change can break Req 14.9: promote on a usable slot, demote on a usable and on an
+// unusable one. With promote and demote of testgen.ts alone, which choose their cells over
+// the whole grid, few changes reached a usable slot's disc; a mutation that made a cell
+// with more than cellValidSamples samples count as not valid then failed this property in
+// about one run in four.
+it('the placement inputs reach a centre from computeComfortTransform outside the play area, every result from each source, simultaneous with n of 2 or more, sequential with more targets than usable slots, a promote and a demote that change a cell inside the disc of a usable slot, a demote that does so for an unusable slot, and a demote that makes a usable slot unusable', () => {
+  const cases = fc.sample(genPlacementCase(), SAMPLE);
+  const outcomes = cases.map((input) => {
+    const result = placeTargets(input.demand, input.grids, makeMapping(input.params), TUNING);
+    const { centre, playAspect } = input.params;
+    return {
+      source: input.source,
+      kind: result.kind,
+      n: input.demand.n,
+      usable: result.kind === 'sequential' ? result.slots.length : 0,
+      centreOutside: centre.x < 0 || centre.x > playAspect || centre.y < 0 || centre.y > 1,
+    };
+  });
+  const reached = (source: CentreSource, kind: PlacementResult['kind']): boolean =>
+    outcomes.some((o) => o.source === source && o.kind === kind);
+  const changes = fc.sample(genMonotoneCase(), SAMPLE).flatMap((input) => {
+    const mapping = makeMapping(input.params);
+    const changed: WristGrids = { ...input.grids, [input.wrist]: input.after };
+    const { r, m } = input.demand;
+    const was = input.grids[input.wrist] ?? EMPTY;
+    const touched = new Set(input.after.counts.flatMap((count, i) => (count === was.counts[i] ? [] : [i])));
+    return input.demand.slots.map((slot) => ({
+      grow: input.grow,
+      before: isSlotUsable(slot, input.grids, mapping, r, m, TUNING) !== null,
+      now: isSlotUsable(slot, changed, mapping, r, m, TUNING) !== null,
+      inDisc: cellsAround(slot, mapping, r + m).some(({ col, row }) => touched.has(row * COLS + col)),
+    }));
+  });
+  expect({
+    transformCentreOutside: outcomes.some((o) => o.source === 'computeComfortTransform' && o.centreOutside),
+    paramsSimultaneous: reached('genMappingParams', 'simultaneous'),
+    paramsSequential: reached('genMappingParams', 'sequential'),
+    paramsNone: reached('genMappingParams', 'none'),
+    transformSimultaneous: reached('computeComfortTransform', 'simultaneous'),
+    transformSequential: reached('computeComfortTransform', 'sequential'),
+    transformNone: reached('computeComfortTransform', 'none'),
+    simultaneousSeveral: outcomes.some((o) => o.kind === 'simultaneous' && o.n >= 2),
+    sequentialWrapping: outcomes.some((o) => o.kind === 'sequential' && o.n > o.usable),
+    promoteInUsableDisc: changes.some((c) => c.grow && c.before && c.inDisc),
+    demoteInUsableDisc: changes.some((c) => !c.grow && c.before && c.inDisc),
+    demoteInUnusableDisc: changes.some((c) => !c.grow && !c.before && c.inDisc),
+    demoteMadeUnusable: changes.some((c) => !c.grow && c.before && !c.now),
+  }).toEqual({
+    transformCentreOutside: true,
+    paramsSimultaneous: true,
+    paramsSequential: true,
+    paramsNone: true,
+    transformSimultaneous: true,
+    transformSequential: true,
+    transformNone: true,
+    simultaneousSeveral: true,
+    sequentialWrapping: true,
+    promoteInUsableDisc: true,
+    demoteInUsableDisc: true,
+    demoteInUnusableDisc: true,
+    demoteMadeUnusable: true,
+  });
+}, PROPERTY_TIMEOUT_MS);
+
+// Regression: seed 29, input 340 of placement_covers_every_point's inputs (found while
+// checking those inputs over 120 seeds; recorded in docs/bugs-found.md). The numbers
+// below are that input exactly: the mapping, the left wrist's grid as (column, row,
+// samples) of every cell that holds a sample, and the demand.
+//
+// Slot 3 is the centre of cell (3, 22) mapped to screen. Its disc has a mapped extreme at
+// camera x = 0.15625, exactly the edge x = 5 / 32 of cell (5, 22), which holds no sample.
+// The centre is 0.10937499999999989 and the extreme on the other side is 0.0625, so the
+// distances from the centre to its extremes are 0.04687499999999989 and
+// 0.04687500000000011, one ULP apart. placement.ts took the semi-axis from the +R side
+// only, so the gap of 0.04687500000000011 to cell (5, 22) came to 1.0000000000000047
+// radii, the cell was not met, and the slot was accepted. The disc's point at the extreme
+// lies on the cell's edge, which belongs to the cell: a point of an accepted disc in a
+// cell that is not valid, against Req 14.2. The fix takes each semi-axis as the larger of
+// the two distances, so the gap is at most 1 radius and the cell is met.
+const REGRESSION_MAPPING: MappingParams = {
+  playAspect: 2.4,
+  frameAspect: 1.0161218350811259,
+  gain: 1.6,
+  centre: { x: 1e-323, y: 1 },
+};
+/** Column, row and samples of each cell of the left grid that holds a sample. */
+const REGRESSION_LEFT_CELLS: readonly (readonly [number, number, number])[] = [
+  [1, 5, 2], [15, 9, 6], [16, 9, 6], [17, 9, 6], [18, 9, 6], [19, 9, 6], [20, 9, 6], [21, 9, 6],
+  [1, 20, 7], [2, 20, 7], [3, 20, 7], [4, 20, 7], [1, 21, 7], [2, 21, 7], [3, 21, 7], [4, 21, 7],
+  [10, 21, 6], [11, 21, 6], [1, 22, 7], [2, 22, 7], [3, 22, 7], [4, 22, 7], [10, 22, 6], [11, 22, 6],
+  [1, 23, 7], [2, 23, 7], [3, 23, 7], [4, 23, 7], [5, 23, 1], [10, 23, 6], [11, 23, 6],
+];
+const REGRESSION_DEMAND: Demand = {
+  slots: [
+    { x: 0.3257823742580179, y: 0 },
+    { x: 1.26, y: -0.193653581873934 },
+    { x: 0.4769252685336323, y: 0.9974214984079752 },
+    { x: 3.4200000000000004, y: 1.8533450438705228 },
+    { x: 1.4409462904479904, y: 1 },
+    { x: 3.66, y: 2.010806476620097 },
+  ],
+  n: 1,
+  r: 0.13,
+  m: 0.05,
+};
+
+it('regression: a slot whose disc has a mapped extreme exactly on the edge of a cell that is not valid is unusable, though the semi-axis from the +R side is one ULP short (seed 29, input 340)', () => {
+  const mapping = makeMapping(REGRESSION_MAPPING);
+  const counts = [...EMPTY.counts];
+  for (const [col, row, samples] of REGRESSION_LEFT_CELLS) counts[row * COLS + col] = samples;
+  const left: ComfortGrid = { ...EMPTY, counts };
+  const grids: WristGrids = { left };
+  const { r, m } = REGRESSION_DEMAND;
+  const slot = REGRESSION_DEMAND.slots[3] ?? { x: NaN, y: NaN };
+  const reach = r + m;
+
+  // The construction is as described above. Cell (5, 22) is not valid, the cells around the
+  // slot's centre cell (3, 22) are, and the extreme lies exactly on the edge of cell (5, 22).
+  const edge = cellRectCamera(5, 22, TUNING).x0;
+  const centre = mapping.toCamera(slot);
+  const west = mapping.toCamera({ x: slot.x - reach, y: slot.y });
+  const east = mapping.toCamera({ x: slot.x + reach, y: slot.y });
+  expect(isCellValid(left, 5, 22, TUNING)).toBe(false);
+  expect(cellsOf(centre).map(({ col, row }) => [col, row])).toEqual([[3, 22]]);
+  expect(isCellValid(left, 3, 22, TUNING)).toBe(true);
+  expect(west.x).toBe(edge);
+  expect(centre.x - east.x).toBeLessThan(west.x - centre.x);
+  // The point of the disc at that extreme maps onto the edge, so it lies in cell (5, 22).
+  expect(cellsOf(mapping.toCamera({ x: slot.x - reach, y: slot.y })).map(({ col, row }) => [col, row])).toEqual([
+    [5, 22],
+  ]);
+
+  expect(isSlotUsable(slot, grids, mapping, r, m, TUNING)).toBeNull();
+  // The other five slots are unusable as well, so the demand has no usable slot.
+  expect(placeTargets(REGRESSION_DEMAND, grids, mapping, TUNING)).toEqual({ kind: 'none' });
+});
+
+// Regression, the same defect on the y axis. Found by searching for the case of the one
+// above on y after the fix: a mutation that took only ry from the +R side survived every
+// other test, because random inputs seldom give a gap that falls between the two distances.
+// The mapping has gain reachGainMax, and the disc has radius hitRadiusMax + MARGIN_MAX
+// (0.18). Cell (16, 12), the middle cell, is the only one that is not valid. It lies above
+// the disc: the slot's camera centre is 0.6335787785319612, the cell's edge at
+// y = 13 / 24 is 0.5416666666666666, and the gap between them, 0.09191211186529458, falls
+// between the distance to the extreme on the +R side, 0.09191211186529447, and the one on
+// the -R side, 0.09191211186529469. The -R extreme maps to y = 0.5416666666666665, inside
+// cell (16, 12). A semi-axis from the +R side alone would put the cell 1.000000000000001
+// radii away and accept the slot; the larger of the two puts it 0.9999999999999988 away.
+const Y_REGRESSION_MAPPING: MappingParams = {
+  playAspect: 1.2239953768539125,
+  frameAspect: 1.0000000000000027,
+  gain: TUNING.reachGainMax,
+  centre: { x: 0, y: 0.9999999999999981 },
+};
+const Y_REGRESSION_SLOT: Vec2 = { x: 0.9485964170617822, y: 0.4615996917902612 };
+
+it('regression: a non-valid cell above the disc, whose gap falls between the two distances to the extremes on y, makes the slot unusable', () => {
+  const mapping = makeMapping(Y_REGRESSION_MAPPING);
+  const grids: WristGrids = { right: allValidExcept(MIDDLE) };
+  const r = TUNING.hitRadiusMax;
+  const m = MARGIN_MAX;
+  const reach = r + m;
+  const centre = mapping.toCamera(Y_REGRESSION_SLOT);
+  const north = mapping.toCamera({ x: Y_REGRESSION_SLOT.x, y: Y_REGRESSION_SLOT.y - reach });
+  const south = mapping.toCamera({ x: Y_REGRESSION_SLOT.x, y: Y_REGRESSION_SLOT.y + reach });
+  const gap = centre.y - MIDDLE_RECT.y1;
+
+  // The construction is as described above.
+  expect(gap).toBeGreaterThan(south.y - centre.y);
+  expect(gap).toBeLessThanOrEqual(centre.y - north.y);
+  expect(cellsOf(north).map(({ col, row }) => [col, row])).toEqual([[MIDDLE.col, MIDDLE.row]]);
+  expect(cellsOf(centre).map(({ col }) => col)).toEqual([MIDDLE.col]);
+
+  expect(isSlotUsable(Y_REGRESSION_SLOT, grids, mapping, r, m, TUNING)).toBeNull();
 });
 
 describe('marrow/core', () => {

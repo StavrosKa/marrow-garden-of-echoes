@@ -7,13 +7,19 @@
 // point inside the frame lies in some half-open cell (Req 11.2), whose closed rectangle
 // holds it, so such a disc lies in the wrist's valid cells (Req 14.8). The test:
 //   1. The mapping is affine with a diagonal Jacobian, so the disc maps to an
-//      axis-aligned ellipse. Its centre is toCamera(slot), and its semi-axes are how far
-//      toCamera moves the points R along x and R along y from the slot. Mapping has only
-//      toScreen and toCamera, and they are all this needs. Dividing x by the x semi-axis
-//      and y by the y semi-axis makes the ellipse the unit circle, and the cells stay
-//      axis-aligned rectangles.
-//   2. The frame is closed: the ellipse leaves it only if one of its points lies strictly
+//      axis-aligned ellipse. Its centre is toCamera(slot). Its extremes on each axis are
+//      the mapped points toCamera(slot -+ (R, 0)) and toCamera(slot -+ (0, R)), which
+//      this file uses as they are, never as centre -+ semi-axis: that sum need not round
+//      back to the mapped point. The semi-axis on each axis is the larger of the two
+//      distances from the centre to those extremes. Mapping has only toScreen and
+//      toCamera, and they are all this needs. Dividing x by the x semi-axis and y by the
+//      y semi-axis makes the ellipse the unit circle, and the cells stay axis-aligned
+//      rectangles.
+//   2. The frame is closed: the disc leaves it only if one of its points lies strictly
 //      outside [0, 1]², so x = 1 and y = 1 are inside, as for a valid landmark (Req 2.5).
+//      Every point of the disc maps between the extremes, because toCamera is monotone
+//      on each axis in floating point, so the frame test compares the four extreme
+//      coordinates themselves with 0 and 1.
 //   3. A cell counts when the distance from the centre to the cell's closed rectangle, in
 //      those rescaled units, is at most 1. A half-open cell holds its edges at
 //      x = col / cols and y = row / rows, so a disc tangent to one of them from outside
@@ -89,34 +95,54 @@ const UNIT_RADIUS = 1;
 interface CameraEllipse {
   readonly cx: number;
   readonly cy: number;
-  /** The semi-axis along x, in camera units. */
+  /** The smallest and largest camera x of the disc: the coordinates of its mapped extreme points. */
+  readonly xLo: number;
+  readonly xHi: number;
+  /** The smallest and largest camera y of the disc: the coordinates of its mapped extreme points. */
+  readonly yLo: number;
+  readonly yHi: number;
+  /**
+   * The semi-axis along x, in camera units: the larger of the distances from the centre to
+   * xLo and to xHi. Both are at most this, so no cell the disc meets is missed, and a
+   * cell edge at either extreme is at a distance of at most 1 rescaled unit.
+   */
   readonly rx: number;
-  /** The semi-axis along y, in camera units. */
+  /** The semi-axis along y, in camera units: the larger of the distances from the centre to yLo and to yHi. */
   readonly ry: number;
 }
 
 /** The closed screen disc of the given radius around the slot, mapped to camera space with toCamera. */
 function cameraEllipse(slot: Vec2, mapping: Mapping, radius: number): CameraEllipse {
   const centre = mapping.toCamera(slot);
-  const alongX = mapping.toCamera({ x: slot.x + radius, y: slot.y });
-  const alongY = mapping.toCamera({ x: slot.x, y: slot.y + radius });
+  const left = mapping.toCamera({ x: slot.x - radius, y: slot.y });
+  const right = mapping.toCamera({ x: slot.x + radius, y: slot.y });
+  const above = mapping.toCamera({ x: slot.x, y: slot.y - radius });
+  const below = mapping.toCamera({ x: slot.x, y: slot.y + radius });
+  // The mapping mirrors x, so the point to the right of the slot has the smaller camera x.
+  const xLo = Math.min(left.x, right.x);
+  const xHi = Math.max(left.x, right.x);
+  const yLo = Math.min(above.y, below.y);
+  const yHi = Math.max(above.y, below.y);
   return {
     cx: centre.x,
     cy: centre.y,
-    rx: Math.abs(alongX.x - centre.x),
-    ry: Math.abs(alongY.y - centre.y),
+    xLo,
+    xHi,
+    yLo,
+    yHi,
+    rx: Math.max(xHi - centre.x, centre.x - xLo),
+    ry: Math.max(yHi - centre.y, centre.y - yLo),
   };
 }
 
 /**
- * Whether the ellipse lies inside the closed frame [0, 1]² (design section 9.2 step 2).
- * It leaves the frame only if a point lies strictly outside, so an ellipse that touches
- * x = 0, x = 1, y = 0 or y = 1 from inside is still in the frame. NaN gives false.
+ * Whether the disc lies inside the closed frame [0, 1]² (design section 9.2 step 2). It
+ * leaves the frame only if a point lies strictly outside, so a disc that touches x = 0,
+ * x = 1, y = 0 or y = 1 from inside is still in the frame. The mapped extreme points are
+ * compared with the edges themselves. NaN gives false.
  */
-function inFrame({ cx, cy, rx, ry }: CameraEllipse): boolean {
-  return (
-    cx - rx >= FRAME_MIN && cx + rx <= FRAME_MAX && cy - ry >= FRAME_MIN && cy + ry <= FRAME_MAX
-  );
+function inFrame({ xLo, xHi, yLo, yHi }: CameraEllipse): boolean {
+  return xLo >= FRAME_MIN && xHi <= FRAME_MAX && yLo >= FRAME_MIN && yHi <= FRAME_MAX;
 }
 
 /**
