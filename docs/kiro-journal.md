@@ -324,3 +324,79 @@ Entries are appended. Earlier entries are never rewritten.
   - The first run of the mutation check. Kiro passed the whole script as one multi-line command. The tool returned after the first line, with exit code 0 and no results, while the script went on running in the background. A search for the mutated strings found none, but a moment later `reachGain.ts` differed from the copy the script had taken at its start, a diff showed edit 3 in the file, and a vitest process for `reachGain.test.ts` was still running. Kiro copied the script's start-of-run copies of both files to a second folder outside the repository and waited until the background run had deleted its own folder, which it does only at its end, after its `finally` blocks. Both files then had the same SHA-256 as the saved copies, and a search found none of the mutated strings. The results of that run were never seen. Kiro then ran the check again as a script file with `powershell -File`, which returned only when it had finished; the results above are from that run. Afterwards both files again matched the saved copies, and the script, its results file and both folders were deleted.
   - Found by Kiro and reported, not changed: `computeComfortTransform` can return a centre outside the play area. When A and a differ, the base mapping puts part of the camera image outside the play area, and if every valid cell lies there, so does the mean of their centres. With A = 16/9 and a = 4/3, the cells of rows 0-2 and 21-23 have their centres above and below it. `genMappingParams` draws centres only inside the play area, so `mapping_roundtrip` and the other mapping properties never see such a centre, and neither would the placement properties of task 7.2 if they draw the centre from it.
 - Evidence: `npm run typecheck`, `npm run lint` and `npm test` pass (16 test files, 222 tests; 209 before this task). Committed with this entry as "Add comfort centre and reach gain" and pushed.
+
+## 2026-11-17 - marrow-input task 7.1: slot usability and placement
+
+- Kiro feature used: spec, task 7.1 of `marrow-input` (model: Claude Opus 5.5)
+- What was built:
+  - As I asked, before its first edit Kiro replied with the files it would touch and the steering rules that apply, its check of design section 9.2 step 3, how `isSlotUsable` gets the camera-space ellipse, and the comparison `placeTargets` uses for overlap, and then stopped until I answered. Before my answer it only read files and ran a throwaway script outside the repository, since deleted.
+  - The design gap. I suspected that the strict predicate of design section 9.2 step 3 (a cell counts iff the distance from the circle centre to its half-open rectangle is strictly less than the radius) misses a disc tangent from outside to a cell's lower x edge or lower y edge, which belong to the cell. Kiro confirmed it with a worked example in binary fractions, which are exact in floating point. Setup: the shipped 32 x 24 grid, A = a = 1, gain 1 and centre (0.5, 0.5), so toCamera(s) = (1 - s.x, s.y), and r + m = 3/32. The slot (0.59375, 0.515625) has its camera-space circle centred at (0.40625, 0.515625). Cell (16, 12) is [0.5, 0.53125) x [0.5, 13/24). Its nearest point to the centre, (0.5, 0.515625), belongs to it and lies exactly 0.09375 away, so the strict test does not count the cell. That point maps to screen (0.5, 0.515625), exactly r + m from the slot, and `addSample` puts it in cell (16, 12). With every cell of the right wrist valid except (16, 12), the strict design called the slot usable, against Req 14.2.
+  - Kiro checked the example with a script, outside the repository, that ran the repository's own `makeMapping`, `cellRectCamera` and `addSample`. The strict test counted 30 cells and the closed test 32. The two extra cells were (16, 12), correctly, and (9, 12), whose open edge x = 0.3125 the disc touches at a point of cell (10, 12): the conservative case. The script found the same miss at a cell's lower y edge, with the slot (0.484375, 0.40625).
+  - The fix, as I proposed it: a cell counts when the distance from the circle centre to its closed rectangle is at most the radius. Kiro pointed out that Req 14.2 said "if and only if", so the closed test would reject slots that 14.2 called usable, and offered three options. I chose to reword Req 14.2.
+  - Kiro also found that `isSlotUsable(slot, grids, mapping, r, m)` had no tuning argument. A cell's validity needs `cellValidSamples`, which the grid does not store (the task 6.1 decision), and `cellRectCamera` takes the grid size from a tuning. I approved `tuning` as the last parameter.
+  - Spec changes, approved in chat before the edits:
+    - Req 14.2, in my wording: a slot is usable iff there is one active wrist such that every screen point within r + m of the slot, converted with the inverse Mapping, lies inside the camera frame and in no closed rectangle [col / cols, (col + 1) / cols] x [row / rows, (row + 1) / rows] of a cell of that wrist that is not valid. A point inside the frame lies in some half-open cell, whose closed rectangle contains it, so this still implies that every point is in a valid cell, which 14.8 checks. Req 14.8 and 14.9 are unchanged.
+    - Design section 1: `isSlotUsable(slot, grids, mapping, r, m, tuning)`.
+    - Design section 9.2, which now says:
+      - the ellipse comes from `toCamera`: its centre is `toCamera(slot)`, and its semi-axes come from `toCamera` of the slot plus (r + m, 0) and plus (0, r + m);
+      - the frame is closed: the disc leaves it only if a point lies strictly outside [0, 1]², so x = 1 and y = 1 are inside;
+      - the cell test is closed, and conservative at a cell's open edge;
+      - hit circles are closed (Req 17.3), so a slot is chosen only if its distance to every chosen slot is strictly greater than 2(r + m).
+      Its first sentence follows the new Req 14.2.
+    - Design section 10.3: the oracle uses the same closed predicate and the closed frame test.
+    - tasks.md: the 7.1 line names the tuning parameter and the closed test, and the 7.2 line says "the same closed predicate".
+  - `packages/marrow/src/core/placement.ts`:
+    - `Demand` is `{ slots, n, r, m }`.
+    - `PlacementResult` is one of three kinds. `simultaneous` holds the n chosen slots. `sequential` holds all k usable slots and `targetSlots`, n entries with target i at usable slot i mod k. `none` holds nothing. The slots are the caller's own objects, in the caller's order.
+    - `isSlotUsable(slot, grids, mapping, r, m, tuning)` maps the disc with `toCamera` as in section 9.2 and applies the closed frame test. It then tests every cell of each active wrist's grid with the closed predicate (dx / rx)² + (dy / ry)² <= 1. It does not use a range of cells from floor(), because such a range can miss the neighbour that the closed test counts at an exact tangency.
+    - Right is tried first, so a slot both wrists cover gives 'right'. The comment says this follows the tie rule of Req 17.4.
+    - `placeTargets(demand, grids, mapping, tuning)` makes one pass in caller order. It chooses a usable slot when its distance to every chosen slot is greater than (r + m) + (r + m), and stops at n.
+    - r + m > 0 is documented as the caller's precondition. The frame and overlap tests are written as comparisons that must hold, so NaN makes a slot unusable or overlapping.
+  - `marrow/core` now also exports `placeTargets`, `isSlotUsable`, `Demand` and `PlacementResult`.
+  - Tests: 20 in `placement.test.ts`, on hand-built grids. The grid size, `cellValidSamples` and r come from TUNING or from the tuning argument. The rest are named test parameters: two mappings (A = a = 1 at gain 1 for the exact tests, and A = 16/9, a = 4/3 at the middle of the gain range for the others), the margin 0.03, the step 1/64 and the fractions.
+    - From the task's list:
+      - a slot covered only by the two wrists together is unusable;
+      - overlapping slots are skipped;
+      - `sequential` lists every usable slot in caller order, including one the pass skipped, and target i is in usable slot i mod k (5 targets, 3 usable slots);
+      - `none` with no valid cell, with no active wrist, with every disc out of the frame, and with no slots;
+      - discs that leave the frame are unusable;
+      - the grids, the demand and a mutable copy of the tuning are deep-equal before and after.
+    - Extras that I approved:
+      - Tangency to a non-valid cell at its edges x = col / cols and y = row / rows gives unusable, and so does tangency at its open edges x = (col + 1) / cols and y = (row + 1) / rows (the conservative case). Each test first asserts that its construction is exactly tangent: r + m is exactly 3/32, `toCamera` gives the centre back, both semi-axes are exactly 3/32, the cell lies exactly 3/32 away along one axis, and `addSample` puts the touching point in the expected cell.
+      - Discs touching x = 0, x = 1, y = 0 and y = 1 from inside are usable, and 1/64 further out they are not.
+      - Two slots exactly 2(r + m) apart overlap, and 1/64 further apart they do not.
+      - A skipped slot blocks no later slot, and the pass stops at n.
+      - A slot is usable with the hit radius alone but not with the margin.
+      - Both semi-axes are used. At a = 4/3, a non-valid cell at a distance between the two semi-axes is met along y and missed along x, and a corner of the bounding box outside the ellipse is missed.
+      - `cellValidSamples` comes from the tuning argument, the right wrist is returned in each case, and the barrel exports the four names.
+  - Check that the tests can fail. Kiro wrote a script file outside the repository and ran it with `powershell -File`, so the tool returned only when the script had finished. The script copied `placement.ts` and `placement.test.ts` to a folder outside the repository, recorded their SHA-256, and ran the tests once unchanged: 0 of 20 failed. Then, for each of 24 edits, it checked that every replaced string occurred exactly once, wrote the edited `placement.ts`, ran vitest on `placement.test.ts` with the JSON reporter and a 120 s limit, and restored the file from the copy in a `finally` block. Every edit made at least one test fail, and none timed out:
+    1. the cell test strict (< instead of <=): the four tangency tests;
+    2. the distance to the rectangle without the 0 clamp: the four tangency tests;
+    3. the bounding box instead of the ellipse: the semi-axes test;
+    4. the y semi-axis taken equal to the x semi-axis: the semi-axes test;
+    5. the x semi-axis taken equal to the y semi-axis: the semi-axes test;
+    6. to 9. the frame open at x = 0, x = 1, y = 0 or y = 1: the frame-edge test for that edge;
+    10. no frame test: 8 tests;
+    11. `isSlotUsable` ignoring the margin: the margin test, the four tangency tests and the semi-axes test;
+    12. the right wrist given the samples of both wrists: the two-wrists test;
+    13. the left wrist tried first: the wrist test;
+    14. `cellValidSamples` read from `TUNING`: the tuning-argument test;
+    15. a write to each grid it reads (the all-valid mark cleared): 17 tests, among them the inputs-unchanged test;
+    16. overlap with >= instead of >: the 2(r + m) test;
+    17. overlap with 2r instead of 2(r + m): the skip test and the 2(r + m) test;
+    18. a skipped slot blocking later ones: the skip test;
+    19. the pass not stopping at n: 5 tests;
+    20. `placeTargets` dropping the margin for usability: the margin test;
+    21. `sequential` listing only the chosen slots: the sequential test and the 2(r + m) test;
+    22. target i at usable slot min(i, k - 1): the sequential test;
+    23. target i at chosen slot i mod (the number chosen): the sequential test and the 2(r + m) test;
+    24. no `none`, an empty `sequential` instead: 4 tests.
+    Afterwards both files matched their recorded SHA-256, a case-sensitive search found none of the mutated strings in `placement.ts`, no vitest process was running, and the folder with the script and the copies was deleted.
+  - Task 7.1 is ticked in tasks.md. Task 7 stays open for 7.2.
+- What Kiro got wrong or I changed, and why:
+  - The strict predicate of design section 9.2 (above) was a spec defect. I found it before any code existed, and Kiro confirmed it with numbers. No code ever had it, so there is no entry in `docs/bugs-found.md`.
+  - The signature in design section 1 and tasks.md lacked the tuning argument (above).
+  - For Req 14.2 I replaced Kiro's proposed wording with mine, which does not name `cellRectCamera`, because requirements.md names none of the engine's functions. Kiro's report noted that my wording used cols and rows, which requirements.md does not define, while Req 11.2 writes 32 and 24, so before the push I changed the closed rectangle in Req 14.2 to [col / 32, (col + 1) / 32] x [row / 24, (row + 1) / 24].
+  - A check of the line endings of `placement.ts` used a relative path in a .NET call. .NET resolved it against the process folder, the workspace root `.kiro/steering`, not the PowerShell location, so the call failed. Nothing was written. The mutation script uses absolute paths for that reason.
+  - Kiro passed its cleanup command after the mutation check as several lines. The tool returned after the first statement with no results, but the rest ran anyway, including deleting the folder with the copies. Kiro then compared the two repository files with the SHA-256 the script had printed, searched `placement.ts` for the mutated strings, and listed vitest processes, each in a single-line command. Both files matched, no mutated string was found, and no vitest process was running.
+- Evidence: `npm run typecheck`, `npm run lint` and `npm test` pass (17 test files, 242 tests; 222 before this task). Committed with this entry as "Add slot placement"; not pushed.

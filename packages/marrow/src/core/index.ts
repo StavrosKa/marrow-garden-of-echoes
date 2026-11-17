@@ -31,3 +31,9 @@ export {
   type ComfortGrid,
 } from './comfortGrid';
 export { computeComfortTransform } from './reachGain';
+export {
+  placeTargets,
+  isSlotUsable,
+  type Demand,
+  type PlacementResult,
+} from './placement';

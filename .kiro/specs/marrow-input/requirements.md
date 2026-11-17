@@ -249,7 +249,7 @@ Component names used in the criteria: Tuning, PoseFrame, Camera Source, Pointer 
 #### Acceptance Criteria
 
 1. THE Placement SHALL be a pure function of the demand (slots in order, needed count N >= 1, hit radius r, parallax margin m >= 0), the comfort grids of the active wrists, and the Mapping.
-2. THE Placement SHALL call a slot usable if and only if there is one active wrist whose valid cells contain every screen point within distance r + m of the slot, each point converted to camera space with the inverse Mapping; a point that falls outside the camera frame is not covered.
+2. THE Placement SHALL call a slot usable if and only if there is one active wrist such that every screen point within distance r + m of the slot, converted to camera space with the inverse Mapping, lies inside the camera frame and in no closed rectangle [col / 32, (col + 1) / 32] x [row / 24, (row + 1) / 24] of a cell of that wrist that is not valid; a point that falls outside the camera frame is not covered.
 3. THE Placement SHALL not combine the cells of two wrists to cover one slot.
 4. THE Placement SHALL choose slots in one pass: walk the usable slots in caller order and choose each one whose expanded circle overlaps no expanded circle already chosen, until N are chosen. IF the pass chooses N slots, THEN THE Placement SHALL return `simultaneous` with them.
 5. IF at least one slot is usable but the pass chooses fewer than N, THEN THE Placement SHALL return `sequential` with all usable slots in caller order (k of them), and target i (from 0) SHALL be shown alone in usable slot i mod k.
