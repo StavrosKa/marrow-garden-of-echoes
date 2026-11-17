@@ -24,17 +24,20 @@ import { TUNING } from './tuning';
  */
 export function genDt(): fc.Arbitrary<number> {
   const max = TUNING.maxClockStepMs;
+  // Weights 1, 4, 1. With equal weights the zeros and the any-double branch, whose draws
+  // in the range are mostly tiny, left only 6% of the draws in the range in its third
+  // quarter (seed 42, 1000 samples); the coverage check in testgen.test.ts needs 10%.
   return fc.oneof(
-    fc.constantFrom(0, -0, NaN, Infinity, -Infinity),
-    fc.double({ min: -max, max: 3 * max, noNaN: true }),
-    fc.double(),
+    { arbitrary: fc.constantFrom(0, -0, NaN, Infinity, -Infinity), weight: 1 },
+    { arbitrary: genSpread(-max, 3 * max), weight: 4 },
+    // Not a number in a range: any double at all, huge and tiny ones included.
+    { arbitrary: fc.double(), weight: 1 },
   );
 }
 
 /** Deltas the clocks can return, for the reducers: 0..maxClockStepMs, both ends included. */
 export function genDtClamped(): fc.Arbitrary<number> {
-  const max = TUNING.maxClockStepMs;
-  return fc.oneof(fc.constantFrom(0, max), fc.double({ min: 0, max, noNaN: true }));
+  return genSpread(0, TUNING.maxClockStepMs);
 }
 
 /** The flags of one clock step, in every combination of paused, hidden and holdActive. */
@@ -52,8 +55,8 @@ export interface PointerPathStep extends Landmark {
 export const GAP_MAX_MS = 2000;
 
 /** A camera-space coordinate, 0..1 with both edges: where a valid landmark lies (Req 2.5). */
-function genUnit(): fc.Arbitrary<number> {
-  return fc.oneof(fc.constantFrom(0, 1), fc.double({ min: 0, max: 1, noNaN: true }));
+export function genUnit(): fc.Arbitrary<number> {
+  return genSpread(0, UNIT_EXTENT);
 }
 
 /** Any position at all, NaN and infinities included: what an invalid landmark may carry. */
@@ -146,19 +149,16 @@ export const OUTSIDE_MARGIN = 1;
 const UNIT_EXTENT = 1;
 
 /** A number in lo..hi, with lo and hi themselves drawn often. */
-function genClosed(lo: number, hi: number): fc.Arbitrary<number> {
-  return fc.oneof(fc.constantFrom(lo, hi), fc.double({ min: lo, max: hi, noNaN: true }));
+export function genClosed(lo: number, hi: number): fc.Arbitrary<number> {
+  return genSpread(lo, hi);
 }
 
 /**
  * A coordinate on an axis of a space that spans 0..extent: inside it, with both edges
  * drawn often, or anywhere from OUTSIDE_MARGIN below it to OUTSIDE_MARGIN above it.
  */
-function genAxis(extent: number): fc.Arbitrary<number> {
-  return fc.oneof(
-    genClosed(0, extent),
-    fc.double({ min: -OUTSIDE_MARGIN, max: extent + OUTSIDE_MARGIN, noNaN: true }),
-  );
+export function genAxis(extent: number): fc.Arbitrary<number> {
+  return fc.oneof(genClosed(0, extent), genSpread(-OUTSIDE_MARGIN, extent + OUTSIDE_MARGIN));
 }
 
 /**
@@ -246,7 +246,8 @@ function genNearEnd(lo: number, hi: number): fc.Arbitrary<number> {
  * over bit patterns, not values, so a range that starts at 0 is dominated by tiny numbers:
  * over 0..1 about 91% of its draws lie below 1e-6, and the middle half of the range is
  * almost never drawn (seed 42, 1000 samples). Within one binade, such as 1..1.6, its draws
- * are even. The generators above this one still draw with fc.double.
+ * are even. The fc.double left in this file draws numbers that have no range: genDt's
+ * any-double branch and the positions of invalid landmarks.
  */
 export function genSpread(lo: number, hi: number): fc.Arbitrary<number> {
   return fc.oneof(

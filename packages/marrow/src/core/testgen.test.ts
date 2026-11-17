@@ -14,11 +14,14 @@ import {
   demote,
   genClockFlags,
   genDemand,
+  genAxis,
+  genClosed,
   genDt,
   genDtClamped,
   genGrid,
   genMappingParams,
   genPointerPath,
+  genUnit,
   genVec2Camera,
   genVec2Screen,
   promote,
@@ -39,6 +42,20 @@ const QUARTERS = 4;
  * fails the check. A test parameter.
  */
 const MIN_QUARTER_SHARE = 0.1;
+
+/**
+ * The share of the values that lie in lo..hi that fall in each quarter of lo..hi, in order.
+ * Values outside the range, NaN and infinities are left out of the count.
+ */
+function quarterSharesOf(values: readonly number[], lo: number, hi: number): number[] {
+  const inRange = values.filter((v) => v >= lo && v <= hi);
+  const counts = new Array<number>(QUARTERS).fill(0);
+  for (const v of inRange) {
+    const quarter = Math.min(QUARTERS - 1, Math.floor(((v - lo) / (hi - lo)) * QUARTERS));
+    counts[quarter] = (counts[quarter] ?? 0) + 1;
+  }
+  return counts.map((count) => count / inRange.length);
+}
 
 /** Whether cell (col, row) is valid at TUNING's threshold; false for a cell outside the grid. */
 const validAt = (grid: ComfortGrid, col: number, row: number): boolean => isCellValid(grid, col, row, TUNING);
@@ -406,6 +423,46 @@ describe('testgen', () => {
 
   it('demote refuses a grid marked all-valid, on which no cell can stop being valid', () => {
     expect(() => demote(markAllValid(createGrid(TUNING)))).toThrow('all-valid');
+  });
+
+  // The same coverage rule as genDemand's check: each quarter of a range holds at least
+  // MIN_QUARTER_SHARE of the draws that lie in it. fc.double spreads its draws over bit
+  // patterns, so a range that starts at 0 is almost all in its first quarter. The message
+  // of each assertion lists the shares, so a failure shows them.
+  it('genUnit, genClosed, genAxis, genDtClamped and genDt put at least MIN_QUARTER_SHARE of their draws in each quarter of each range', () => {
+    const { reachGainMin, reachGainMax } = TUNING;
+    const cases: { name: string; values: number[]; lo: number; hi: number }[] = [
+      { name: 'genUnit', values: fc.sample(genUnit(), SAMPLE), lo: 0, hi: 1 },
+      {
+        name: 'genClosed(ASPECT_MIN, ASPECT_MAX)',
+        values: fc.sample(genClosed(ASPECT_MIN, ASPECT_MAX), SAMPLE),
+        lo: ASPECT_MIN,
+        hi: ASPECT_MAX,
+      },
+      {
+        name: 'genClosed(reachGainMin, reachGainMax)',
+        values: fc.sample(genClosed(reachGainMin, reachGainMax), SAMPLE),
+        lo: reachGainMin,
+        hi: reachGainMax,
+      },
+      { name: 'genDtClamped', values: fc.sample(genDtClamped(), SAMPLE), lo: 0, hi: MAX },
+      { name: 'genDt, -maxClockStepMs..3 maxClockStepMs', values: fc.sample(genDt(), SAMPLE), lo: -MAX, hi: 3 * MAX },
+    ];
+    for (const extent of [1, ASPECT_MAX]) {
+      const values = fc.sample(genAxis(extent), SAMPLE);
+      cases.push({
+        name: `genAxis(${extent}), whole range`,
+        values,
+        lo: -OUTSIDE_MARGIN,
+        hi: extent + OUTSIDE_MARGIN,
+      });
+      cases.push({ name: `genAxis(${extent}), inside 0..extent`, values, lo: 0, hi: extent });
+    }
+    const thin = cases.flatMap(({ name, values, lo, hi }) => {
+      const shares = quarterSharesOf(values, lo, hi);
+      return Math.min(...shares) >= MIN_QUARTER_SHARE ? [] : [`${name}: quarter shares ${shares.join(', ')}`];
+    });
+    expect(thin).toEqual([]);
   });
 
   it('genDemand stays in range and reaches, for the slots, both edges, near both edges and at least MIN_QUARTER_SHARE in each quarter of each axis; r and m at both ends and between; n of 1 and DEMAND_N_MAX; 1 and DEMAND_SLOTS_MAX slots; and n above the slot count', () => {
