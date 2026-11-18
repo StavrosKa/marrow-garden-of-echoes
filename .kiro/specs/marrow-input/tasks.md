@@ -221,7 +221,7 @@ Rules for every task:
     - Named tests (design §10.2): `stale_frame_emits_new_invalid_frame` (4.8): valid results, then a stall past `staleFrameMs` gives exactly one new all-invalid frame (a different reference), then a fresh result gives another new frame with validity restored.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 4.8_
-  - [ ] 15.5 Camera Source: start, outcomes and dispose
+  - [x] 15.5 Camera Source: start, outcomes and dispose
     - Create `input/cameraSource.ts` with `createCameraSource(opts)`: the base path, the video element, and injectable `getUserMedia` and landmarker factory for tests.
     - `start()` is called only from a user-action handler and calls `getUserMedia` before its first `await`, asking for the user-facing camera at ideal `cameraWidth` x `cameraHeight`; it accepts the delivered size and sets the frame aspect from the delivered video.
     - Exactly one outcome per start: NotAllowedError or SecurityError gives `denied`; no `getUserMedia`, NotFoundError, OverconstrainedError, NotReadableError or AbortError gives `no-camera`; a failed WASM or model fetch, a failed initialisation, or no ready landmarker within `modelLoadTimeoutMs` gives `model-failed` and stops every track the source opened.
