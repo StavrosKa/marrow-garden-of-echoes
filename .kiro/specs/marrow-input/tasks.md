@@ -209,7 +209,7 @@ Rules for every task:
     - Tests (`// @vitest-environment jsdom`, synthetic pointer events): only the primary pointer counts; validity on enter, leave, touch contact and release; the base mapping of the frame's wrist returns the pointer position within 1e-9; at most one frame per animation frame; dispose twice.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 3.1, 3.3, 6.1, 6.2, 6.3, 6.4, 6.5_
-  - [ ] 15.3 Vendor the MediaPipe WASM files and the pose model
+  - [x] 15.3 Vendor the MediaPipe WASM files and the pose model
     - Find which WASM files `FilesetResolver.forVisionTasks` in `@mediapipe/tasks-vision` 1.2.3 requests in Chrome and Edge, and copy only those from `node_modules/@mediapipe/tasks-vision/wasm/` into `apps/garden-of-echoes/public/mediapipe/wasm/` (each `.wasm` file is about 14.7 MB).
     - Download `pose_landmarker_lite.task` (float16) from Google's model storage (design §12.1) into `apps/garden-of-echoes/public/mediapipe/models/`. Use a versioned path instead of `latest` if one exists, and record the exact URL.
     - In `docs/licenses.md`, replace "None yet" with one row per vendored file: source URL, download date, licence (the package files from the package's `package.json`; the model from its official model card, confirmed, not assumed) and SHA-256.

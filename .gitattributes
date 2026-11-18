@@ -1,0 +1,3 @@
+# The vendored MediaPipe files are recorded by SHA-256 in docs/licenses.md, so git must
+# never change a byte of them (no line-ending conversion on any machine).
+apps/garden-of-echoes/public/mediapipe/** -text
