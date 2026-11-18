@@ -12,7 +12,8 @@ import {
   type ComfortGrid,
 } from './comfortGrid';
 import type { NeutralHead } from './calibration';
-import type { Landmark, PoseLandmarks, Vec2 } from './frame';
+import type { HitArea, PointerInput } from './dwell';
+import type { Landmark, PoseLandmarks, Vec2, WristId } from './frame';
 import { clamp } from './geometry';
 import type { MappingParams } from './mapping';
 import type { Demand } from './placement';
@@ -560,4 +561,399 @@ export function genDemand(playAspect: number): fc.Arbitrary<Demand> {
     },
     { noNullPrototype: true },
   );
+}
+
+/** The most targets in a dwell run (design section 10.1). A test parameter. */
+export const DWELL_TARGETS_MAX = 3;
+/** The shortest and the longest dwell run, in steps. A test parameter. */
+export const DWELL_STEPS_MIN = 24;
+export const DWELL_STEPS_MAX = 160;
+/** How many activation ids a target draws from, so that an id can come back (A, B, A). A test parameter. */
+export const DWELL_ACTIVATIONS = 3;
+/** The most segments in a supply timeline or in a path. A test parameter. */
+export const DWELL_SEGMENTS_MAX = 8;
+/** How far from the centre of a target a pointer can lie, in hit radii. A test parameter. */
+export const DWELL_FAR = 3;
+/** How far the centre of a hit area moves between two supply segments, on each axis. A test parameter. */
+export const DWELL_SHIFT_MAX = 0.02;
+/** How far apart the targets' centres can lie, in the largest hit radius. A test parameter. */
+export const DWELL_CLUSTER = 3;
+/** "Clearly inside" and "clearly outside", in hit radii, for the paths that must not touch the circle. A test parameter. */
+export const DWELL_CLEAR_IN = 0.8;
+export const DWELL_CLEAR_OUT = 1.2;
+/** The most steps before the owner of genTwoPointerInterleaving is first inside. A test parameter. */
+export const DWELL_APPROACH_MAX = 6;
+/** A full turn, for the angles of the pointer paths. Geometry, not a tuning value. */
+const FULL_TURN = 2 * Math.PI;
+
+/** One step of a dwell run: what stepDwell is given (Req 17.1). */
+export interface DwellStepCase {
+  readonly dt: number;
+  readonly pointers: readonly PointerInput[];
+  readonly hitAreas: readonly HitArea[];
+}
+
+/** A target's own geometry, where its pointers are placed in a step in which it is not supplied. */
+export interface DwellTargetBase {
+  readonly targetId: string;
+  readonly centre: Vec2;
+  readonly radius: number;
+}
+
+/** The targets of a dwell run and the hit areas supplied in each step. */
+export interface DwellWorld {
+  readonly bases: readonly DwellTargetBase[];
+  readonly areas: readonly (readonly HitArea[])[];
+}
+
+/** One step of a pointer path: its validity and its position, which an invalid pointer carries too. */
+export interface DwellPathPoint {
+  readonly valid: boolean;
+  readonly pos: Vec2;
+}
+
+/** The longest short and medium segment and the longest long one, in steps, and the shortest long one. Test parameters. */
+export const DWELL_SHORT_RUN_MAX = 5;
+export const DWELL_MEDIUM_RUN_MAX = 40;
+export const DWELL_LONG_RUN_MIN = 30;
+export const DWELL_LONG_RUN_MAX = 90;
+
+/** The length of a segment in steps: short stints, medium ones and long rests. */
+function genRunLength(): fc.Arbitrary<number> {
+  return fc.oneof(
+    { arbitrary: fc.integer({ min: 1, max: DWELL_SHORT_RUN_MAX }), weight: 1 },
+    { arbitrary: fc.integer({ min: DWELL_SHORT_RUN_MAX + 1, max: DWELL_MEDIUM_RUN_MAX }), weight: 3 },
+    { arbitrary: fc.integer({ min: DWELL_LONG_RUN_MIN, max: DWELL_LONG_RUN_MAX }), weight: 2 },
+  );
+}
+
+/** Each segment repeated for its `steps`, as `count` segments: the last one goes on if they run out. */
+function expandSegments<T extends { readonly steps: number }>(segments: readonly T[], count: number): T[] {
+  const out: T[] = [];
+  for (const segment of segments) {
+    for (let i = 0; i < segment.steps && out.length < count; i++) out.push(segment);
+  }
+  const last = segments[segments.length - 1];
+  while (out.length < count && last !== undefined) out.push(last);
+  return out;
+}
+
+/** One stretch of the supply of a target: present or not, under one activation id, with one radius and a shift of its centre. */
+interface SupplySegment {
+  readonly present: boolean;
+  readonly activation: number;
+  readonly radius: number;
+  readonly shift: Vec2;
+  readonly steps: number;
+}
+
+function genSupply(): fc.Arbitrary<SupplySegment> {
+  return fc.record(
+    {
+      present: fc.oneof(
+        { arbitrary: fc.constant(true), weight: 3 },
+        { arbitrary: fc.constant(false), weight: 1 },
+      ),
+      activation: fc.integer({ min: 0, max: DWELL_ACTIVATIONS - 1 }),
+      radius: genSpread(TUNING.hitRadiusMin, TUNING.hitRadiusMax),
+      shift: fc.record(
+        { x: genSpread(-DWELL_SHIFT_MAX, DWELL_SHIFT_MAX), y: genSpread(-DWELL_SHIFT_MAX, DWELL_SHIFT_MAX) },
+        { noNullPrototype: true },
+      ),
+      steps: genRunLength(),
+    },
+    { noNullPrototype: true },
+  );
+}
+
+/**
+ * The hit areas of a dwell run of `steps` steps (Req 17.1, 17.14, design section 10.1): 1 to
+ * DWELL_TARGETS_MAX targets t0, t1, ... whose centres lie within DWELL_CLUSTER largest radii of
+ * the first, so that they often overlap. Each target has a timeline of up to DWELL_SEGMENTS_MAX
+ * stretches: present or removed, under one of DWELL_ACTIVATIONS activation ids, so that an id changes
+ * and can come back, with a radius in hitRadiusMin..hitRadiusMax and a centre moved by up to
+ * DWELL_SHIFT_MAX, so that the radius and the centre also change under the same activation id.
+ * Every number comes from genSpread.
+ */
+export function genHitAreas(steps: number): fc.Arbitrary<DwellWorld> {
+  const target = fc.record(
+    {
+      distance: genSpread(0, DWELL_CLUSTER * TUNING.hitRadiusMax),
+      angle: genSpread(0, FULL_TURN),
+      radius: genSpread(TUNING.hitRadiusMin, TUNING.hitRadiusMax),
+      supplies: fc.array(genSupply(), { minLength: 1, maxLength: DWELL_SEGMENTS_MAX, size: 'max' }),
+    },
+    { noNullPrototype: true },
+  );
+  return fc
+    .record(
+      {
+        origin: fc.record(
+          { x: genSpread(0, ASPECT_MAX), y: genSpread(0, UNIT_EXTENT) },
+          { noNullPrototype: true },
+        ),
+        targets: fc.array(target, { minLength: 1, maxLength: DWELL_TARGETS_MAX, size: 'max' }),
+      },
+      { noNullPrototype: true },
+    )
+    .map(({ origin, targets }) => {
+      const bases: DwellTargetBase[] = targets.map((t, j) => ({
+        targetId: `t${j}`,
+        centre:
+          j === 0
+            ? origin
+            : { x: origin.x + t.distance * Math.cos(t.angle), y: origin.y + t.distance * Math.sin(t.angle) },
+        radius: t.radius,
+      }));
+      const timelines = targets.map((t) => expandSegments(t.supplies, steps));
+      const areas: HitArea[][] = [];
+      for (let step = 0; step < steps; step++) {
+        const supplied: HitArea[] = [];
+        bases.forEach((base, j) => {
+          const segment = timelines[j]?.[step];
+          if (segment === undefined || !segment.present) return;
+          supplied.push({
+            targetId: base.targetId,
+            activationId: `a${segment.activation}`,
+            centre: { x: base.centre.x + segment.shift.x, y: base.centre.y + segment.shift.y },
+            radius: segment.radius,
+          });
+        });
+        areas.push(supplied);
+      }
+      return { bases, areas };
+    });
+}
+
+/** What a stretch of a path does: valid and inside the target's circle, valid and outside it, or invalid (anywhere). */
+export type DwellPathMode = 'inside' | 'outside' | 'invalid';
+
+/** One stretch of a path, relative to one target. */
+interface PathSegment {
+  readonly mode: DwellPathMode;
+  /** The target the pointer lies relative to, modulo the number of targets. */
+  readonly target: number;
+  /** A draw in 0..1 that sets the distance from the centre inside the range of the mode. */
+  readonly unit: number;
+  readonly angle: number;
+  readonly steps: number;
+}
+
+function genPathSegment(): fc.Arbitrary<PathSegment> {
+  return fc.record(
+    {
+      mode: fc.oneof(
+        { arbitrary: fc.constant<DwellPathMode>('inside'), weight: 3 },
+        { arbitrary: fc.constant<DwellPathMode>('outside'), weight: 2 },
+        { arbitrary: fc.constant<DwellPathMode>('invalid'), weight: 1 },
+      ),
+      target: fc.integer({ min: 0, max: DWELL_TARGETS_MAX - 1 }),
+      unit: genUnit(),
+      angle: genSpread(0, FULL_TURN),
+      steps: genRunLength(),
+    },
+    { noNullPrototype: true },
+  );
+}
+
+/** The distance from a centre, in hit radii: inside 0..1, outside 1..DWELL_FAR, invalid 0..DWELL_FAR. */
+function factorOf(mode: DwellPathMode, unit: number): number {
+  if (mode === 'inside') return unit;
+  if (mode === 'outside') return 1 + unit * (DWELL_FAR - 1);
+  return unit * DWELL_FAR;
+}
+
+/**
+ * The point at `factor` hit radii from the centre of target `target` (modulo their number) in the
+ * given direction, measured on the hit area supplied in that step, or on the target's own geometry
+ * when it is not supplied. An invalid point has a position like any other.
+ */
+function pointAt(world: DwellWorld, step: number, target: number, mode: DwellPathMode, factor: number, angle: number): DwellPathPoint {
+  const base = world.bases[target % world.bases.length] as DwellTargetBase;
+  const anchor = world.areas[step]?.find((a) => a.targetId === base.targetId) ?? base;
+  return {
+    valid: mode !== 'invalid',
+    pos: {
+      x: anchor.centre.x + factor * anchor.radius * Math.cos(angle),
+      y: anchor.centre.y + factor * anchor.radius * Math.sin(angle),
+    },
+  };
+}
+
+/** The points of steps from..to - 1 of a path made of `segments`. */
+function pathFrom(segments: readonly PathSegment[], world: DwellWorld, from: number, to: number): DwellPathPoint[] {
+  return expandSegments(segments, to - from).map((s, i) =>
+    pointAt(world, from + i, s.target, s.mode, factorOf(s.mode, s.unit), s.angle),
+  );
+}
+
+/**
+ * One pointer's path over the steps of `world` (Req 17, design section 10.1): up to DWELL_SEGMENTS_MAX
+ * stretches, each valid and inside, valid and outside, or invalid, relative to one target, at a fixed
+ * distance and direction from its centre, so that the pointer enters, leaves, crosses and rests on
+ * targets, and the circles overlap. An invalid pointer lies anywhere, often inside a circle.
+ */
+export function genTargetPath(world: DwellWorld): fc.Arbitrary<readonly DwellPathPoint[]> {
+  return fc
+    .array(genPathSegment(), { minLength: 1, maxLength: DWELL_SEGMENTS_MAX, size: 'max' })
+    .map((segments) => pathFrom(segments, world, 0, world.areas.length));
+}
+
+/**
+ * The deltas of `count` steps (Req 17.1): each from genSpread over 0..maxClockStepMs, or every one
+ * maxClockStepMs, or every one half of it. The last two make sums come out exactly on the windows
+ * and on dwellMs, which a spread alone rarely does.
+ */
+function genDeltas(count: number): fc.Arbitrary<readonly number[]> {
+  const max = TUNING.maxClockStepMs;
+  return fc.oneof(
+    { arbitrary: fc.array(genSpread(0, max), { minLength: count, maxLength: count }), weight: 3 },
+    { arbitrary: fc.constant(Array.from({ length: count }, () => max)), weight: 1 },
+    { arbitrary: fc.constant(Array.from({ length: count }, () => max / 2)), weight: 1 },
+  );
+}
+
+/** The pointer a path point stands for. An invalid one carries its position too, which the reducer must never read. */
+function pointerFor(wrist: WristId, point: DwellPathPoint): PointerInput {
+  return point.valid
+    ? { wrist, valid: true, pos: point.pos }
+    : ({ wrist, valid: false, pos: point.pos } as PointerInput);
+}
+
+/**
+ * A run of dwell steps (Req 17, design section 10.1): DWELL_STEPS_MIN to DWELL_STEPS_MAX steps with
+ * the hit areas of genHitAreas, the right wrist, the left wrist or both, each on its own path from
+ * genTargetPath, and the deltas of genDeltas.
+ */
+export function genDwellRun(): fc.Arbitrary<readonly DwellStepCase[]> {
+  return fc.integer({ min: DWELL_STEPS_MIN, max: DWELL_STEPS_MAX }).chain((count) =>
+    genHitAreas(count).chain((world) =>
+      fc
+        .record(
+          {
+            wrists: fc.constantFrom<readonly WristId[]>(['right'], ['left'], ['left', 'right']),
+            left: genTargetPath(world),
+            right: genTargetPath(world),
+            dts: genDeltas(count),
+          },
+          { noNullPrototype: true },
+        )
+        .map(({ wrists, left, right, dts }) =>
+          world.areas.map((hitAreas, i) => ({
+            dt: dts[i] ?? 0,
+            pointers: wrists.flatMap((wrist) => {
+              const point = (wrist === 'left' ? left : right)[i];
+              return point === undefined ? [] : [pointerFor(wrist, point)];
+            }),
+            hitAreas,
+          })),
+        ),
+    ),
+  );
+}
+
+/** A world of one target, t0, supplied in every step with the same hit area. */
+function genStaticWorld(count: number): fc.Arbitrary<DwellWorld> {
+  return fc
+    .record(
+      {
+        x: genSpread(0, ASPECT_MAX),
+        y: genSpread(0, UNIT_EXTENT),
+        radius: genSpread(TUNING.hitRadiusMin, TUNING.hitRadiusMax),
+      },
+      { noNullPrototype: true },
+    )
+    .map(({ x, y, radius }) => {
+      const area: HitArea = { targetId: 't0', activationId: 'a0', centre: { x, y }, radius };
+      return {
+        bases: [{ targetId: 't0', centre: area.centre, radius }],
+        areas: Array.from({ length: count }, () => [area]),
+      };
+    });
+}
+
+/** A point of step `step` that is not valid and inside the first target: invalid anywhere, or valid clearly outside. */
+function genBlockedPoint(world: DwellWorld, step: number): fc.Arbitrary<DwellPathPoint> {
+  const spot = fc.record({ unit: genUnit(), angle: genSpread(0, FULL_TURN) }, { noNullPrototype: true });
+  return fc.oneof(
+    spot.map(({ unit, angle }) => pointAt(world, step, 0, 'invalid', factorOf('invalid', unit), angle)),
+    spot.map(({ unit, angle }) =>
+      pointAt(world, step, 0, 'outside', DWELL_CLEAR_OUT + unit * (DWELL_FAR - DWELL_CLEAR_OUT), angle),
+    ),
+  );
+}
+
+/** The blocked points of steps 0..count - 1. */
+function genBlockedPrefix(world: DwellWorld, count: number): fc.Arbitrary<DwellPathPoint[]> {
+  return fc.tuple(...Array.from({ length: count }, (_, step) => genBlockedPoint(world, step)));
+}
+
+/** Two pointers on one target for the ownership property (Req 17.19). */
+export interface TwoPointerCase {
+  /** The pointer that is first valid and inside the target. */
+  readonly owner: WristId;
+  /** The step in which the owner is first inside, and so acquires the target. */
+  readonly acquireAt: number;
+  readonly steps: readonly DwellStepCase[];
+  /** The same steps, with the other pointer's path replaced by another one. */
+  readonly replaced: readonly DwellStepCase[];
+}
+
+/**
+ * Two pointers on one target (design section 10.1, Req 17.19): the owner is clearly outside or
+ * invalid for 0..DWELL_APPROACH_MAX steps and then clearly inside, and goes on with any path. The
+ * other pointer is clearly outside or invalid for as long, and the step in which the owner arrives,
+ * and goes on with any path, so that it is inside, nearer the centre, outside and invalid at times.
+ * `replaced` has the same steps with another such path for the other pointer. The owner's path, the
+ * hit area and the deltas are the same in both.
+ */
+export function genTwoPointerInterleaving(): fc.Arbitrary<TwoPointerCase> {
+  return fc
+    .record(
+      {
+        owner: fc.constantFrom<WristId>('left', 'right'),
+        approach: fc.integer({ min: 0, max: DWELL_APPROACH_MAX }),
+        rest: fc.integer({ min: DWELL_STEPS_MIN, max: DWELL_STEPS_MAX }),
+      },
+      { noNullPrototype: true },
+    )
+    .chain(({ owner, approach, rest }) => {
+      const count = approach + 1 + rest;
+      const segments = fc.array(genPathSegment(), { minLength: 1, maxLength: DWELL_SEGMENTS_MAX, size: 'max' });
+      return genStaticWorld(count).chain((world) =>
+        fc
+          .record(
+            {
+              ownerApproach: genBlockedPrefix(world, approach),
+              arrival: fc.record({ unit: genUnit(), angle: genSpread(0, FULL_TURN) }, { noNullPrototype: true }),
+              ownerRest: segments,
+              otherBlocked: genBlockedPrefix(world, approach + 1),
+              otherRest: segments,
+              replacedBlocked: genBlockedPrefix(world, approach + 1),
+              replacedRest: segments,
+              dts: genDeltas(count),
+            },
+            { noNullPrototype: true },
+          )
+          .map((draw) => {
+            const arrival = pointAt(world, approach, 0, 'inside', DWELL_CLEAR_IN * draw.arrival.unit, draw.arrival.angle);
+            const ownerPath = [...draw.ownerApproach, arrival, ...pathFrom(draw.ownerRest, world, approach + 1, count)];
+            const otherPath = [...draw.otherBlocked, ...pathFrom(draw.otherRest, world, approach + 1, count)];
+            const replacedPath = [...draw.replacedBlocked, ...pathFrom(draw.replacedRest, world, approach + 1, count)];
+            const other: WristId = owner === 'left' ? 'right' : 'left';
+            const build = (otherSide: readonly DwellPathPoint[]): DwellStepCase[] =>
+              world.areas.map((hitAreas, i) => {
+                const mine = ownerPath[i];
+                const theirs = otherSide[i];
+                const pointers: PointerInput[] = [];
+                for (const wrist of ['left', 'right'] as const) {
+                  const point = wrist === owner ? mine : wrist === other ? theirs : undefined;
+                  if (point !== undefined) pointers.push(pointerFor(wrist, point));
+                }
+                return { dt: draw.dts[i] ?? 0, pointers, hitAreas };
+              });
+            return { owner, acquireAt: approach, steps: build(otherPath), replaced: build(replacedPath) };
+          }),
+      );
+    });
 }

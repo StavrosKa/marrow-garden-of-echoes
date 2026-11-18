@@ -138,7 +138,7 @@ Rules for every task:
     - Tests: one scripted test per rule, with Outside stints of exactly 150 ms and just over, Invalid stints of exactly 300 ms and just over, the tie-break, and latch release.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10, 17.11, 17.12, 17.13, 17.14, 17.15_
-  - [ ] 11.2 Dwell property tests: time and ownership
+  - [x] 11.2 Dwell property tests: time and ownership
     - Extend `testgen.ts`: `genPointerPath` paths that enter, leave, cross and rest on targets; `genTwoPointerInterleaving`; `genHitAreas` (radii 0.07..0.13, overlapping targets, activation changes and removals).
     - Named tests (design §10.2): `dwell_progress_only_owner_inside` (17.16), `dwell_select_sums_inside_time` (17.17), `dwell_select_requires_valid_inside` (17.18), `dwell_owner_isolated_from_other_pointer` (17.19).
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.

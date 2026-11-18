@@ -1,12 +1,20 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { createGrid, isCellValid, markAllValid, validCells, type ComfortGrid } from './comfortGrid';
-import type { Vec2 } from './frame';
+import { createDwell, dwellView, stepDwell, type DwellState, type HitArea, type PointerInput } from './dwell';
+import type { Vec2, WristId } from './frame';
+import { dist } from './geometry';
 import {
   ASPECT_MAX,
   ASPECT_MIN,
   DEMAND_N_MAX,
   DEMAND_SLOTS_MAX,
+  DWELL_ACTIVATIONS,
+  DWELL_APPROACH_MAX,
+  DWELL_MEDIUM_RUN_MAX,
+  DWELL_STEPS_MAX,
+  DWELL_STEPS_MIN,
+  DWELL_TARGETS_MAX,
   GAP_MAX_MS,
   HEAD_EDGE_SHARE,
   HEAD_RUN_MAX,
@@ -27,14 +35,19 @@ import {
   genClosed,
   genDt,
   genDtClamped,
+  genDwellRun,
   genGrid,
   genHeadFrames,
+  genHitAreas,
   genMappingParams,
   genPointerPath,
+  genTargetPath,
+  genTwoPointerInterleaving,
   genUnit,
   genVec2Camera,
   genVec2Screen,
   promote,
+  type DwellStepCase,
   type PointerPathStep,
 } from './testgen';
 import { TUNING } from './tuning';
@@ -122,6 +135,98 @@ function hasHole(grid: ComfortGrid): boolean {
   }
   return false;
 }
+
+/** Whether a pointer or path point is valid and within a hit area, by the reducer's own distance. */
+const insideArea = (valid: boolean, pos: Vec2, area: HitArea): boolean => valid && dist(pos, area.centre) <= area.radius;
+
+/** The steps of a dwell run in which one pointer rests on one target for dwellMs of presence time, at the longest. */
+function longestRestMs(run: readonly DwellStepCase[]): number {
+  let longest = 0;
+  for (const wrist of ['left', 'right'] as const) {
+    for (const id of Array.from({ length: DWELL_TARGETS_MAX }, (_, j) => `t${j}`)) {
+      let sum = 0;
+      for (const step of run) {
+        const area = step.hitAreas.find((a) => a.targetId === id);
+        const pointer = step.pointers.find((p) => p.wrist === wrist);
+        const on = area !== undefined && pointer !== undefined && pointer.valid && insideArea(true, pointer.pos, area);
+        sum = on ? sum + step.dt : 0;
+        longest = Math.max(longest, sum);
+      }
+    }
+  }
+  return longest;
+}
+
+/** What a dwell run does in the reducer: the behaviours the dwell properties need to see happen. */
+interface RunTally {
+  selections: number;
+  sameTargetTwice: boolean;
+  outsideRelease: boolean;
+  invalidCancel: boolean;
+  droppedByActivation: boolean;
+  droppedByRemoval: boolean;
+  latchBlocksAnInsidePointer: boolean;
+  latchEnded: boolean;
+  onePointerOwnsTwoTargets: boolean;
+  bothWristsOwn: boolean;
+}
+
+function tallyRun(run: readonly DwellStepCase[]): RunTally {
+  const tally: RunTally = {
+    selections: 0,
+    sameTargetTwice: false,
+    outsideRelease: false,
+    invalidCancel: false,
+    droppedByActivation: false,
+    droppedByRemoval: false,
+    latchBlocksAnInsidePointer: false,
+    latchEnded: false,
+    onePointerOwnsTwoTargets: false,
+    bothWristsOwn: false,
+  };
+  const selected = new Map<string, number>();
+  let state: DwellState = createDwell();
+  for (const step of run) {
+    const before = state;
+    const result = stepDwell(before, { dt: step.dt, pointers: step.pointers, hitAreas: step.hitAreas });
+    state = result.state;
+    tally.selections += result.events.length;
+    for (const event of result.events) {
+      selected.set(event.targetId, (selected.get(event.targetId) ?? 0) + 1);
+      if ((selected.get(event.targetId) ?? 0) >= 2) tally.sameTargetTwice = true;
+    }
+    for (const record of before.targets) {
+      const area = step.hitAreas.find((a) => a.targetId === record.targetId);
+      const after = dwellView(state, record.targetId);
+      const pointer = record.owner === null ? undefined : step.pointers.find((p) => p.wrist === record.owner);
+      if (record.owner !== null) {
+        if (area === undefined) tally.droppedByRemoval = true;
+        else if (area.activationId !== record.activationId) tally.droppedByActivation = true;
+        else if (after.owner === null && !result.events.some((e) => e.targetId === record.targetId)) {
+          if (pointer === undefined || !pointer.valid) tally.invalidCancel = true;
+          else if (!insideArea(true, pointer.pos, area)) tally.outsideRelease = true;
+        }
+      }
+      if (record.latch.length > 0 && area !== undefined) {
+        if (after.owner === null && step.pointers.some((p) => p.valid && insideArea(true, p.pos, area))) {
+          tally.latchBlocksAnInsidePointer = true;
+        }
+        const next = state.targets.find((t) => t.targetId === record.targetId);
+        if (next === undefined || next.latch.length === 0) tally.latchEnded = true;
+      }
+    }
+    const ids = [...new Set(step.hitAreas.map((a) => a.targetId))];
+    const owned = (wrist: WristId): number => ids.filter((id) => dwellView(state, id).owner === wrist).length;
+    if (owned('left') >= 2 || owned('right') >= 2) tally.onePointerOwnsTwoTargets = true;
+    if (owned('left') >= 1 && owned('right') >= 1) tally.bothWristsOwn = true;
+  }
+  return tally;
+}
+
+/** The least share of dwell runs that must reach a selection, so that the properties are not run on holds that never finish. A test parameter. */
+const MIN_SELECTING_RUN_SHARE = 0.2;
+/** The least share of the steps with two or more targets in which two of them overlap deeply (a centre inside the other circle). A test parameter. */
+const MIN_DEEP_OVERLAP_SHARE = 0.15;
 
 describe('testgen', () => {
   it('genDt reaches 0, negative, non-finite, in-range and above-range deltas', () => {
@@ -649,5 +754,332 @@ describe('testgen', () => {
       mostSlots: true,
       moreTargetsThanSlots: true,
     });
+  });
+
+  it('genHitAreas and genTargetPath stay in range and reach 1 to 3 targets, overlapping and apart, an activation id that changes and comes back, a radius and a centre that change under one id, removals and returns, and every kind of path point', () => {
+    const cases = fc.sample(
+      fc
+        .integer({ min: DWELL_STEPS_MIN, max: DWELL_STEPS_MAX })
+        .chain((count) => genHitAreas(count).chain((world) => genTargetPath(world).map((path) => ({ count, world, path })))),
+      SAMPLE,
+    );
+    const { hitRadiusMin, hitRadiusMax } = TUNING;
+    const areas = cases.flatMap((c) => c.world.areas.flat());
+    const origins = cases.map((c) => c.world.bases[0]?.centre ?? { x: NaN, y: NaN });
+
+    expect(
+      cases.filter(
+        ({ count, world, path }) =>
+          !(
+            world.areas.length === count &&
+            path.length === count &&
+            world.bases.length >= 1 &&
+            world.bases.length <= DWELL_TARGETS_MAX &&
+            world.areas.every(
+              (step) =>
+                new Set(step.map((a) => a.targetId)).size === step.length &&
+                step.every(
+                  (a) =>
+                    a.radius >= hitRadiusMin &&
+                    a.radius <= hitRadiusMax &&
+                    Number.isFinite(a.centre.x) &&
+                    Number.isFinite(a.centre.y) &&
+                    /^a\d$/.test(a.activationId) &&
+                    Number(a.activationId.slice(1)) < DWELL_ACTIVATIONS,
+                ),
+            ) &&
+            path.every((p) => Number.isFinite(p.pos.x) && Number.isFinite(p.pos.y))
+          ),
+      ),
+    ).toEqual([]);
+    const thin = [
+      { name: 'radius', values: areas.map((a) => a.radius), lo: hitRadiusMin, hi: hitRadiusMax },
+      { name: 'first centre x', values: origins.map((o) => o.x), lo: 0, hi: ASPECT_MAX },
+      { name: 'first centre y', values: origins.map((o) => o.y), lo: 0, hi: 1 },
+    ].flatMap(({ name, values, lo, hi }) => {
+      const shares = quarterSharesOf(values, lo, hi);
+      return Math.min(...shares) >= MIN_QUARTER_SHARE ? [] : [`${name}: quarter shares ${shares.join(', ')}`];
+    });
+    expect(thin).toEqual([]);
+
+    // What the supply of one target does between two steps, over every target of every case.
+    let overlap = false;
+    let multiSteps = 0;
+    let deepSteps = 0;
+    let apart = false;
+    let activationChanges = false;
+    let activationReturns = false;
+    let radiusChanges = false;
+    let centreChanges = false;
+    let removedAndBack = false;
+    let nothingSupplied = false;
+    let validInside = false;
+    let validOutside = false;
+    let invalidInside = false;
+    let invalidOutside = false;
+    let longestRunSteps = 0;
+    const targetCounts = new Set<number>();
+    for (const { world, path } of cases) {
+      targetCounts.add(world.bases.length);
+      let restSteps = 0;
+      let restKey: string | null = null;
+      world.areas.forEach((step, i) => {
+        if (step.length === 0) nothingSupplied = true;
+        let deepHere = false;
+        for (const a of step) {
+          for (const b of step) {
+            if (a.targetId >= b.targetId) continue;
+            const between = dist(a.centre, b.centre);
+            if (between < a.radius + b.radius) overlap = true;
+            else apart = true;
+            // The centre of one lies inside the circle of the other: more than a graze.
+            if (between < Math.max(a.radius, b.radius)) deepHere = true;
+          }
+        }
+        if (step.length >= 2) {
+          multiSteps += 1;
+          if (deepHere) deepSteps += 1;
+        }
+        const point = path[i];
+        if (point !== undefined) {
+          const on = step.find((a) => insideArea(true, point.pos, a));
+          if (point.valid && on !== undefined) validInside = true;
+          if (point.valid && on === undefined) validOutside = true;
+          if (!point.valid && on !== undefined) invalidInside = true;
+          if (!point.valid && on === undefined) invalidOutside = true;
+          // A rest: consecutive steps valid and inside one hit area that does not change, at one position.
+          const key =
+            on === undefined
+              ? null
+              : `${on.targetId}|${on.activationId}|${on.radius}|${on.centre.x}|${on.centre.y}|${point.pos.x}|${point.pos.y}`;
+          restSteps = point.valid && key !== null ? (key === restKey ? restSteps + 1 : 1) : 0;
+          restKey = point.valid ? key : null;
+          longestRunSteps = Math.max(longestRunSteps, restSteps);
+        }
+      });
+      for (const base of world.bases) {
+        const seq = world.areas.map((step) => step.find((a) => a.targetId === base.targetId));
+        let wasPresent = false;
+        let wasAbsentAfter = false;
+        const seenIds: string[] = [];
+        seq.forEach((a, i) => {
+          const previous = seq[i - 1];
+          if (a === undefined) {
+            if (wasPresent) wasAbsentAfter = true;
+            return;
+          }
+          if (wasAbsentAfter) removedAndBack = true;
+          wasPresent = true;
+          if (previous !== undefined) {
+            if (previous.activationId !== a.activationId) activationChanges = true;
+            else {
+              if (previous.radius !== a.radius) radiusChanges = true;
+              if (previous.centre.x !== a.centre.x || previous.centre.y !== a.centre.y) centreChanges = true;
+            }
+          }
+          if (seenIds[seenIds.length - 1] !== a.activationId) {
+            if (seenIds.includes(a.activationId)) activationReturns = true;
+            seenIds.push(a.activationId);
+          }
+        });
+      }
+    }
+    expect(multiSteps, 'steps with two or more targets').toBeGreaterThan(0);
+    expect(deepSteps / multiSteps, 'the share of those steps in which two targets overlap deeply').toBeGreaterThanOrEqual(
+      MIN_DEEP_OVERLAP_SHARE,
+    );
+    expect({
+      oneTarget: targetCounts.has(1),
+      twoTargets: targetCounts.has(2),
+      threeTargets: targetCounts.has(DWELL_TARGETS_MAX),
+      overlap,
+      apart,
+      activationChanges,
+      activationReturns,
+      radiusChanges,
+      centreChanges,
+      removedAndBack,
+      nothingSupplied,
+      validInside,
+      validOutside,
+      invalidInside,
+      invalidOutside,
+      aRestOfDwellLength: longestRunSteps >= TUNING.dwellMs / TUNING.maxClockStepMs,
+      aRestLongerThanAMediumSegment: longestRunSteps > DWELL_MEDIUM_RUN_MAX,
+    }).toEqual({
+      oneTarget: true,
+      twoTargets: true,
+      threeTargets: true,
+      overlap: true,
+      apart: true,
+      activationChanges: true,
+      activationReturns: true,
+      radiusChanges: true,
+      centreChanges: true,
+      removedAndBack: true,
+      nothingSupplied: true,
+      validInside: true,
+      validOutside: true,
+      invalidInside: true,
+      invalidOutside: true,
+      aRestOfDwellLength: true,
+      aRestLongerThanAMediumSegment: true,
+    });
+  });
+
+  it('genDwellRun has the steps, deltas and pointers it promises and, in the reducer, reaches selections, a second selection of one target, Outside releases, Invalid cancels, drops by activation change and by removal, a latch that blocks and one that ends, one pointer on two targets and two pointers on two', () => {
+    const runs = fc.sample(genDwellRun(), SAMPLE);
+    const steps = runs.flat();
+    const spreadRuns = runs.filter((run) => run.some((s) => s.dt !== run[0]?.dt));
+    const wristsOf = (run: readonly DwellStepCase[]): string =>
+      [...new Set(run.flatMap((s) => s.pointers.map((p) => p.wrist)))].sort().join('+');
+
+    expect(
+      runs.filter(
+        (run) =>
+          !(
+            run.length >= DWELL_STEPS_MIN &&
+            run.length <= DWELL_STEPS_MAX &&
+            run.every(
+              (s) =>
+                s.dt >= 0 &&
+                s.dt <= MAX &&
+                s.pointers.length >= 1 &&
+                s.pointers.length <= 2 &&
+                new Set(s.pointers.map((p) => p.wrist)).size === s.pointers.length &&
+                s.pointers.every((p) => !p.valid || (Number.isFinite(p.pos.x) && Number.isFinite(p.pos.y))),
+            )
+          ),
+      ),
+    ).toEqual([]);
+    const shares = quarterSharesOf(spreadRuns.flatMap((run) => run.map((s) => s.dt)), 0, MAX);
+    expect(Math.min(...shares), `quarter shares of dt in the runs that are not constant: ${shares.join(', ')}`).toBeGreaterThanOrEqual(
+      MIN_QUARTER_SHARE,
+    );
+
+    const tallies = runs.map(tallyRun);
+    const selectingShare = tallies.filter((t) => t.selections > 0).length / runs.length;
+    expect(selectingShare, 'the share of runs with a selection').toBeGreaterThanOrEqual(MIN_SELECTING_RUN_SHARE);
+    expect({
+      deltaZero: steps.some((s) => s.dt === 0),
+      deltaMax: steps.some((s) => s.dt === MAX),
+      allDeltasMax: runs.some((run) => run.every((s) => s.dt === MAX)),
+      allDeltasHalf: runs.some((run) => run.every((s) => s.dt === MAX / 2)),
+      onlyRight: runs.some((run) => wristsOf(run) === 'right'),
+      onlyLeft: runs.some((run) => wristsOf(run) === 'left'),
+      both: runs.some((run) => wristsOf(run) === 'left+right'),
+      invalidPointerCarriesAPosition: steps.some((s) => s.pointers.some((p) => !p.valid && 'pos' in p)),
+      aRestOfDwellLength: runs.some((run) => longestRestMs(run) >= TUNING.dwellMs),
+      selection: tallies.some((t) => t.selections > 0),
+      sameTargetTwice: tallies.some((t) => t.sameTargetTwice),
+      outsideRelease: tallies.some((t) => t.outsideRelease),
+      invalidCancel: tallies.some((t) => t.invalidCancel),
+      droppedByActivation: tallies.some((t) => t.droppedByActivation),
+      droppedByRemoval: tallies.some((t) => t.droppedByRemoval),
+      latchBlocksAnInsidePointer: tallies.some((t) => t.latchBlocksAnInsidePointer),
+      latchEnded: tallies.some((t) => t.latchEnded),
+      onePointerOwnsTwoTargets: tallies.some((t) => t.onePointerOwnsTwoTargets),
+      bothWristsOwn: tallies.some((t) => t.bothWristsOwn),
+    }).toEqual({
+      deltaZero: true,
+      deltaMax: true,
+      allDeltasMax: true,
+      allDeltasHalf: true,
+      onlyRight: true,
+      onlyLeft: true,
+      both: true,
+      invalidPointerCarriesAPosition: true,
+      aRestOfDwellLength: true,
+      selection: true,
+      sameTargetTwice: true,
+      outsideRelease: true,
+      invalidCancel: true,
+      droppedByActivation: true,
+      droppedByRemoval: true,
+      latchBlocksAnInsidePointer: true,
+      latchEnded: true,
+      onePointerOwnsTwoTargets: true,
+      bothWristsOwn: true,
+    });
+  });
+
+  it('genTwoPointerInterleaving gives the owner the target first in both runs, changes only the other pointer, and reaches both owners, every approach length, and an other pointer that is inside, nearer the centre, outside and invalid', () => {
+    const cases = fc.sample(genTwoPointerInterleaving(), SAMPLE);
+    const otherOf = (owner: WristId): WristId => (owner === 'left' ? 'right' : 'left');
+    const pointerOfWrist = (pointers: readonly PointerInput[], wrist: WristId): PointerInput | undefined =>
+      pointers.find((p) => p.wrist === wrist);
+
+    // The contract of the generator, checked in the reducer: the owner holds the target from the step it arrives.
+    const broken = cases.flatMap(({ owner, acquireAt, steps, replaced }, n) => {
+      const problems: string[] = [];
+      for (const [name, run] of [['steps', steps], ['replaced', replaced]] as const) {
+        let state: DwellState = createDwell();
+        run.forEach((step, i) => {
+          const area = step.hitAreas[0] as HitArea;
+          const before = dwellView(state, 't0').owner;
+          const other = pointerOfWrist(step.pointers, otherOf(owner));
+          if (i <= acquireAt && other !== undefined && other.valid && insideArea(true, other.pos, area)) {
+            problems.push(`case ${n} ${name}: the other pointer is inside at step ${i}`);
+          }
+          state = stepDwell(state, { dt: step.dt, pointers: step.pointers, hitAreas: step.hitAreas }).state;
+          if (i === acquireAt && dwellView(state, 't0').owner !== owner) {
+            problems.push(`case ${n} ${name}: the owner does not hold the target at step ${i}`);
+          }
+          if (i < acquireAt && before !== null) problems.push(`case ${n} ${name}: held before step ${acquireAt}`);
+        });
+      }
+      const sameOwnerPath = steps.every((s, i) => {
+        const r = replaced[i];
+        const a = pointerOfWrist(s.pointers, owner);
+        const b = r === undefined ? undefined : pointerOfWrist(r.pointers, owner);
+        return r !== undefined && s.dt === r.dt && s.hitAreas === r.hitAreas && JSON.stringify(a) === JSON.stringify(b);
+      });
+      if (!sameOwnerPath || steps.length !== replaced.length) problems.push(`case ${n}: more than the other pointer changed`);
+      if (steps.some((s) => s.pointers.length !== 2)) problems.push(`case ${n}: not two pointers in every step`);
+      return problems;
+    });
+    expect(broken.slice(0, 5)).toEqual([]);
+
+    const after = (c: (typeof cases)[number], visit: (other: PointerInput, owner: PointerInput, area: HitArea) => boolean): boolean =>
+      c.steps.some((s, i) => {
+        const other = pointerOfWrist(s.pointers, otherOf(c.owner));
+        const mine = pointerOfWrist(s.pointers, c.owner);
+        return i > c.acquireAt && other !== undefined && mine !== undefined && visit(other, mine, s.hitAreas[0] as HitArea);
+      });
+    expect({
+      ownerLeft: cases.some((c) => c.owner === 'left'),
+      ownerRight: cases.some((c) => c.owner === 'right'),
+      noApproach: cases.some((c) => c.acquireAt === 0),
+      longestApproach: cases.some((c) => c.acquireAt === DWELL_APPROACH_MAX),
+      otherChanges: cases.some((c) => JSON.stringify(c.steps) !== JSON.stringify(c.replaced)),
+      otherInsideAfterwards: cases.some((c) => after(c, (o, _m, a) => o.valid && insideArea(true, o.pos, a))),
+      otherNearerTheCentre: cases.some((c) =>
+        after(c, (o, m, a) => o.valid && m.valid && dist(o.pos, a.centre) < dist(m.pos, a.centre) && dist(o.pos, a.centre) <= a.radius),
+      ),
+      otherOutside: cases.some((c) => after(c, (o, _m, a) => o.valid && !insideArea(true, o.pos, a))),
+      otherInvalid: cases.some((c) => after(c, (o) => !o.valid)),
+    }).toEqual({
+      ownerLeft: true,
+      ownerRight: true,
+      noApproach: true,
+      longestApproach: true,
+      otherChanges: true,
+      otherInsideAfterwards: true,
+      otherNearerTheCentre: true,
+      otherOutside: true,
+      otherInvalid: true,
+    });
+    const holds = cases.filter((c) => {
+      let state: DwellState = createDwell();
+      let heldFor = 0;
+      for (const step of c.steps) {
+        state = stepDwell(state, { dt: step.dt, pointers: step.pointers, hitAreas: step.hitAreas }).state;
+        heldFor = dwellView(state, 't0').owner === c.owner ? heldFor + 1 : heldFor;
+      }
+      return heldFor >= 2 * DWELL_APPROACH_MAX;
+    }).length;
+    expect(holds / cases.length, 'the share of cases in which the owner holds the target for a while').toBeGreaterThanOrEqual(
+      MIN_SELECTING_RUN_SHARE,
+    );
   });
 });
