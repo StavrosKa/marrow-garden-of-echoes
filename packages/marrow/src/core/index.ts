@@ -87,6 +87,14 @@ export {
   type TrackingStep,
 } from './tracking';
 export {
+  DEFAULT_SETTINGS,
+  SETTINGS_VERSION,
+  parseSettings,
+  serializeSettings,
+  type MotionLevel,
+  type Settings,
+} from './settings';
+export {
   createHelp,
   stepHelp,
   helpRadiusForMotorLevel,

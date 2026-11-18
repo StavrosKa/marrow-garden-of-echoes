@@ -178,7 +178,7 @@ Rules for every task:
     - _Requirements: 19.11, 19.12, 19.13, 28.8_
 
 - [ ] 14. Settings
-  - [ ] 14.1 Settings parsing
+  - [x] 14.1 Settings parsing
     - Create `core/settings.ts` (design §5): `Settings` (motion, mute, volume 0..1, hands), `MotionLevel`, `DEFAULT_SETTINGS`, `SETTINGS_VERSION`, `parseSettings(raw, env)` and `serializeSettings(s)`. Versioned JSON; non-JSON or an unknown version gives all defaults; one bad field defaults only that field; parsing never throws. Defaults: motion `reduced` when the browser prefers reduced motion and nothing is stored, otherwise `full`; mute off; volume `defaultVolume`; hands not chosen. A stored motion choice wins over the browser preference.
     - Export the settings names above from `marrow/core`.
     - Add `genSettingsString` to `testgen.ts`.

@@ -18,6 +18,7 @@ import { clamp } from './geometry';
 import type { HelpEvent, HelpFlags } from './help';
 import type { MappingParams } from './mapping';
 import type { Demand } from './placement';
+import { SETTINGS_VERSION } from './settings';
 import { TUNING } from './tuning';
 
 /**
@@ -1388,5 +1389,168 @@ export function genHelpSession(): fc.Arbitrary<HelpEvent[]> {
       ...r.body.map((s) => helpEventOf(s, r.mode)),
       ...(r.ends ? [helpEventOf(r.end, r.mode === 'settling' ? 'calm' : r.mode)] : []),
     ]),
+  );
+}
+/**
+ * The deepest nesting, the longest text and the shortest "long" text that genSettingsString draws.
+ * Test parameters (design section 10.1). The deepest nesting is far beyond what a JSON parser with
+ * a recursive descent handles on a default stack.
+ */
+export const SETTINGS_DEPTH_MAX = 50_000;
+export const SETTINGS_LONG_MIN = 1_000;
+export const SETTINGS_LONG_MAX = 100_000;
+/** The keys of the four settings, in the order serializeSettings writes them. */
+export const SETTINGS_FIELDS = ['motion', 'mute', 'volume', 'hands'] as const;
+type SettingsField = (typeof SETTINGS_FIELDS)[number];
+/** Keys that name something on every object, and a value for each that looks like stored settings. */
+export const SETTINGS_HOSTILE_KEYS = [
+  '__proto__',
+  'constructor',
+  'prototype',
+  'toString',
+  'hasOwnProperty',
+  'valueOf',
+] as const;
+const HOSTILE_VALUE = '{"version":1,"motion":"gentle","mute":true,"volume":0.1,"hands":"left"}';
+const HOSTILE_VALUES = [
+  HOSTILE_VALUE,
+  `{"prototype":${HOSTILE_VALUE},"__proto__":${HOSTILE_VALUE}}`,
+  '{"motion":"gentle"}',
+  '"gentle"',
+  'null',
+  '[]',
+] as const;
+/** The JSON text of a valid value for each field. */
+const VALID_FIELD_TEXT: Record<SettingsField, fc.Arbitrary<string>> = {
+  motion: fc.constantFrom('full', 'gentle', 'reduced').map((v) => JSON.stringify(v)),
+  mute: fc.boolean().map((v) => JSON.stringify(v)),
+  volume: fc.oneof(fc.constantFrom(0, 1, TUNING.defaultVolume), genSpread(0, 1)).map((v) => JSON.stringify(v)),
+  hands: fc.constantFrom('"right"', '"left"', '"both"', 'null'),
+};
+/** The JSON text of a value that no field accepts, and of values some field accepts or does not. */
+const JUNK_TEXT: readonly string[] = [
+  'null', 'true', 'false', '[]', '{}', '[1]', '{"a":1}', '""', '"0.5"', '"full"', '"FULL"', '"both"', '"right "', '"1"',
+  '0', '1', '2', '-1', '-0', '0.5', '1.0000000000000002', '-0.0000001', '1e999', '-1e999', '1e-999', '123456789012345678901234567890',
+];
+const genJunkText: fc.Arbitrary<string> = fc.oneof(
+  { arbitrary: fc.constantFrom(...JUNK_TEXT), weight: 3 },
+  { arbitrary: fc.jsonValue().map((v) => JSON.stringify(v)), weight: 1 },
+);
+/** The JSON text of a version: the right one most often, otherwise another number, or not a number. */
+const genVersionText: fc.Arbitrary<string> = fc.oneof(
+  { arbitrary: fc.constant(String(SETTINGS_VERSION)), weight: 6 },
+  { arbitrary: fc.constantFrom('0', '2', '-1', '1.5', '999999999999', '1e999', '"1"', 'null', 'true', '[1]', '{}'), weight: 2 },
+  { arbitrary: fc.integer({ min: -3, max: 5 }).map(String), weight: 1 },
+);
+/** "key":value pairs whose key names something on every object. */
+const genHostilePair: fc.Arbitrary<string> = fc
+  .tuple(fc.constantFrom(...SETTINGS_HOSTILE_KEYS), fc.constantFrom(...HOSTILE_VALUES))
+  .map(([key, value]) => `${JSON.stringify(key)}:${value}`);
+/**
+ * Settings text with a version and the four fields, then changed in one way at most: one field
+ * corrupted or left out, the version wrong or left out, and hostile keys put in at any position.
+ */
+const genNearValid: fc.Arbitrary<string> = fc
+  .record({
+    valid: fc.record({
+      motion: VALID_FIELD_TEXT.motion,
+      mute: VALID_FIELD_TEXT.mute,
+      volume: VALID_FIELD_TEXT.volume,
+      hands: VALID_FIELD_TEXT.hands,
+    }),
+    field: fc.constantFrom(...SETTINGS_FIELDS),
+    change: fc.constantFrom('none', 'corrupt', 'corrupt', 'corrupt', 'remove'),
+    junk: genJunkText,
+    version: genVersionText,
+    versionChange: fc.constantFrom('keep', 'keep', 'change', 'change', 'remove'),
+    hostile: fc.array(genHostilePair, { maxLength: 3 }),
+    at: fc.nat(SETTINGS_FIELDS.length + 1),
+  })
+  .map((r) => {
+    const pairs: string[] = [];
+    if (r.versionChange !== 'remove') {
+      pairs.push(`"version":${r.versionChange === 'change' ? r.version : String(SETTINGS_VERSION)}`);
+    }
+    for (const field of SETTINGS_FIELDS) {
+      if (field === r.field && r.change === 'remove') continue;
+      pairs.push(`"${field}":${field === r.field && r.change === 'corrupt' ? r.junk : r.valid[field]}`);
+    }
+    pairs.splice(Math.min(r.at, pairs.length), 0, ...r.hostile);
+    return `{${pairs.join(',')}}`;
+  });
+/** An object with hostile keys, with the four valid fields before or after them. */
+const genHostile: fc.Arbitrary<string> = fc
+  .tuple(fc.array(genHostilePair, { minLength: 1, maxLength: 4 }), fc.boolean(), genNearValid)
+  .map(([pairs, before, near]) => {
+    const inner = near.slice(1, -1);
+    const all = before ? [...pairs, inner] : [inner, ...pairs];
+    return `{${all.filter((p) => p !== '').join(',')}}`;
+  });
+/** JSON whose top level is not an object: null, an array, a number, a string, a boolean; and text that holds settings inside one. */
+const genTopLevel: fc.Arbitrary<string> = fc.oneof(
+  { arbitrary: fc.constantFrom('null', 'null', 'null', '[]', '[]', '[]', '[1,2,3]', '7', '0', '-0', '1e999', '"text"', '""', 'true', 'false', '{}'), weight: 2 },
+  { arbitrary: genNearValid.map((s) => `[${s}]`), weight: 1 },
+  { arbitrary: genNearValid.map((s) => JSON.stringify(s)), weight: 1 },
+  { arbitrary: genNearValid.map((s) => `[[${s}],${s}]`), weight: 1 },
+);
+/** A depth: a few levels or a great many. */
+const genDepth: fc.Arbitrary<number> = fc.oneof(
+  fc.integer({ min: 1, max: 64 }),
+  fc.integer({ min: 1_000, max: SETTINGS_DEPTH_MAX }),
+);
+/** Deeply nested JSON: arrays, objects, closed or cut off, and valid settings with a deeply nested extra field. */
+const genDeep: fc.Arbitrary<string> = fc
+  .tuple(genDepth, fc.constantFrom('array', 'object', 'open', 'inField', 'inVersion'))
+  .map(([n, kind]) => {
+    const arrays = `${'['.repeat(n)}${']'.repeat(n)}`;
+    switch (kind) {
+      case 'array':
+        return arrays;
+      case 'object':
+        return `${'{"a":'.repeat(n)}1${'}'.repeat(n)}`;
+      case 'open':
+        return '['.repeat(n);
+      case 'inField':
+        return `{"version":1,"motion":"gentle","mute":true,"volume":0.1,"hands":"left","extra":${arrays}}`;
+      case 'inVersion':
+        return `{"version":${arrays},"motion":"gentle"}`;
+    }
+  });
+/** Very long text: a long string value, a long key, a long number, a long array, and text that is not JSON. */
+const genLong: fc.Arbitrary<string> = fc
+  .tuple(fc.integer({ min: SETTINGS_LONG_MIN, max: SETTINGS_LONG_MAX }), fc.constantFrom('value', 'key', 'number', 'array', 'text', 'hands'))
+  .map(([n, kind]) => {
+    const long = 'a'.repeat(n);
+    switch (kind) {
+      case 'value':
+        return `{"version":1,"motion":"${long}","mute":false,"volume":0.5,"hands":"both"}`;
+      case 'key':
+        return `{"version":1,"${long}":1,"motion":"gentle"}`;
+      case 'number':
+        return `{"version":1,"volume":0.${'1'.repeat(n)},"motion":"gentle"}`;
+      case 'array':
+        return `{"version":1,"hands":[${'1,'.repeat(n)}1],"motion":"gentle"}`;
+      case 'text':
+        return long;
+      case 'hands':
+        return `{"version":1,"hands":"${long}","volume":${'9'.repeat(n)}}`;
+    }
+  });
+/**
+ * Stored text for the settings key (design section 10.1, Req 20.4): arbitrary strings, any JSON
+ * value written out, settings with one field corrupted or left out or a wrong version, objects with
+ * keys such as "__proto__" and "constructor", JSON whose top level is null, an array, a number or a
+ * string, deeply nested JSON and very long strings.
+ */
+export function genSettingsString(): fc.Arbitrary<string> {
+  return fc.oneof(
+    { arbitrary: fc.string(), weight: 2 },
+    { arbitrary: fc.string({ unit: 'binary' }), weight: 1 },
+    { arbitrary: fc.jsonValue().map((v) => JSON.stringify(v)), weight: 2 },
+    { arbitrary: genNearValid, weight: 6 },
+    { arbitrary: genHostile, weight: 3 },
+    { arbitrary: genTopLevel, weight: 2 },
+    { arbitrary: genDeep, weight: 1 },
+    { arbitrary: genLong, weight: 1 },
   );
 }

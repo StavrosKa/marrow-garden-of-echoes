@@ -30,6 +30,10 @@ import {
   TRACKING_STEPS_MIN,
   HEAD_EDGE_SHARE,
   HEAD_RUN_MAX,
+  
+  SETTINGS_FIELDS,
+  SETTINGS_HOSTILE_KEYS,
+  SETTINGS_LONG_MIN,
   HEAD_NEUTRAL_MAX,
   HEAD_NEUTRAL_MIN,
   HEAD_REACH,
@@ -53,6 +57,7 @@ import {
   genHelpSession,
   genHitAreas,
   genMappingParams,
+  genSettingsString,
   genPointerPath,
   genReselectRun,
   genStintRun,
@@ -69,6 +74,7 @@ import {
   type StintRun,
   type TrackingRunCase,
 } from './testgen';
+import { SETTINGS_VERSION } from './settings';
 import { createTracking, stepTracking } from './tracking';
 import { TUNING } from './tuning';
 
@@ -513,6 +519,111 @@ const HELP_SHARE_FLOORS: Record<HelpShareName, number> = {
 const MIN_SELECTING_RUN_SHARE = 0.2;
 /** The least share of the steps with two or more targets in which two of them overlap deeply (a centre inside the other circle). A test parameter. */
 const MIN_DEEP_OVERLAP_SHARE = 0.15;
+
+/** What one string of genSettingsString is, judged here from the text and not from the generator. */
+type SettingsKind =
+  | 'notJson'
+  | 'topNull'
+  | 'topArray'
+  | 'topNumber'
+  | 'topString'
+  | 'topBoolean'
+  | 'object'
+  | 'rightVersion'
+  | 'wrongVersion'
+  | 'noVersion'
+  | 'allFieldsValid'
+  | 'oneFieldInvalid'
+  | 'oneFieldMissing'
+  | 'motionInvalid'
+  | 'muteInvalid'
+  | 'volumeInvalid'
+  | 'handsInvalid'
+  | 'topEmptyArray'
+  | 'volumeOutOfRange'
+  | 'invalidContainer'
+  | 'hostileKey'
+  | 'protoKey'
+  | 'constructorKey'
+  | 'hostileWithValidFields'
+  | 'deep'
+  | 'long'
+  | 'plainText';
+/** Whether a stored value is acceptable for the field (Req 20.1), written for this test. */
+function fieldIsValid(field: (typeof SETTINGS_FIELDS)[number], value: unknown): boolean {
+  switch (field) {
+    case 'motion':
+      return value === 'full' || value === 'gentle' || value === 'reduced';
+    case 'mute':
+      return typeof value === 'boolean';
+    case 'volume':
+      return typeof value === 'number' && value >= 0 && value <= 1;
+    case 'hands':
+      return value === null || value === 'right' || value === 'left' || value === 'both';
+  }
+}
+/** The shortest nesting that counts as deep when the coverage test judges a string. A test parameter. */
+const SETTINGS_DEPTH_MIN_TEST = 1_000;
+/** Test parameters: nesting and length that the sample must reach, whatever the limits of the generator are. */
+const DEEP_ENOUGH = 10_000;
+const LONG_ENOUGH = 50_000;
+function kindsOfSettingsString(s: string): Set<SettingsKind> {
+  const kinds = new Set<SettingsKind>();
+  const deep = s.includes('['.repeat(SETTINGS_DEPTH_MIN_TEST)) || s.includes('{"a":'.repeat(SETTINGS_DEPTH_MIN_TEST));
+  if (deep) kinds.add('deep');
+  if (s.length >= SETTINGS_LONG_MIN && !deep) kinds.add('long');
+  let value: unknown;
+  try {
+    value = JSON.parse(s);
+  } catch {
+    kinds.add('notJson');
+    if (!deep && s.length < SETTINGS_LONG_MIN) kinds.add('plainText');
+    return kinds;
+  }
+  if (Array.isArray(value) && value.length === 0) kinds.add('topEmptyArray');
+  if (value === null) kinds.add('topNull');
+
+  else if (Array.isArray(value)) kinds.add('topArray');
+  else if (typeof value === 'number') kinds.add('topNumber');
+  else if (typeof value === 'string') kinds.add('topString');
+  else if (typeof value === 'boolean') kinds.add('topBoolean');
+  else if (typeof value === 'object') {
+    kinds.add('object');
+    const own = (key: string): unknown => Reflect.getOwnPropertyDescriptor(value, key)?.value;
+    const has = (key: string): boolean => Object.hasOwn(value, key);
+    if (!has('version')) kinds.add('noVersion');
+    else if (own('version') === SETTINGS_VERSION) kinds.add('rightVersion');
+    else kinds.add('wrongVersion');
+    const keys = Object.keys(value);
+    const hostile = keys.some((k) => (SETTINGS_HOSTILE_KEYS as readonly string[]).includes(k));
+    if (hostile) kinds.add('hostileKey');
+    if (keys.includes('__proto__')) kinds.add('protoKey');
+    if (keys.includes('constructor')) kinds.add('constructorKey');
+    const invalid = SETTINGS_FIELDS.filter((f) => has(f) && !fieldIsValid(f, own(f)));
+    const missing = SETTINGS_FIELDS.filter((f) => !has(f));
+    if (kinds.has('rightVersion') && invalid.length === 0 && missing.length === 0) {
+      kinds.add('allFieldsValid');
+      if (hostile) kinds.add('hostileWithValidFields');
+    }
+    if (kinds.has('rightVersion')) {
+      for (const f of invalid) kinds.add(`${f}Invalid`);
+      const volume = own('volume');
+      if (has('volume') && typeof volume === 'number' && !fieldIsValid('volume', volume)) kinds.add('volumeOutOfRange');
+      if (invalid.some((f) => typeof own(f) === 'object' && own(f) !== null)) kinds.add('invalidContainer');
+    }
+    if (kinds.has('rightVersion') && invalid.length === 1 && missing.length === 0) kinds.add('oneFieldInvalid');
+    if (kinds.has('rightVersion') && invalid.length === 0 && missing.length === 1) kinds.add('oneFieldMissing');
+  }
+  return kinds;
+}
+/** The share of the strings that each kind must reach at least, each at most two thirds of what was measured. */
+const SETTINGS_SHARE_FLOORS: Record<SettingsKind, number> = {
+  notJson: 0.1, topNull: 0.007, topArray: 0.07, topNumber: 0.015, topString: 0.026, topBoolean: 0.009,
+  object: 0.4, rightVersion: 0.27, wrongVersion: 0.05, noVersion: 0.1, allFieldsValid: 0.07,
+  oneFieldInvalid: 0.14, oneFieldMissing: 0.04, hostileKey: 0.29, protoKey: 0.11, constructorKey: 0.11,
+  hostileWithValidFields: 0.05, deep: 0.014, long: 0.033, plainText: 0.09,
+  motionInvalid: 0.045, muteInvalid: 0.03, volumeInvalid: 0.033, handsInvalid: 0.045, topEmptyArray: 0.006, volumeOutOfRange: 0.013, invalidContainer: 0.04,
+};
 
 describe('testgen', () => {
   it('genDt reaches 0, negative, non-finite, in-range and above-range deltas', () => {
@@ -1657,5 +1768,31 @@ describe('testgen', () => {
       .filter((name) => shares[name] < HELP_SHARE_FLOORS[name])
       .map((name) => `${name}: ${shares[name]} of the sessions, floor ${HELP_SHARE_FLOORS[name]}`);
     expect(below, 'the shares of help sessions below their floors').toEqual([]);
+  });
+
+  it('genSettingsString reaches non-JSON text, every top level that is not an object, wrong and missing versions, one invalid or missing field, keys such as "__proto__" and "constructor", deep nesting and very long text', () => {
+    const strings = fc.sample(genSettingsString(), SAMPLE);
+    const tallies = strings.map(kindsOfSettingsString);
+    const share = (kind: SettingsKind): number => tallies.filter((k) => k.has(kind)).length / tallies.length;
+    const hostileSeen = SETTINGS_HOSTILE_KEYS.filter((key) =>
+      strings.some((s) => {
+        try {
+          const v: unknown = JSON.parse(s);
+          return typeof v === 'object' && v !== null && Object.keys(v).includes(key);
+        } catch {
+          return false;
+        }
+      }),
+    );
+    expect(hostileSeen, 'hostile keys that appear as keys of a parsed string').toEqual([...SETTINGS_HOSTILE_KEYS]);
+    expect(
+      strings.some((s) => s.includes('['.repeat(DEEP_ENOUGH))),
+      `nesting at least ${DEEP_ENOUGH} levels deep`,
+    ).toBe(true);
+    expect(strings.some((s, i) => s.length >= LONG_ENOUGH && tallies[i]?.has('long')), `a string at least ${LONG_ENOUGH} characters long`).toBe(true);
+    const below = (Object.keys(SETTINGS_SHARE_FLOORS) as SettingsKind[])
+      .filter((k) => share(k) < SETTINGS_SHARE_FLOORS[k])
+      .map((k) => `${k}: ${share(k)} of the strings, floor ${SETTINGS_SHARE_FLOORS[k]}`);
+    expect(below.join('; '), 'the shares of settings strings below their floors').toBe('');
   });
 });
