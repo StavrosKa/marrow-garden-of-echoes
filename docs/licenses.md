@@ -46,16 +46,18 @@ The two MPL-2.0 packages are `lightningcss` and its Windows binary `lightningcss
 
 ## Vendored runtime assets
 
-Three files are copied into `apps/garden-of-echoes/public/mediapipe/` and served from `BASE_PATH`, never from a third-party host (requirements 4.4, 4.5, 28.11). The test `vendored_assets_match_licenses` (`tests/vendored-assets.test.ts`) recomputes the SHA-256 of every file below and fails if a file is missing from this table, listed here but absent, or has another hash. Hashes are lowercase hexadecimal.
+Four files are copied into `apps/garden-of-echoes/public/mediapipe/` and served from `BASE_PATH`, never from a third-party host (requirements 4.4, 4.5, 28.11). The test `vendored_assets_match_licenses` (`tests/vendored-assets.test.ts`) recomputes the SHA-256 of every file below and fails if a file is missing from this table, listed here but absent, or has another hash. Hashes are lowercase hexadecimal.
 
 | File | Source URL | Downloaded | Licence | SHA-256 |
 |---|---|---|---|---|
 | `apps/garden-of-echoes/public/mediapipe/wasm/vision_wasm_internal.js` | https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-1.2.3.tgz | 2026-11-18 | Apache-2.0 | 2aa5fd3fdd3d8208cd7587df0bb19fb6925c4ea16a76dd025aedc1f64d6a6309 |
 | `apps/garden-of-echoes/public/mediapipe/wasm/vision_wasm_internal.wasm` | https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-1.2.3.tgz | 2026-11-18 | Apache-2.0 | 225bc06c0f51a9cf31fea0e9e0b0243e9e01fb5ef332cc1a7fa6656dbdfdaabf |
 | `apps/garden-of-echoes/public/mediapipe/models/pose_landmarker_lite.task` | https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task | 2026-11-18 | Apache-2.0 | 59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a |
+| `apps/garden-of-echoes/public/mediapipe/LICENSE` | https://www.apache.org/licenses/LICENSE-2.0.txt | 2026-11-18 | Apache-2.0 | cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30 |
 
 Notes:
 
 - The two files from the npm package were copied on 2026-11-18 from `node_modules/@mediapipe/tasks-vision/wasm/` (package 1.2.3, installed on 2026-11-16 from the tarball above, whose integrity hash is in `package-lock.json`). Their licence is the `license` field of the package's `package.json`: `Apache-2.0`. The package ships no separate licence file.
 - `FilesetResolver.forVisionTasks(basePath)` builds exactly two URLs, `<basePath>/vision_wasm_internal.js` and `<basePath>/vision_wasm_internal.wasm`. The `vision_wasm_module_internal` pair in the package is used only when a second argument `true` is passed, which the camera source does not do, so those two files are not vendored. Chromium 159, Chrome 158 and Edge 157 requested only the two vendored files (task 15.3 in the journal).
 - The model was downloaded on 2026-11-18 from the versioned path `float16/1/`. The `latest` path reported the same size (5,777,746 bytes) and the same MD5 (`04a75ddf7c811ac7a1a4523266dd7d88`) in the server's headers at that date. Its licence is read from Google's official model card for the Pose Landmarker models, "Model Card BlazePose GHUM 3D" (https://storage.googleapis.com/mediapipe-assets/Model%20Card%20BlazePose%20GHUM%203D.pdf), the card the Pose Landmarker documentation links for the lite model. The card states "LICENSED UNDER Apache License, Version 2.0".
+- `LICENSE` is the full, unmodified Apache License 2.0 text from the URL in its row, added on 2026-11-18 because section 4(a) requires a copy of the licence with every redistribution of the two WASM files and the model. `vite build` copies it to `dist/mediapipe/LICENSE`. The npm package 1.2.3 has no NOTICE file (its file list is the bundles, `package.json`, `README.md`, `vision.d.ts` and the four WASM files; the README only mentions a "Privacy Notice"), and the model card names none, so no NOTICE file is vendored.
