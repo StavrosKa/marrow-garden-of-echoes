@@ -202,7 +202,7 @@ Rules for every task:
     - Tests: the advance rules; each kind of malformed trace with the frame index in the message; dispose twice.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 3.1, 3.2, 3.3, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
-  - [ ] 15.2 Pointer Source
+  - [x] 15.2 Pointer Source
     - Create `input/pointerSource.ts`: `createPointerSource(opts)` follows only the primary pointer and drives the right wrist; the left wrist is always invalid. The wrist is valid only while a mouse or pen is over the play area or a touch is in contact with it. The frame aspect is the play aspect A, and the wrist is the inverse base mapping of the pointer through `makeMapping` at gain 1. Nose and shoulders are valid at fixed synthetic positions. At most one frame per animation frame. `start()` resolves `ready`; `dispose()` removes every listener and is safe to call twice.
     - The play-area element and the frame scheduler are passed in, so tests run under jsdom.
     - Export `createPointerSource` from `marrow/input`.
