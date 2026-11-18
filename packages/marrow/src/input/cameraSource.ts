@@ -22,10 +22,29 @@
 // Dispose (Req 3.3, 5.6): stops every track, detaches the stream from the video element,
 // closes the landmarker, and does nothing on a second call.
 //
+// The inference loop (Req 2.3, 2.6, 4.1 to 4.3, 4.8). Once the source is ready it asks the
+// scheduler for a callback at each video frame, and each callback is judged in turn:
+// - an inference is already running: the frame is dropped, never queued (Req 4.2). With the
+//   synchronous detectForVideo of MediaPipe 1.2.3 an inference cannot overlap another, so
+//   this only matters for a landmarker that answers later, as a fake in a test does;
+// - the video has no data yet, or the same picture as the last inference: skipped;
+// - less than 1000 / maxInferenceHz milliseconds since the last inference started: skipped,
+//   so an inference never starts more often than the cap (Req 4.3). On a 30 fps camera that
+//   gives every second frame, 15 Hz: the cap is a ceiling, not a target.
+// Otherwise one inference runs, with the clock's time as its timestamp. Each result becomes
+// a new PoseFrame (landmarks 0, 11, 12, 15 and 16, MediaPipe "left" on the player's left
+// side, validity from isLandmarkValid, positions as the camera gives them) and goes
+// through the stale-frame helper. A timer armed at each result calls the helper when no
+// result comes: it fires after staleFrameMs, and if the clock does not yet show more than
+// staleFrameMs it arms itself again for the rest, until the stall is seen, so a stalled
+// model, or a video that stops delivering frames, gives one new all-invalid frame (Req 4.8).
+//
 // Nothing here sends, stores or records a frame or pose data (Req 4.6): no network call, no
 // storage, and no copy of the video.
-import { TUNING, type PoseFrame, type Tuning, type Vec2 } from '../core';
+import { LANDMARK_INDEX, TUNING, isLandmarkValid, type PoseFrame, type Tuning, type Vec2 } from '../core';
+import { withTrailingSlash } from './mediapipeUrls';
 import type { PoseSource, StartOutcome } from './poseSource';
+import { exposeFrame } from './staleFrame';
 
 /** One landmark of a result, as MediaPipe reports it (a subset of `NormalizedLandmark`). */
 export interface LandmarkLike {
@@ -52,8 +71,10 @@ export interface CameraSourceOptions {
   readonly video: HTMLVideoElement;
   /** `getUserMedia`; the default is the browser's. When there is none, `start()` reports `no-camera`. */
   readonly getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
-  /** Creates the landmarker, loading the WASM files and the model from under `basePath`. */
-  readonly createLandmarker: (basePath: string) => Promise<LandmarkerLike>;
+  /** Creates the landmarker, loading the WASM files and the model from under `basePath`. The default is MediaPipe's Pose Landmarker (lite). */
+  readonly createLandmarker?: (basePath: string) => Promise<LandmarkerLike>;
+  /** Asks for `callback` at the next video frame; returns a function that cancels the request. The default is `requestVideoFrameCallback`, or an animation frame. */
+  readonly scheduleFrame?: (video: HTMLVideoElement, callback: () => void) => () => void;
   /** The source's monotonic clock in milliseconds; the default is `performance.now`. */
   readonly now?: () => number;
   /** The numbers of the tuning; the default is the shipped `TUNING`. */
@@ -95,6 +116,11 @@ const noop = (): void => undefined;
 const UNUSED_POS: Vec2 = { x: 0, y: 0 };
 /** `HTMLMediaElement.HAVE_METADATA`: the size and duration are known. */
 const HAVE_METADATA = 1;
+/** `HTMLMediaElement.HAVE_CURRENT_DATA`: the picture at the current time is there. */
+const HAVE_CURRENT_DATA = 2;
+const MS_PER_SECOND = 1000;
+/** Added to the stale timer so that it fires at the first millisecond that is more than `staleFrameMs`. */
+const STALE_MARGIN_MS = 1;
 
 /** The `name` of whatever a promise rejected with, or '' when it has none. */
 function errorName(error: unknown): string {
@@ -115,10 +141,23 @@ function stopTracks(stream: MediaStream): void {
   for (const track of stream.getTracks()) track.stop();
 }
 
-/** The base path with one slash at its end, so that a path can be added to it. */
-function withTrailingSlash(basePath: string): string {
-  if (basePath === '') return '/';
-  return basePath.endsWith('/') ? basePath : `${basePath}/`;
+/** The default `scheduleFrame`: the next frame of the video, or, where the browser cannot tell, the next animation frame. */
+function scheduleVideoFrame(video: HTMLVideoElement, callback: () => void): () => void {
+  if (typeof video.requestVideoFrameCallback === 'function') {
+    const handle = video.requestVideoFrameCallback(() => callback());
+    return () => video.cancelVideoFrameCallback(handle);
+  }
+  const handle = requestAnimationFrame(() => callback());
+  return () => cancelAnimationFrame(handle);
+}
+
+/** The default `createLandmarker`: MediaPipe, loaded only now, in a chunk of its own. */
+function createMediapipeLandmarker(basePath: string): Promise<LandmarkerLike> {
+  return import('./poseLandmarker').then((module) => module.createPoseLandmarker(basePath));
+}
+
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return typeof value === 'object' && value !== null && 'then' in value && typeof value.then === 'function';
 }
 
 function invalidLandmark(): { pos: Vec2; valid: boolean } {
@@ -141,10 +180,14 @@ function allInvalidFrame(t: number, aspect: number): PoseFrame {
 }
 
 export function createCameraSource(options: CameraSourceOptions): PoseSource {
-  const { video, createLandmarker } = options;
+  const { video } = options;
+  const createLandmarker = options.createLandmarker ?? createMediapipeLandmarker;
+  const scheduleFrame = options.scheduleFrame ?? scheduleVideoFrame;
   const tuning = options.tuning ?? TUNING;
   const now = options.now ?? (() => performance.now());
   const basePath = withTrailingSlash(options.basePath);
+  /** The least time between the starts of two inferences (Req 4.3). */
+  const minGapMs = MS_PER_SECOND / tuning.maxInferenceHz;
   const getUserMedia =
     options.getUserMedia ??
     (typeof navigator !== 'undefined' && navigator.mediaDevices !== undefined
@@ -158,9 +201,128 @@ export function createCameraSource(options: CameraSourceOptions): PoseSource {
   /** The aspect of the delivered video; before it is known, the aspect that was asked for. */
   let aspect = tuning.cameraWidth / tuning.cameraHeight;
 
+  // The inference loop's state; it belongs to the one attempt that is running.
+  let cancelFrame: (() => void) | null = null;
+  let staleTimer: ReturnType<typeof setTimeout> | undefined;
+  let busy = false;
+  let lastStartAt = Number.NEGATIVE_INFINITY;
+  let lastVideoTime = Number.NaN;
+  let lastResultAt = 0;
+
   function readAspect(): number {
     if (video.videoWidth > 0 && video.videoHeight > 0) aspect = video.videoWidth / video.videoHeight;
     return aspect;
+  }
+
+  function stopLoop(): void {
+    cancelFrame?.();
+    cancelFrame = null;
+    clearTimeout(staleTimer);
+    staleTimer = undefined;
+    busy = false;
+  }
+
+  function isRunning(attempt: Attempt): boolean {
+    return phase === 'running' && current === attempt && attempt.landmarker !== null;
+  }
+
+  /** One landmark of the pose: its position as the camera gives it, and whether it can be used (Req 2.4, 2.6). */
+  function landmarkOf(pose: readonly LandmarkLike[] | undefined, index: number): { pos: Vec2; valid: boolean } {
+    const point = pose?.[index];
+    if (point === undefined) return invalidLandmark();
+    const pos = { x: point.x, y: point.y };
+    return { pos, valid: isLandmarkValid(point.visibility ?? 0, pos, tuning) };
+  }
+
+  /** The new frame for a result: five landmarks from their indices, MediaPipe's "left" on the player's left (Req 2.3). */
+  function frameOf(result: LandmarkResultLike, t: number): PoseFrame {
+    const pose = result.landmarks[0];
+    return {
+      t,
+      aspect: readAspect(),
+      landmarks: {
+        leftWrist: landmarkOf(pose, LANDMARK_INDEX.leftWrist),
+        rightWrist: landmarkOf(pose, LANDMARK_INDEX.rightWrist),
+        nose: landmarkOf(pose, LANDMARK_INDEX.nose),
+        leftShoulder: landmarkOf(pose, LANDMARK_INDEX.leftShoulder),
+        rightShoulder: landmarkOf(pose, LANDMARK_INDEX.rightShoulder),
+      },
+    };
+  }
+
+  function armStale(attempt: Attempt, delayMs: number): void {
+    clearTimeout(staleTimer);
+    staleTimer = setTimeout(() => checkStale(attempt), delayMs);
+  }
+
+  /** Runs when no result has come for a while: the stale-frame helper decides (Req 4.8). */
+  function checkStale(attempt: Attempt): void {
+    staleTimer = undefined;
+    if (!isRunning(attempt)) return;
+    const elapsed = now() - lastResultAt;
+    const next = exposeFrame(frame, null, elapsed, tuning);
+    if (next !== frame) {
+      frame = next;
+      return;
+    }
+    // Not stale yet (the timer fired early, or at exactly staleFrameMs): wait for the rest.
+    // Already stale and unchanged means the frame is all-invalid already: once per stall.
+    if (elapsed > tuning.staleFrameMs) return;
+    armStale(attempt, Math.max(tuning.staleFrameMs - elapsed, 0) + STALE_MARGIN_MS);
+  }
+
+  function publish(attempt: Attempt, result: LandmarkResultLike): void {
+    busy = false;
+    if (!isRunning(attempt)) return;
+    const t = now();
+    frame = exposeFrame(frame, frameOf(result, t), 0, tuning);
+    lastResultAt = t;
+    armStale(attempt, tuning.staleFrameMs + STALE_MARGIN_MS);
+  }
+
+  function infer(attempt: Attempt, landmarker: LandmarkerLike, t: number): void {
+    lastStartAt = t;
+    lastVideoTime = video.currentTime;
+    busy = true;
+    let answer: LandmarkResultLike | Promise<LandmarkResultLike>;
+    try {
+      answer = landmarker.detectForVideo(video, t);
+    } catch {
+      // An inference that fails gives no result; the stale-frame guard turns that into lost tracking.
+      busy = false;
+      return;
+    }
+    if (isPromiseLike(answer)) {
+      answer.then(
+        (result) => publish(attempt, result),
+        () => {
+          busy = false;
+        },
+      );
+    } else {
+      publish(attempt, answer);
+    }
+  }
+
+  /** One video frame. The next one is asked for first, so that frames that come during an inference are seen, and dropped, not queued. */
+  function onVideoFrame(attempt: Attempt): void {
+    cancelFrame = null;
+    if (!isRunning(attempt)) return;
+    cancelFrame = scheduleFrame(video, () => onVideoFrame(attempt));
+    const { landmarker } = attempt;
+    if (landmarker === null || busy) return;
+    if (video.readyState < HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+    if (video.currentTime === lastVideoTime) return;
+    const t = now();
+    if (t - lastStartAt < minGapMs) return;
+    infer(attempt, landmarker, t);
+  }
+
+  function startLoop(attempt: Attempt): void {
+    busy = false;
+    lastStartAt = Number.NEGATIVE_INFINITY;
+    lastVideoTime = Number.NaN;
+    cancelFrame = scheduleFrame(video, () => onVideoFrame(attempt));
   }
 
   function newAttempt(): Attempt {
@@ -189,6 +351,7 @@ export function createCameraSource(options: CameraSourceOptions): PoseSource {
   function release(attempt: Attempt): void {
     if (attempt.released) return;
     attempt.released = true;
+    stopLoop();
     for (const undo of attempt.cleanups.splice(0)) undo();
     if (attempt.stream !== null) {
       stopTracks(attempt.stream);
@@ -283,6 +446,7 @@ export function createCameraSource(options: CameraSourceOptions): PoseSource {
       attempt.landmarker = landmarker;
       phase = 'running';
       readAspect();
+      startLoop(attempt);
       return 'ready';
     } catch (error) {
       release(attempt);

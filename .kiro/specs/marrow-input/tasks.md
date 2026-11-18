@@ -193,7 +193,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 12.9, 20.2, 20.5, 20.8, 20.9, 28.9_
 
-- [ ] 15. Input sources
+- [x] 15. Input sources
   - [x] 15.1 PoseSource contract and Trace Source
     - Create `input/poseSource.ts` with `PoseSource` and `StartOutcome` (design §2.2), and `input/traceSource.ts` with `createTraceSource(trace)` plus `advanceTo(tMs)`, `validateTrace(trace)` and the `Trace` type.
     - The trace source is advanced only by elapsed milliseconds from the caller; it exposes the last frame whose timestamp is at most t, or none before the first, keeps the last frame and reports the end after the last timestamp, and runs in Node. A malformed trace (missing fields, timestamps not increasing, aspect not positive) is rejected with a message naming the first bad frame. `latest()` never queues; a second `dispose()` does nothing.
@@ -229,7 +229,7 @@ Rules for every task:
     - Tests (`// @vitest-environment jsdom`, fakes only): each error name gives its outcome; the timeout with fake timers; tracks stopped on `model-failed` and on dispose; dispose twice; an ended track gives all-invalid frames.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 3.3, 4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.8_
-  - [ ] 15.6 Camera Source: inference loop
+  - [x] 15.6 Camera Source: inference loop
     - Pose Landmarker with the lite model, one pose, `VIDEO` running mode, on the main thread, using the installed `@mediapipe/tasks-vision` 1.2.3 and imported nowhere outside `src/input`. Every WASM and model URL is built from the base path.
     - At most one video frame in inference, with new frames dropped while one runs; inferences no more often than `maxInferenceHz`. Landmarks 0, 11, 12, 15 and 16, with MediaPipe "left" on the player's left side; validity from `isLandmarkValid`. Each result becomes a new `PoseFrame` object with `t` from the source's monotonic clock, passed through the stale-frame helper.
     - Export `createCameraSource` from `marrow/input`.
