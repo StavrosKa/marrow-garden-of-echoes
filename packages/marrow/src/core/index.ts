@@ -76,3 +76,13 @@ export {
   type HitArea,
   type PointerInput,
 } from './dwell';
+export {
+  createTracking,
+  stepTracking,
+  type TrackingConfig,
+  type TrackingEvent,
+  type TrackingInput,
+  type TrackingMode,
+  type TrackingState,
+  type TrackingStep,
+} from './tracking';

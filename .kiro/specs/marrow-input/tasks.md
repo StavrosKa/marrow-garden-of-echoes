@@ -149,7 +149,7 @@ Rules for every task:
     - _Requirements: 17.20, 17.21, 17.22, 28.8_
 
 - [ ] 12. Tracking lifecycle
-  - [ ] 12.1 Tracking reducer
+  - [x] 12.1 Tracking reducer
     - Create `core/tracking.ts`: `createTracking(cfg)` (active wrists, mode) and `stepTracking(state, input, dtMs) -> { state, events, holdActive, overlayVisible, oneWristHint }`. The input holds the presence delta, the validity of each active wrist, the validity of the nose, and whether calibration is running.
     - Rules (design §9.4): continuous lost time, reset in any step with a valid active wrist; the hold begins in the step lost time exceeds `trackingHoldAfterMs`; the overlay shows once lost time exceeds `trackingOverlayAfterMs` during a hold and stays until the hold ends; continuous valid time during a hold, reset in any step without a valid active wrist; the hold and the overlay end in the step valid time reaches `trackingResumeMs`; losing only the nose, or one wrist while another is valid, never begins a hold; the one-wrist hint after `oneWristHintMs` outside calibration, hidden when that wrist is valid again or a hold begins; no hold during calibration or in simulated input, and no one-wrist hint in simulated input.
     - Export `createTracking`, `stepTracking`, `TrackingState` and the input type from `marrow/core`.
