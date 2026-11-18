@@ -312,14 +312,18 @@ describe('auraIntensity (Req 15)', () => {
     for (let n = 1; n <= SIZE_MAX; n++) {
       for (const axis of ['x', 'y'] as const) {
         const tuning: Tuning = { ...TUNING, gridCols: axis === 'x' ? n : 1, gridRows: axis === 'y' ? n : 1 };
+        const empty = createGrid(tuning);
         for (let k = 1; k < n; k++) {
           const rect = axis === 'x' ? cellRectCamera(k, 0, tuning) : cellRectCamera(0, k, tuning);
           const edge = axis === 'x' ? rect.x0 : rect.y0;
           for (const v of [edge, nextBelow(edge)]) {
             const screen = EXACT.toScreen(axis === 'x' ? { x: v, y: HALF } : { x: HALF, y: v });
             const camera = EXACT.toCamera(screen);
-            let grid = createGrid(tuning);
-            for (let i = 0; i < NEEDED; i++) grid = addSample(grid, camera);
+            // addSample puts one sample in the cell it finds, so NEEDED calls leave NEEDED samples in
+            // that cell: one call, with the count scaled, gives the same grid without copying the
+            // grid NEEDED times (the copy is what made this test slow).
+            const one = addSample(empty, camera);
+            const grid: ComfortGrid = { ...one, counts: one.counts.map((count) => count * NEEDED) };
             const value = auraIntensity(screen, { right: grid }, EXACT, tuning);
             if (value !== 1 / BLOCK) mismatches.push(`${axis} ${v} of ${n} cells: ${value}`);
           }
@@ -327,7 +331,6 @@ describe('auraIntensity (Req 15)', () => {
       }
     }
     expect(mismatches).toEqual([]);
-    // About 3.7 s alone and over 5 s when the whole suite runs in parallel: the limit is raised, not the work cut.
   }, 60_000);
 
   it('with two active wrists the point takes the larger of their values; a wrist with no grid is not active', () => {

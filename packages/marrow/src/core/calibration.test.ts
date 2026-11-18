@@ -516,14 +516,22 @@ it(
           });
           expect(state.phase, 'the path is too short to end painting').toBe('painting');
           const grid: ComfortGrid = state.grids.right ?? createGrid(TUNING);
+          // A cell holds exactly the samples that fell in it, and is valid iff there are enough of them.
+          // The cells are compared in a loop and the differences collected, so that a run makes one
+          // assertion instead of 2 x COLS x ROWS: the same comparisons, without the matcher's cost.
+          const wrong: string[] = [];
           for (let row = 0; row < ROWS; row++) {
             for (let col = 0; col < COLS; col++) {
               const samples = own[row * COLS + col] ?? 0;
-              // A cell holds exactly the samples that fell in it, and is valid iff there are enough of them.
-              expect(grid.counts[row * COLS + col], `samples in (${col}, ${row})`).toBe(samples);
-              expect(isCellValid(grid, col, row, TUNING), `validity of (${col}, ${row})`).toBe(samples >= NEEDED);
+              if (grid.counts[row * COLS + col] !== samples) {
+                wrong.push(`samples in (${col}, ${row}): ${String(grid.counts[row * COLS + col])}, expected ${samples}`);
+              }
+              if (isCellValid(grid, col, row, TUNING) !== samples >= NEEDED) {
+                wrong.push(`validity of (${col}, ${row}) is not ${String(samples >= NEEDED)}`);
+              }
             }
           }
+          expect(wrong).toEqual([]);
           expect(validCells(grid, TUNING).length).toBe(own.filter((count) => count >= NEEDED).length);
         },
       ),
