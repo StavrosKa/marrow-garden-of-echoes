@@ -86,3 +86,14 @@ export {
   type TrackingState,
   type TrackingStep,
 } from './tracking';
+export {
+  createHelp,
+  stepHelp,
+  helpRadiusForMotorLevel,
+  type HelpAxis,
+  type HelpEvent,
+  type HelpFlags,
+  type HelpOutput,
+  type HelpState,
+  type HelpStep,
+} from './help';
