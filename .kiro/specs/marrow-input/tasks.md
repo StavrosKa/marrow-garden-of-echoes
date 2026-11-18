@@ -216,7 +216,7 @@ Rules for every task:
     - Tests: `vendored_assets_match_licenses` (added by this plan), which recomputes each vendored file's SHA-256 and compares it with `docs/licenses.md`.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass and `npm run build -w garden-of-echoes` copies the files into `dist/mediapipe/`.
     - _Requirements: 4.4, 4.5, 28.11_
-  - [ ] 15.4 Stale-frame helper
+  - [x] 15.4 Stale-frame helper
     - Add the pure helper of design §9.7 inside `marrow/input`: (previous exposed frame, incoming result or none, milliseconds since the last result, tuning) to the frame to expose. Once the last result is older than `staleFrameMs`, it publishes one new `PoseFrame` object with every landmark invalid, once per stall; the next real result is published as a new frame.
     - Named tests (design §10.2): `stale_frame_emits_new_invalid_frame` (4.8): valid results, then a stall past `staleFrameMs` gives exactly one new all-invalid frame (a different reference), then a fresh result gives another new frame with validity restored.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
