@@ -5,6 +5,7 @@ import { createGrid, isCellValid, markAllValid, validCells, type ComfortGrid } f
 import { createDwell, dwellView, stepDwell, type DwellState, type HitArea, type PointerInput } from './dwell';
 import type { Vec2, WristId } from './frame';
 import { dist } from './geometry';
+import { createHelp, stepHelp, type HelpEvent } from './help';
 import {
   ASPECT_MAX,
   ASPECT_MIN,
@@ -17,6 +18,9 @@ import {
   DWELL_STEPS_MIN,
   DWELL_TARGETS_MAX,
   GAP_MAX_MS,
+  HELP_BODY_MAX,
+  HELP_ROUNDS_MAX,
+  HELP_STEPS_MAX,
   RESELECT_CYCLES_MAX,
   RESELECT_CYCLES_MIN,
   STINT_COUNT_MAX,
@@ -46,6 +50,7 @@ import {
   genDwellRun,
   genGrid,
   genHeadFrames,
+  genHelpSession,
   genHitAreas,
   genMappingParams,
   genPointerPath,
@@ -350,6 +355,159 @@ function tallyTracking(run: TrackingRunCase): TrackingTally {
   }
   return tally;
 }
+
+/** What a help session does in the policy, counted by running it: the behaviours the help properties need to see happen. */
+interface HelpTally {
+  offers: number;
+  raises: number;
+  /** A level raised in a round end that reports neither flag while nothing waited: the change of that round itself. */
+  immediateRaise: boolean;
+  /** A level raised in an event that is not a round end: a waiting change applied. */
+  deferredRaise: boolean;
+  /** A round that earned a change ended with a dwell only, a playback only, or both active, and left the change waiting. */
+  heldByDwell: boolean;
+  heldByPlayback: boolean;
+  heldByBoth: boolean;
+  /** A round that earned a change ended with neither flag while another change waited, so its change went behind that one. */
+  queuedBehindAWaitingChange: boolean;
+  longestQueue: number;
+  /** Both levels were at helpMaxLevel at some point: 2 * helpMaxLevel changes made. */
+  atTheTop: boolean;
+  /** An immediate raise of the axis with fewer difficulties: the fallback of Req 19.5. */
+  fallback: boolean;
+  /** An immediate raise from a round with the same difficulties on each axis. */
+  tieRaise: boolean;
+  /** A round with enough difficulties, ended with neither flag and nothing waiting, that changed nothing. */
+  nothingToRaise: boolean;
+  /** The number of difficulties of each round that ended. */
+  endedWith: number[];
+  continueBeyondTheEnd: boolean;
+  continueOutsideARound: boolean;
+  roundEndOutsideARound: boolean;
+  roundReplaced: boolean;
+  endedInsideARound: boolean;
+}
+
+function tallyHelp(events: readonly HelpEvent[]): HelpTally {
+  const tally: HelpTally = {
+    offers: 0,
+    raises: 0,
+    immediateRaise: false,
+    deferredRaise: false,
+    heldByDwell: false,
+    heldByPlayback: false,
+    heldByBoth: false,
+    queuedBehindAWaitingChange: false,
+    longestQueue: 0,
+    atTheTop: false,
+    fallback: false,
+    tieRaise: false,
+    nothingToRaise: false,
+    endedWith: [],
+    continueBeyondTheEnd: false,
+    continueOutsideARound: false,
+    roundEndOutsideARound: false,
+    roundReplaced: false,
+    endedInsideARound: false,
+  };
+  const top = TUNING.helpMaxLevel;
+  let state = createHelp(TUNING);
+  for (const event of events) {
+    const before = state;
+    const result = stepHelp(before, event);
+    state = result.state;
+    const neither = !event.dwellActive && !event.playbackActive;
+    const raised = result.outputs.flatMap((o) => (o.kind === 'levelRaised' ? [o] : []));
+    tally.offers += result.outputs.filter((o) => o.kind === 'offerHelp').length;
+    tally.raises += raised.length;
+    tally.longestQueue = Math.max(tally.longestQueue, state.pending.length);
+    if (state.motorLevel === top && state.cognitiveLevel === top) tally.atTheTop = true;
+    if (raised.length > 0 && event.kind !== 'roundEnded') tally.deferredRaise = true;
+    const round = before.round;
+    if (event.kind === 'roundStarted' && round !== null) tally.roundReplaced = true;
+    if (event.kind === 'continueWithHelp') {
+      if (round === null) tally.continueOutsideARound = true;
+      else if (round.completed >= round.steps) tally.continueBeyondTheEnd = true;
+    }
+    if (event.kind === 'roundEnded') {
+      if (round === null) {
+        tally.roundEndOutsideARound = true;
+      } else {
+        const total = round.motorDifficulties + round.cognitiveDifficulties;
+        tally.endedWith.push(total);
+        if (total >= TUNING.difficultiesBeforeHelp) {
+          // The event applies the oldest waiting change first if it can, so its own change is queued if the queue did not shrink by one and grow by one.
+          const applied = neither && before.pending.length > 0;
+          const queuedNow = state.pending.length - (before.pending.length - (applied ? 1 : 0)) > 0;
+          if (queuedNow && neither) tally.queuedBehindAWaitingChange = true;
+          if (queuedNow && event.dwellActive && !event.playbackActive) tally.heldByDwell = true;
+          if (queuedNow && !event.dwellActive && event.playbackActive) tally.heldByPlayback = true;
+          if (queuedNow && event.dwellActive && event.playbackActive) tally.heldByBoth = true;
+          if (neither && before.pending.length === 0) {
+            const own = raised[0];
+            if (own === undefined) tally.nothingToRaise = true;
+            else {
+              tally.immediateRaise = true;
+              if (round.motorDifficulties === round.cognitiveDifficulties) tally.tieRaise = true;
+              else if ((own.axis === 'motor') !== (round.motorDifficulties > round.cognitiveDifficulties)) tally.fallback = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  tally.endedInsideARound = state.round !== null;
+  return tally;
+}
+
+/** The numbers of events between each round start and the round end that follows it directly, for the rounds that have one. */
+function helpBodyLengths(session: readonly HelpEvent[]): number[] {
+  const lengths: number[] = [];
+  let since: number | null = null;
+  for (const event of session) {
+    if (event.kind === 'roundStarted') since = 0;
+    else if (event.kind === 'roundEnded') {
+      if (since !== null) lengths.push(since);
+      since = null;
+    } else if (since !== null) since += 1;
+  }
+  return lengths;
+}
+
+type HelpShareName =
+  | 'raise'
+  | 'immediateRaise'
+  | 'deferredRaise'
+  | 'queueOfTwo'
+  | 'atTheTop'
+  | 'fallback'
+  | 'continueBeyondTheEnd'
+  | 'waitForADwell'
+  | 'waitForAPlayback'
+  | 'waitForBoth'
+  | 'behindAWaitingChange';
+
+/**
+ * The least share of help sessions that reach what the help properties need to see, each measured on the
+ * seed-42 sample of 1000 and set at no more than two thirds of the measured share, so that a change of the
+ * generator has room before the check fails. One record, so that a failing check shows every share below its
+ * floor. A test parameter.
+ */
+const HELP_SHARE_FLOORS: Record<HelpShareName, number> = {
+  // Measured 0.816, 0.621, 0.494, 0.139, 0.186, 0.162 and 0.364.
+  raise: 0.5,
+  immediateRaise: 0.4,
+  deferredRaise: 0.32,
+  queueOfTwo: 0.09,
+  atTheTop: 0.12,
+  fallback: 0.1,
+  continueBeyondTheEnd: 0.2,
+  // Measured 0.412, 0.326, 0.309 and 0.095.
+  waitForADwell: 0.27,
+  waitForAPlayback: 0.21,
+  waitForBoth: 0.2,
+  behindAWaitingChange: 0.06,
+};
 
 /** The least share of dwell runs that must reach a selection, so that the properties are not run on holds that never finish. A test parameter. */
 const MIN_SELECTING_RUN_SHARE = 0.2;
@@ -1415,5 +1573,89 @@ describe('testgen', () => {
       tallies.filter((t) => t.longestLostMs >= GAP_MAX_MS).length / free.length,
       'the share of tracking runs with a gap of GAP_MAX_MS or more',
     ).toBeGreaterThanOrEqual(MIN_LONG_GAP_RUN_SHARE);
+  });
+
+  it('genHelpSession keeps its sessions in range, and reaches every kind of event, every combination of flags, rounds left open and events outside a round, and in the policy offers, changes made at once and after a wait, a queue of two, 2 * helpMaxLevel changes, the fallback, a tie, and "continue with help" with nothing left', () => {
+    const sessions = fc.sample(genHelpSession(), SAMPLE);
+    const events = sessions.flat();
+    const { difficultiesBeforeHelp } = TUNING;
+    const startsOf = (session: readonly HelpEvent[]): number[] =>
+      session.flatMap((e) => (e.kind === 'roundStarted' ? [e.steps] : []));
+
+    const broken = sessions.flatMap((session, n) => {
+      const problems: string[] = [];
+      const steps = startsOf(session);
+      if (steps.length < 1 || steps.length > HELP_ROUNDS_MAX) problems.push(`session ${n}: ${steps.length} rounds`);
+      if (!steps.every((s) => Number.isInteger(s) && s >= 1 && s <= HELP_STEPS_MAX)) problems.push(`session ${n}: a step count outside 1..${HELP_STEPS_MAX}`);
+      if (!session.every((e) => typeof e.dwellActive === 'boolean' && typeof e.playbackActive === 'boolean')) {
+        problems.push(`session ${n}: a flag that is not a boolean`);
+      }
+      if (!session.every((e) => e.kind !== 'difficulty' || e.axis === 'motor' || e.axis === 'cognitive')) problems.push(`session ${n}: an unknown axis`);
+      return problems;
+    });
+    expect(broken.slice(0, 5)).toEqual([]);
+
+    const tallies = sessions.map(tallyHelp);
+    const lengths = sessions.flatMap(helpBodyLengths);
+    const ended = tallies.flatMap((t) => t.endedWith);
+    const reached: Record<string, boolean> = {
+      oneRound: sessions.some((s) => startsOf(s).length === 1),
+      theMostRounds: sessions.some((s) => startsOf(s).length === HELP_ROUNDS_MAX),
+      oneStep: sessions.some((s) => startsOf(s).includes(1)),
+      theMostSteps: sessions.some((s) => startsOf(s).includes(HELP_STEPS_MAX)),
+      neitherFlag: events.some((e) => !e.dwellActive && !e.playbackActive),
+      dwellOnly: events.some((e) => e.dwellActive && !e.playbackActive),
+      playbackOnly: events.some((e) => !e.dwellActive && e.playbackActive),
+      bothFlags: events.some((e) => e.dwellActive && e.playbackActive),
+      aMotorDifficulty: events.some((e) => e.kind === 'difficulty' && e.axis === 'motor'),
+      aCognitiveDifficulty: events.some((e) => e.kind === 'difficulty' && e.axis === 'cognitive'),
+      aCompletedStep: events.some((e) => e.kind === 'stepCompleted'),
+      aContinueWithHelp: events.some((e) => e.kind === 'continueWithHelp'),
+      aRoundEndAllowingAMotorStep: events.some((e) => e.kind === 'roundEnded' && e.motorStepAllowed),
+      aRoundEndNotAllowingOne: events.some((e) => e.kind === 'roundEnded' && !e.motorStepAllowed),
+      anEventBeforeTheFirstRound: sessions.some((s) => s[0]?.kind !== 'roundStarted'),
+      aRoundWithNoEventsBetweenStartAndEnd: lengths.includes(0),
+      aRoundWithTheMostEvents: lengths.includes(HELP_BODY_MAX),
+      aRoundWithOneDifficultyFewerThanItNeeds: ended.includes(difficultiesBeforeHelp - 1),
+      aRoundWithExactlyTheDifficultiesItNeeds: ended.includes(difficultiesBeforeHelp),
+      aRoundWithMoreDifficultiesThanItNeeds: ended.some((d) => d > difficultiesBeforeHelp),
+      aRoundLeftOpenAndReplaced: tallies.some((t) => t.roundReplaced),
+      aSessionEndingInARound: tallies.some((t) => t.endedInsideARound),
+      aRoundEndOutsideARound: tallies.some((t) => t.roundEndOutsideARound),
+      continueWithHelpOutsideARound: tallies.some((t) => t.continueOutsideARound),
+      continueWithHelpWithNothingLeft: tallies.some((t) => t.continueBeyondTheEnd),
+      helpOffered: tallies.some((t) => t.offers > 0),
+      aChangeAtOnce: tallies.some((t) => t.immediateRaise),
+      aChangeAfterAWait: tallies.some((t) => t.deferredRaise),
+      waitingForADwell: tallies.some((t) => t.heldByDwell),
+      waitingForAPlayback: tallies.some((t) => t.heldByPlayback),
+      waitingForBoth: tallies.some((t) => t.heldByBoth),
+      behindAWaitingChange: tallies.some((t) => t.queuedBehindAWaitingChange),
+      aQueueOfTwo: tallies.some((t) => t.longestQueue >= 2),
+      theMostChanges: tallies.some((t) => t.atTheTop),
+      aTieThatRaised: tallies.some((t) => t.tieRaise),
+      theFallback: tallies.some((t) => t.fallback),
+      nothingToRaise: tallies.some((t) => t.nothingToRaise),
+    };
+    expect(Object.keys(reached).filter((name) => reached[name] !== true), 'what the help sessions did not reach').toEqual([]);
+
+    const share = (pick: (t: HelpTally) => boolean): number => tallies.filter(pick).length / tallies.length;
+    const shares: Record<HelpShareName, number> = {
+      raise: share((t) => t.raises > 0),
+      immediateRaise: share((t) => t.immediateRaise),
+      deferredRaise: share((t) => t.deferredRaise),
+      queueOfTwo: share((t) => t.longestQueue >= 2),
+      atTheTop: share((t) => t.atTheTop),
+      fallback: share((t) => t.fallback),
+      continueBeyondTheEnd: share((t) => t.continueBeyondTheEnd),
+      waitForADwell: share((t) => t.heldByDwell),
+      waitForAPlayback: share((t) => t.heldByPlayback),
+      waitForBoth: share((t) => t.heldByBoth),
+      behindAWaitingChange: share((t) => t.queuedBehindAWaitingChange),
+    };
+    const below = (Object.keys(HELP_SHARE_FLOORS) as HelpShareName[])
+      .filter((name) => shares[name] < HELP_SHARE_FLOORS[name])
+      .map((name) => `${name}: ${shares[name]} of the sessions, floor ${HELP_SHARE_FLOORS[name]}`);
+    expect(below, 'the shares of help sessions below their floors').toEqual([]);
   });
 });

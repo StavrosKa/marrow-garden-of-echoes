@@ -163,7 +163,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 18.12, 18.13, 18.14, 28.8_
 
-- [ ] 13. Help policy
+- [x] 13. Help policy
   - [x] 13.1 Help reducer
     - Create `core/help.ts`: `createHelp()`, `stepHelp(state, event) -> { state, outputs }` and `helpRadiusForMotorLevel(level, tuning)`. Events: round started (n >= 1), difficulty (motor or cognitive), step completed, continue with help, round ended; each carries the dwell and playback flags, and round ended carries whether a motor step is allowed. The caller decides what a difficulty is.
     - Rules (design §9.5): "offer help" once per round at difficulty number `difficultiesBeforeHelp`; at a round end with at least that many difficulties, raise at most one axis by one level (more difficulties wins, a tie goes to the axis not changed last, the first change is motor); if that axis cannot step, the other axis steps, otherwise nothing changes; levels stay in 0..`helpMaxLevel` and never go down; motor radii from `motorRadii`; a level changes only in a round-ended event without dwell or playback, otherwise the change waits for the next such event and is applied before it; "continue with help" is accepted in every state and reveals and completes the current step.
@@ -171,7 +171,7 @@ Rules for every task:
     - Tests: scripted sessions for each rule.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8, 19.9_
-  - [ ] 13.2 Help property tests
+  - [x] 13.2 Help property tests
     - Add `genHelpSession` to `testgen.ts`: 1..8 rounds with n in 1..10, any mix of difficulties, step completions and "continue with help", random dwell and playback flags, and motor step allowed or not.
     - Named tests (design §10.2): `help_at_most_one_axis_per_event` (19.11), `help_completes_in_bounded_steps` (19.12), `help_at_most_four_changes` (19.13).
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.

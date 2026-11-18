@@ -15,6 +15,7 @@ import type { NeutralHead } from './calibration';
 import type { HitArea, PointerInput } from './dwell';
 import type { Landmark, PoseLandmarks, Vec2, WristId } from './frame';
 import { clamp } from './geometry';
+import type { HelpEvent, HelpFlags } from './help';
 import type { MappingParams } from './mapping';
 import type { Demand } from './placement';
 import { TUNING } from './tuning';
@@ -1257,4 +1258,135 @@ export function genStintRun(bounded: boolean): fc.Arbitrary<StintRun> {
       }
       return { bounded, stints: kept, area, steps };
     });
+}
+
+/**
+ * The most rounds of a help session, the most steps of a round, the most events of a round between
+ * its start and its end, and the most stray events drawn before a round. Test parameters (design
+ * section 10.1).
+ */
+export const HELP_ROUNDS_MAX = 8;
+export const HELP_STEPS_MAX = 10;
+export const HELP_BODY_MAX = 12;
+export const HELP_STRAY_MAX = 2;
+
+const NO_HELP_FLAGS: HelpFlags = { dwellActive: false, playbackActive: false };
+
+/** The four combinations of the two flags that every help event carries, neither first. */
+const HELP_FLAG_SETS: readonly HelpFlags[] = [
+  NO_HELP_FLAGS,
+  { dwellActive: true, playbackActive: false },
+  { dwellActive: false, playbackActive: true },
+  { dwellActive: true, playbackActive: true },
+];
+
+/**
+ * How a round draws the flags of its events: neither flag in any event, at least one in every event,
+ * any combination in each, or at least one in every event but its end, which has neither (a dwell or a
+ * playback that runs through the round and has stopped when it ends).
+ */
+type HelpFlagMode = 'calm' | 'busy' | 'mixed' | 'settling';
+
+/** The kinds of event a round holds between its start and its end, and the round end that a stray event can be. */
+type HelpBodyKind = 'difficulty' | 'stepCompleted' | 'continueWithHelp';
+type HelpDrawnKind = HelpBodyKind | 'roundEnded';
+
+/** One drawn event before the flags of its round are applied. `flag` indexes HELP_FLAG_SETS. */
+interface HelpEventSpec {
+  readonly kind: HelpDrawnKind;
+  readonly axis: 'motor' | 'cognitive';
+  readonly motorStepAllowed: boolean;
+  readonly flag: number;
+}
+
+function helpFlagsOf(flag: number, mode: HelpFlagMode): HelpFlags {
+  // A busy round never takes the first set, which has neither flag. A settling round is busy up to its end.
+  const busy = mode === 'busy' || mode === 'settling';
+  const index = mode === 'calm' ? 0 : busy ? 1 + (flag % (HELP_FLAG_SETS.length - 1)) : flag;
+  return HELP_FLAG_SETS[index] ?? NO_HELP_FLAGS;
+}
+
+function helpEventOf(spec: HelpEventSpec, mode: HelpFlagMode): HelpEvent {
+  const flags = helpFlagsOf(spec.flag, mode);
+  switch (spec.kind) {
+    case 'difficulty':
+      return { kind: 'difficulty', axis: spec.axis, ...flags };
+    case 'stepCompleted':
+      return { kind: 'stepCompleted', ...flags };
+    case 'continueWithHelp':
+      return { kind: 'continueWithHelp', ...flags };
+    case 'roundEnded':
+      return { kind: 'roundEnded', motorStepAllowed: spec.motorStepAllowed, ...flags };
+  }
+}
+
+/**
+ * A session of the help policy as the caller sends it (design section 10.1, Req 19.11 - 19.13): 1 to
+ * HELP_ROUNDS_MAX rounds, each with n in 1..HELP_STEPS_MAX steps and 0 to HELP_BODY_MAX events between
+ * its start and its end, any mix of difficulties of either axis (the most often), completed steps and
+ * "continue with help". Each round draws its flags one of four ways, so that the changes that wait
+ * for a free moment do meet one: neither flag in any event of the round, at least one flag in every
+ * event, any combination in each event, or at least one flag in every event but the round end, which
+ * has neither (so that a change that waits meets a round end that earns another). A round end allows a motor step or not, one time in three
+ * not. About one round in seven is left without an end, so that the next start replaces it and a
+ * session can end inside a round, and up to HELP_STRAY_MAX events of any kind, a round end included,
+ * come before each round, outside a round when the one before ended.
+ *
+ * Every draw is a whole number, a boolean or a choice from a short list: there is no range of reals
+ * to spread, so nothing here is built on genSpread or fc.double.
+ */
+export function genHelpSession(): fc.Arbitrary<HelpEvent[]> {
+  const spec = (kinds: fc.Arbitrary<HelpDrawnKind>): fc.Arbitrary<HelpEventSpec> =>
+    fc.record(
+      {
+        kind: kinds,
+        axis: fc.constantFrom<'motor' | 'cognitive'>('motor', 'cognitive'),
+        motorStepAllowed: fc.oneof(
+          { arbitrary: fc.constant(true), weight: 2 },
+          { arbitrary: fc.constant(false), weight: 1 },
+        ),
+        flag: fc.integer({ min: 0, max: HELP_FLAG_SETS.length - 1 }),
+      },
+      { noNullPrototype: true },
+    );
+  const body = spec(
+    fc.oneof(
+      { arbitrary: fc.constant<HelpDrawnKind>('difficulty'), weight: 4 },
+      { arbitrary: fc.constant<HelpDrawnKind>('stepCompleted'), weight: 2 },
+      { arbitrary: fc.constant<HelpDrawnKind>('continueWithHelp'), weight: 1 },
+    ),
+  );
+  const stray = spec(
+    fc.oneof(
+      { arbitrary: fc.constant<HelpDrawnKind>('difficulty'), weight: 2 },
+      { arbitrary: fc.constant<HelpDrawnKind>('stepCompleted'), weight: 1 },
+      { arbitrary: fc.constant<HelpDrawnKind>('continueWithHelp'), weight: 1 },
+      { arbitrary: fc.constant<HelpDrawnKind>('roundEnded'), weight: 1 },
+    ),
+  );
+  const round = fc.record(
+    {
+      steps: fc.integer({ min: 1, max: HELP_STEPS_MAX }),
+      mode: fc.oneof(
+        { arbitrary: fc.constant<HelpFlagMode>('calm'), weight: 2 },
+        { arbitrary: fc.constant<HelpFlagMode>('busy'), weight: 3 },
+        { arbitrary: fc.constant<HelpFlagMode>('mixed'), weight: 3 },
+        { arbitrary: fc.constant<HelpFlagMode>('settling'), weight: 2 },
+      ),
+      startFlag: fc.integer({ min: 0, max: HELP_FLAG_SETS.length - 1 }),
+      body: fc.array(body, { maxLength: HELP_BODY_MAX, size: 'max' }),
+      ends: fc.oneof({ arbitrary: fc.constant(true), weight: 6 }, { arbitrary: fc.constant(false), weight: 1 }),
+      end: spec(fc.constant<HelpDrawnKind>('roundEnded')),
+      strays: fc.array(stray, { maxLength: HELP_STRAY_MAX, size: 'max' }),
+    },
+    { noNullPrototype: true },
+  );
+  return fc.array(round, { minLength: 1, maxLength: HELP_ROUNDS_MAX, size: 'max' }).map((rounds) =>
+    rounds.flatMap((r): HelpEvent[] => [
+      ...r.strays.map((s) => helpEventOf(s, 'mixed')),
+      { kind: 'roundStarted', steps: r.steps, ...helpFlagsOf(r.startFlag, r.mode) },
+      ...r.body.map((s) => helpEventOf(s, r.mode)),
+      ...(r.ends ? [helpEventOf(r.end, r.mode === 'settling' ? 'calm' : r.mode)] : []),
+    ]),
+  );
 }
