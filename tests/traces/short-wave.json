@@ -1,0 +1,46 @@
+[
+  {
+    "t": 100,
+    "aspect": 1.3333333333333333,
+    "landmarks": {
+      "leftWrist": { "pos": { "x": 0, "y": 0 }, "valid": false },
+      "rightWrist": { "pos": { "x": 0.4, "y": 0.6 }, "valid": true },
+      "nose": { "pos": { "x": 0.5, "y": 0.3 }, "valid": true },
+      "leftShoulder": { "pos": { "x": 0.6, "y": 0.5 }, "valid": true },
+      "rightShoulder": { "pos": { "x": 0.4, "y": 0.5 }, "valid": true }
+    }
+  },
+  {
+    "t": 150,
+    "aspect": 1.3333333333333333,
+    "landmarks": {
+      "leftWrist": { "pos": { "x": 0, "y": 0 }, "valid": false },
+      "rightWrist": { "pos": { "x": 0.35, "y": 0.5 }, "valid": true },
+      "nose": { "pos": { "x": 0.5, "y": 0.3 }, "valid": true },
+      "leftShoulder": { "pos": { "x": 0.6, "y": 0.5 }, "valid": true },
+      "rightShoulder": { "pos": { "x": 0.4, "y": 0.5 }, "valid": true }
+    }
+  },
+  {
+    "t": 300,
+    "aspect": 1.3333333333333333,
+    "landmarks": {
+      "leftWrist": { "pos": { "x": 0.7, "y": 0.6 }, "valid": true },
+      "rightWrist": { "pos": { "x": 0.3, "y": 0.4 }, "valid": true },
+      "nose": { "pos": { "x": 0, "y": 0 }, "valid": false },
+      "leftShoulder": { "pos": { "x": 0.6, "y": 0.5 }, "valid": true },
+      "rightShoulder": { "pos": { "x": 0.4, "y": 0.5 }, "valid": true }
+    }
+  },
+  {
+    "t": 400,
+    "aspect": 1.3333333333333333,
+    "landmarks": {
+      "leftWrist": { "pos": { "x": 0, "y": 0 }, "valid": false },
+      "rightWrist": { "pos": { "x": 0, "y": 0 }, "valid": false },
+      "nose": { "pos": { "x": 0.5, "y": 0.3 }, "valid": true },
+      "leftShoulder": { "pos": { "x": 0.6, "y": 0.5 }, "valid": true },
+      "rightShoulder": { "pos": { "x": 0.4, "y": 0.5 }, "valid": true }
+    }
+  }
+]

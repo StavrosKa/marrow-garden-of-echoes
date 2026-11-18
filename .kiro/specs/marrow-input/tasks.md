@@ -194,7 +194,7 @@ Rules for every task:
     - _Requirements: 12.9, 20.2, 20.5, 20.8, 20.9, 28.9_
 
 - [ ] 15. Input sources
-  - [ ] 15.1 PoseSource contract and Trace Source
+  - [x] 15.1 PoseSource contract and Trace Source
     - Create `input/poseSource.ts` with `PoseSource` and `StartOutcome` (design §2.2), and `input/traceSource.ts` with `createTraceSource(trace)` plus `advanceTo(tMs)`, `validateTrace(trace)` and the `Trace` type.
     - The trace source is advanced only by elapsed milliseconds from the caller; it exposes the last frame whose timestamp is at most t, or none before the first, keeps the last frame and reports the end after the last timestamp, and runs in Node. A malformed trace (missing fields, timestamps not increasing, aspect not positive) is rejected with a message naming the first bad frame. `latest()` never queues; a second `dispose()` does nothing.
     - Add one small hand-written trace to `tests/traces/` (synthetic, never recorded from a person) and load it in a test through `validateTrace`.
