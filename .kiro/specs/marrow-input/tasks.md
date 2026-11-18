@@ -148,7 +148,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 17.20, 17.21, 17.22, 28.8_
 
-- [ ] 12. Tracking lifecycle
+- [x] 12. Tracking lifecycle
   - [x] 12.1 Tracking reducer
     - Create `core/tracking.ts`: `createTracking(cfg)` (active wrists, mode) and `stepTracking(state, input, dtMs) -> { state, events, holdActive, overlayVisible, oneWristHint }`. The input holds the presence delta, the validity of each active wrist, the validity of the nose, and whether calibration is running.
     - Rules (design §9.4): continuous lost time, reset in any step with a valid active wrist; the hold begins in the step lost time exceeds `trackingHoldAfterMs`; the overlay shows once lost time exceeds `trackingOverlayAfterMs` during a hold and stays until the hold ends; continuous valid time during a hold, reset in any step without a valid active wrist; the hold and the overlay end in the step valid time reaches `trackingResumeMs`; losing only the nose, or one wrist while another is valid, never begins a hold; the one-wrist hint after `oneWristHintMs` outside calibration, hidden when that wrist is valid again or a hold begins; no hold during calibration or in simulated input, and no one-wrist hint in simulated input.
@@ -156,7 +156,7 @@ Rules for every task:
     - Tests: scripted sequences for each rule at its exact boundary.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 6.9, 11.17, 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9, 18.10_
-  - [ ] 12.2 Tracking property tests
+  - [x] 12.2 Tracking property tests
     - The properties compose `presenceDelta`, then `stepTracking`, then `sessionDelta` from the same step's hold, as the driver does (design §3). 18.12 also runs `stepDwell` over the same pointer sequence.
     - Generators: per-step validity of each active wrist and of the nose with gaps of 0..2000 ms and short flickers, `genDtClamped`, and pause and hidden periods.
     - Named tests (design §10.2): `tracking_head_only_loss_harmless` (18.12), `tracking_hold_timing_and_session_clock` (18.13), `tracking_resume_needs_full_second` (18.14).

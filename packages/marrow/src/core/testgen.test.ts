@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { presenceDelta } from './clocks';
 import { createGrid, isCellValid, markAllValid, validCells, type ComfortGrid } from './comfortGrid';
 import { createDwell, dwellView, stepDwell, type DwellState, type HitArea, type PointerInput } from './dwell';
 import type { Vec2, WristId } from './frame';
@@ -21,6 +22,8 @@ import {
   STINT_COUNT_MAX,
   STINT_COUNT_MIN,
   STINT_ODD_STEP_MS,
+  TRACKING_STEPS_MAX,
+  TRACKING_STEPS_MIN,
   HEAD_EDGE_SHARE,
   HEAD_RUN_MAX,
   HEAD_NEUTRAL_MAX,
@@ -49,6 +52,7 @@ import {
   genReselectRun,
   genStintRun,
   genTargetPath,
+  genTrackingRun,
   genTwoPointerInterleaving,
   genUnit,
   genVec2Camera,
@@ -58,7 +62,9 @@ import {
   type PointerPathStep,
   type StintKind,
   type StintRun,
+  type TrackingRunCase,
 } from './testgen';
+import { createTracking, stepTracking } from './tracking';
 import { TUNING } from './tuning';
 
 // A property test is only as strong as its generator, so these check that each
@@ -268,6 +274,82 @@ function holdsAtTheEnd(run: readonly DwellStepCase[]): boolean {
 const MIN_HELD_AT_END_SHARE = 0.3;
 /** The least share of re-selection runs that select one target twice, so that Req 17.20 is run on re-selections. A test parameter. */
 const MIN_RESELECT_SHARE = 0.5;
+/** The least share of tracking runs in which a hold begins, so that Req 18.13 and 18.14 are run on holds. Measured 0.713; the floor keeps 1.5 times of margin. A test parameter. */
+const MIN_HOLD_RUN_SHARE = 0.45;
+/** The least share of tracking runs with a gap of GAP_MAX_MS or more of presence time with no valid active wrist. A test parameter. */
+const MIN_LONG_GAP_RUN_SHARE = 0.2;
+
+/** What a tracking run does in the lifecycle, summed here from the inputs: the behaviours the tracking properties need to see. */
+interface TrackingTally {
+  holdBegan: boolean;
+  overlayShown: boolean;
+  holdEnded: boolean;
+  hintShown: boolean;
+  /** A step in which lost time is exactly the hold threshold and no hold begins. */
+  lostExactlyAtTheThreshold: boolean;
+  /** The hold began in a step in which lost time is at most one step over the threshold. */
+  holdBeganJustOver: boolean;
+  /** A hold ended in a step in which valid time was exactly trackingResumeMs. */
+  endedExactlyAtTheResumeTime: boolean;
+  /** The most valid stretches shorter than trackingResumeMs, each ended by a step without a valid wrist, in one hold. */
+  mostShortStretchesInOneHold: number;
+  /** The longest continuous presence time with no valid active wrist, in milliseconds. */
+  longestLostMs: number;
+}
+
+function tallyTracking(run: TrackingRunCase): TrackingTally {
+  const tally: TrackingTally = {
+    holdBegan: false,
+    overlayShown: false,
+    holdEnded: false,
+    hintShown: false,
+    lostExactlyAtTheThreshold: false,
+    holdBeganJustOver: false,
+    endedExactlyAtTheResumeTime: false,
+    mostShortStretchesInOneHold: 0,
+    longestLostMs: 0,
+  };
+  let state = createTracking({ activeWrists: run.activeWrists, mode: 'camera', tuning: TUNING });
+  let lostMs = 0;
+  let validMs = 0;
+  let stretchMs = 0;
+  let stretches = 0;
+  let holdBefore = false;
+  for (const step of run.steps) {
+    const presenceDt = presenceDelta(step.rawDt, { paused: step.paused, hidden: step.hidden }, TUNING);
+    const result = stepTracking(state, { wristValid: step.wristValid, noseValid: step.noseValid, calibrating: false }, presenceDt);
+    state = result.state;
+    const valid = run.activeWrists.some((w) => step.wristValid[w]);
+    lostMs = valid ? 0 : lostMs + presenceDt;
+    tally.longestLostMs = Math.max(tally.longestLostMs, lostMs);
+    for (const event of result.events) {
+      if (event.kind === 'holdBegan') tally.holdBegan = true;
+      if (event.kind === 'overlayShown') tally.overlayShown = true;
+      if (event.kind === 'holdEnded') tally.holdEnded = true;
+      if (event.kind === 'oneWristHintShown') tally.hintShown = true;
+    }
+    if (!holdBefore && !result.holdActive && lostMs === TUNING.trackingHoldAfterMs) tally.lostExactlyAtTheThreshold = true;
+    if (!holdBefore && result.holdActive && lostMs <= TUNING.trackingHoldAfterMs + TUNING.maxClockStepMs) tally.holdBeganJustOver = true;
+    if (holdBefore) {
+      validMs = valid ? validMs + presenceDt : 0;
+      if (!result.holdActive && validMs === TUNING.trackingResumeMs) tally.endedExactlyAtTheResumeTime = true;
+      if (valid) stretchMs += presenceDt;
+      else {
+        // A valid stretch that a step without a valid wrist ended before the hold did.
+        if (stretchMs > 0) stretches += 1;
+        stretchMs = 0;
+      }
+      tally.mostShortStretchesInOneHold = Math.max(tally.mostShortStretchesInOneHold, stretches);
+    }
+    if (!result.holdActive) {
+      validMs = 0;
+      stretchMs = 0;
+      stretches = 0;
+    }
+    holdBefore = result.holdActive;
+  }
+  return tally;
+}
 
 /** The least share of dwell runs that must reach a selection, so that the properties are not run on holds that never finish. A test parameter. */
 const MIN_SELECTING_RUN_SHARE = 0.2;
@@ -1268,5 +1350,70 @@ describe('testgen', () => {
       tallies.filter((t) => t.sameTargetTwice).length / runs.length,
       'the share of re-selection runs that select one target twice',
     ).toBeGreaterThanOrEqual(MIN_RESELECT_SHARE);
+  });
+
+  it('genTrackingRun keeps its steps in range, always leaves an active wrist valid when asked to, and reaches every wrist pattern, a wrist that is not active, pauses and hidden steps, nose gaps, and in the lifecycle holds, overlays, ends of holds at exact times, short valid stretches in a hold, and the hint', () => {
+    const free = fc.sample(genTrackingRun(false), SAMPLE);
+    const alwaysOne = fc.sample(genTrackingRun(true), SAMPLE);
+    const all = [...free, ...alwaysOne];
+    const { maxClockStepMs } = TUNING;
+    const validActive = (run: TrackingRunCase, s: TrackingRunCase['steps'][number]): boolean => run.activeWrists.some((w) => s.wristValid[w]);
+
+    const broken = all.flatMap((run, n) => {
+      const problems: string[] = [];
+      if (run.steps.length < TRACKING_STEPS_MIN || run.steps.length > TRACKING_STEPS_MAX) problems.push(`run ${n}: ${run.steps.length} steps`);
+      if (run.activeWrists.length < 1) problems.push(`run ${n}: no active wrist`);
+      if (!run.steps.every((s) => s.rawDt >= 0 && s.rawDt <= maxClockStepMs)) problems.push(`run ${n}: a delta outside 0..maxClockStepMs`);
+      return problems;
+    });
+    expect(broken.slice(0, 5)).toEqual([]);
+    expect(
+      alwaysOne.filter((run) => run.steps.some((s) => !validActive(run, s))).length,
+      'runs asked to keep an active wrist valid that have a step without one',
+    ).toBe(0);
+
+    const steps = free.flatMap((run) => run.steps.map((s) => ({ run, s })));
+    const tallies = free.map(tallyTracking);
+    const alwaysOneSteps = alwaysOne.flatMap((run) => run.steps.map((s) => ({ run, s })));
+    const reached: Record<string, boolean> = {
+      bothValid: steps.some(({ run, s }) => run.activeWrists.length === 2 && s.wristValid.left && s.wristValid.right),
+      onlyLeftValid: steps.some(({ run, s }) => run.activeWrists.length === 2 && s.wristValid.left && !s.wristValid.right),
+      onlyRightValid: steps.some(({ run, s }) => run.activeWrists.length === 2 && !s.wristValid.left && s.wristValid.right),
+      noneValid: steps.some(({ run, s }) => !validActive(run, s)),
+      anInactiveWristValidWhileNoActiveOne: steps.some(({ run, s }) => !validActive(run, s) && (s.wristValid.left || s.wristValid.right)),
+      leftOnly: free.some((run) => run.activeWrists.length === 1 && run.activeWrists[0] === 'left'),
+      rightOnly: free.some((run) => run.activeWrists.length === 1 && run.activeWrists[0] === 'right'),
+      bothActive: free.some((run) => run.activeWrists.length === 2),
+      paused: steps.some(({ s }) => s.paused),
+      hidden: steps.some(({ s }) => s.hidden),
+      running: steps.some(({ s }) => !s.paused && !s.hidden),
+      deltaZero: steps.some(({ s }) => s.rawDt === 0),
+      deltaMax: steps.some(({ s }) => s.rawDt === maxClockStepMs),
+      allDeltasMax: free.some((run) => run.steps.every((s) => s.rawDt === maxClockStepMs)),
+      allDeltasHalf: free.some((run) => run.steps.every((s) => s.rawDt === maxClockStepMs / 2)),
+      noseGapWithAWristValid: steps.some(({ run, s }) => !s.noseValid && validActive(run, s)),
+      noseFlicker: free.some((run) => run.steps.some((s, i) => !s.noseValid && run.steps[i - 1]?.noseValid === true && run.steps[i + 1]?.noseValid === true)),
+      alwaysOneNoseInvalid: alwaysOneSteps.some(({ s }) => !s.noseValid),
+      alwaysOneSingleWristOfTwo: alwaysOneSteps.some(({ run, s }) => run.activeWrists.length === 2 && s.wristValid.left !== s.wristValid.right),
+      alwaysOnePaused: alwaysOneSteps.some(({ s }) => s.paused || s.hidden),
+      holdBegan: tallies.some((t) => t.holdBegan),
+      overlayShown: tallies.some((t) => t.overlayShown),
+      holdEnded: tallies.some((t) => t.holdEnded),
+      hintShown: tallies.some((t) => t.hintShown),
+      lostExactlyAtTheThreshold: tallies.some((t) => t.lostExactlyAtTheThreshold),
+      holdBeganJustOver: tallies.some((t) => t.holdBeganJustOver),
+      endedExactlyAtTheResumeTime: tallies.some((t) => t.endedExactlyAtTheResumeTime),
+      twoShortStretchesInOneHold: tallies.some((t) => t.mostShortStretchesInOneHold >= 2),
+    };
+    expect(Object.keys(reached).filter((name) => reached[name] !== true), 'what the tracking runs did not reach').toEqual([]);
+    expect(
+      tallies.filter((t) => t.holdBegan).length / free.length,
+      'the share of tracking runs in which a hold begins',
+    ).toBeGreaterThanOrEqual(MIN_HOLD_RUN_SHARE);
+    // Gaps of 0..2000 ms (design section 10.1): the long ones are drawn, not only the short.
+    expect(
+      tallies.filter((t) => t.longestLostMs >= GAP_MAX_MS).length / free.length,
+      'the share of tracking runs with a gap of GAP_MAX_MS or more',
+    ).toBeGreaterThanOrEqual(MIN_LONG_GAP_RUN_SHARE);
   });
 });

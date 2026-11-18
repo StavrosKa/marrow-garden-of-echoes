@@ -1044,6 +1044,118 @@ export function genReselectRun(): fc.Arbitrary<readonly DwellStepCase[]> {
     });
 }
 
+/** The fewest and the most steps of a tracking run, and the most stretches of each of its three timelines. Test parameters. */
+export const TRACKING_STEPS_MIN = 30;
+export const TRACKING_STEPS_MAX = 200;
+export const TRACKING_SEGMENTS_MAX = 12;
+
+/** Which wrists a stretch of a tracking run has valid: both, only the left, only the right, or neither. */
+export type WristPattern = 'both' | 'left' | 'right' | 'none';
+
+/** One step of a tracking run, as the driver sees it: the raw delta, the pause and hidden flags, and the validity of both wrists and the nose. */
+export interface TrackingStepCase {
+  /** The raw frame delta, 0..maxClockStepMs, before the clocks make it the presence delta. */
+  readonly rawDt: number;
+  readonly paused: boolean;
+  readonly hidden: boolean;
+  /** The validity of both wrists. A wrist that is not active is there too, and must change nothing. */
+  readonly wristValid: { readonly left: boolean; readonly right: boolean };
+  readonly noseValid: boolean;
+}
+
+export interface TrackingRunCase {
+  readonly activeWrists: readonly WristId[];
+  readonly steps: readonly TrackingStepCase[];
+}
+
+/** The length of a stretch of a tracking run in steps: flickers, medium stretches, and long ones. */
+function genTrackingLength(): fc.Arbitrary<number> {
+  return fc.oneof(
+    { arbitrary: fc.integer({ min: 1, max: 3 }), weight: 2 },
+    { arbitrary: fc.integer({ min: 4, max: 15 }), weight: 3 },
+    { arbitrary: fc.integer({ min: 16, max: 45 }), weight: 2 },
+  );
+}
+
+/**
+ * A run of tracking steps (design section 10.1, Req 18.12 - 18.14): TRACKING_STEPS_MIN to
+ * TRACKING_STEPS_MAX steps, the right wrist, the left or both active, and three independent
+ * timelines of stretches of 1 to 45 steps: which wrists are valid (both, one, or neither, so
+ * with gaps from a flicker to a few seconds), the nose (valid or invalid), and the clocks
+ * (running, paused or hidden). The raw deltas are 0..maxClockStepMs, each from genSpread or
+ * all the maximum or all half of it, so that sums land exactly on the thresholds. The validity
+ * of a wrist that is not active is generated too. With `alwaysOneWrist`, no step is without a
+ * valid active wrist, and the generator never draws that stretch.
+ */
+export function genTrackingRun(alwaysOneWrist: boolean): fc.Arbitrary<TrackingRunCase> {
+  const patterns: WristPattern[] = alwaysOneWrist ? ['both', 'left', 'right'] : ['both', 'left', 'right', 'none', 'none'];
+  const wristSegment = fc.record(
+    { pattern: fc.constantFrom<WristPattern>(...patterns), steps: genTrackingLength() },
+    { noNullPrototype: true },
+  );
+  const noseSegment = fc.record(
+    {
+      valid: fc.oneof(
+        { arbitrary: fc.constant(true), weight: 2 },
+        { arbitrary: fc.constant(false), weight: 1 },
+      ),
+      steps: genTrackingLength(),
+    },
+    { noNullPrototype: true },
+  );
+  const clockSegment = fc.record(
+    {
+      mode: fc.oneof(
+        { arbitrary: fc.constant<'running' | 'paused' | 'hidden'>('running'), weight: 4 },
+        { arbitrary: fc.constant<'running' | 'paused' | 'hidden'>('paused'), weight: 1 },
+        { arbitrary: fc.constant<'running' | 'paused' | 'hidden'>('hidden'), weight: 1 },
+      ),
+      steps: genTrackingLength(),
+    },
+    { noNullPrototype: true },
+  );
+  const timeline = <T extends { readonly steps: number }>(segment: fc.Arbitrary<T>): fc.Arbitrary<T[]> =>
+    fc.array(segment, { minLength: 1, maxLength: TRACKING_SEGMENTS_MAX, size: 'max' });
+  return fc.integer({ min: TRACKING_STEPS_MIN, max: TRACKING_STEPS_MAX }).chain((count) =>
+    fc
+      .record(
+        {
+          active: fc.constantFrom<readonly WristId[]>(['right'], ['left'], ['left', 'right']),
+          wrists: timeline(wristSegment),
+          nose: timeline(noseSegment),
+          clock: timeline(clockSegment),
+          deltas: genDeltas(count),
+        },
+        { noNullPrototype: true },
+      )
+      .map(({ active, wrists, nose, clock, deltas }): TrackingRunCase => {
+        const w = expandSegments(wrists, count);
+        const n = expandSegments(nose, count);
+        const c = expandSegments(clock, count);
+        const steps = Array.from({ length: count }, (_, i): TrackingStepCase => {
+          const pattern = w[i]?.pattern ?? 'both';
+          let valid = {
+            left: pattern === 'both' || pattern === 'left',
+            right: pattern === 'both' || pattern === 'right',
+          };
+          // No stretch without a valid active wrist: make the first active wrist valid in it.
+          if (alwaysOneWrist && !active.some((wrist) => valid[wrist])) {
+            const first = active[0] ?? 'right';
+            valid = { ...valid, [first]: true };
+          }
+          return {
+            rawDt: deltas[i] ?? 0,
+            paused: c[i]?.mode === 'paused',
+            hidden: c[i]?.mode === 'hidden',
+            wristValid: valid,
+            noseValid: n[i]?.valid ?? true,
+          };
+        });
+        return { activeWrists: active, steps };
+      }),
+  );
+}
+
 /** The size of a step of genStintRun that is not a divisor of any window, so that no sum lines up by luck. A test parameter. */
 export const STINT_ODD_STEP_MS = 7;
 /** The most stints in a genStintRun, and the fewest. A test parameter. */
