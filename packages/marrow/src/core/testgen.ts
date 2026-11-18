@@ -957,3 +957,192 @@ export function genTwoPointerInterleaving(): fc.Arbitrary<TwoPointerCase> {
       );
     });
 }
+
+/** The fewest and the most cycles in a genReselectRun. A test parameter. */
+export const RESELECT_CYCLES_MIN = 3;
+export const RESELECT_CYCLES_MAX = 6;
+/** The most steps a cycle rests beyond the one that selects, and the most steps it spends away. A test parameter. */
+export const RESELECT_EXTRA_MAX = 3;
+export const RESELECT_AWAY_MAX = 3;
+
+/** How a cycle of genReselectRun ends: the pointer goes valid and outside, goes invalid, stays inside, or stays inside while the target is not supplied. */
+type ReselectLeave = 'outside' | 'invalid' | 'stay' | 'removed';
+
+/**
+ * A pointer that selects one target again and again (Req 17.13, 17.20, design section 10.1):
+ * RESELECT_CYCLES_MIN to RESELECT_CYCLES_MAX cycles. In each the right wrist rests inside for
+ * the dwell time under one of DWELL_ACTIVATIONS activation ids (so an id repeats, or comes back
+ * after another one), with steps of maxClockStepMs or half of it, and then goes valid and
+ * outside, goes invalid (with its position still at the centre), stays inside, or goes outside
+ * while the target is not supplied, for up to RESELECT_AWAY_MAX steps. So the target is selected,
+ * left or not left, and offered again under another id, which can be an id that has been used.
+ * Sometimes the left wrist is there too, inside, outside or invalid throughout, so that it is
+ * latched along with the right one, or is not.
+ */
+export function genReselectRun(): fc.Arbitrary<readonly DwellStepCase[]> {
+  const cycle = fc.record(
+    {
+      activation: fc.integer({ min: 0, max: DWELL_ACTIVATIONS - 1 }),
+      extra: fc.integer({ min: 0, max: RESELECT_EXTRA_MAX }),
+      leave: fc.oneof(
+        { arbitrary: fc.constant<ReselectLeave>('outside'), weight: 2 },
+        { arbitrary: fc.constant<ReselectLeave>('invalid'), weight: 1 },
+        { arbitrary: fc.constant<ReselectLeave>('stay'), weight: 1 },
+        { arbitrary: fc.constant<ReselectLeave>('removed'), weight: 1 },
+      ),
+      away: fc.integer({ min: 1, max: RESELECT_AWAY_MAX }),
+    },
+    { noNullPrototype: true },
+  );
+  return fc
+    .record(
+      {
+        x: genSpread(0, ASPECT_MAX),
+        y: genSpread(0, UNIT_EXTENT),
+        radius: genSpread(TUNING.hitRadiusMin, TUNING.hitRadiusMax),
+        dt: fc.constantFrom(TUNING.maxClockStepMs, TUNING.maxClockStepMs / 2),
+        // The left wrist: not there, or inside, outside or invalid in every step. Inside, it is latched with the right.
+        second: fc.oneof(
+          { arbitrary: fc.constant<StintKind | null>(null), weight: 4 },
+          { arbitrary: fc.constant<StintKind | null>('inside'), weight: 1 },
+          { arbitrary: fc.constant<StintKind | null>('outside'), weight: 1 },
+          { arbitrary: fc.constant<StintKind | null>('invalid'), weight: 1 },
+        ),
+        cycles: fc.array(cycle, { minLength: RESELECT_CYCLES_MIN, maxLength: RESELECT_CYCLES_MAX, size: 'max' }),
+      },
+      { noNullPrototype: true },
+    )
+    .map(({ x, y, radius, dt, second, cycles }) => {
+      const centre = { x, y };
+      const toSelect = Math.ceil(TUNING.dwellMs / dt);
+      const steps: DwellStepCase[] = [];
+      const pointerOfKind = (wrist: WristId, kind: StintKind): PointerInput =>
+        kind === 'inside'
+          ? { wrist, valid: true, pos: centre }
+          : kind === 'outside'
+            ? { wrist, valid: true, pos: { x: x + DWELL_FAR * radius, y } }
+            : ({ wrist, valid: false, pos: centre } as PointerInput);
+      const push = (kind: StintKind, activation: number, supplied: boolean): void => {
+        steps.push({
+          dt,
+          pointers:
+            second === null ? [pointerOfKind('right', kind)] : [pointerOfKind('right', kind), pointerOfKind('left', second)],
+          hitAreas: supplied ? [{ targetId: 't0', activationId: `a${activation}`, centre, radius }] : [],
+        });
+      };
+      for (const c of cycles) {
+        // The step that acquires adds no progress, then toSelect full steps reach dwellMs.
+        for (let i = 0; i < 1 + toSelect + c.extra; i++) push('inside', c.activation, true);
+        // Away: valid and outside, invalid, or valid and outside while the target is not supplied.
+        if (c.leave === 'outside' || c.leave === 'invalid') {
+          for (let i = 0; i < c.away; i++) push(c.leave, c.activation, true);
+        } else if (c.leave === 'removed') {
+          for (let i = 0; i < c.away; i++) push('outside', c.activation, false);
+        }
+      }
+      return steps;
+    });
+}
+
+/** The size of a step of genStintRun that is not a divisor of any window, so that no sum lines up by luck. A test parameter. */
+export const STINT_ODD_STEP_MS = 7;
+/** The most stints in a genStintRun, and the fewest. A test parameter. */
+export const STINT_COUNT_MIN = 2;
+export const STINT_COUNT_MAX = 10;
+
+/** What the pointer does for one stint: valid and inside the circle, valid and outside it, or invalid (with a position at the centre). */
+export type StintKind = 'inside' | 'outside' | 'invalid';
+
+/** One stint: a kind and a duration in whole milliseconds. */
+export interface Stint {
+  readonly kind: StintKind;
+  readonly ms: number;
+}
+
+/** A run of one pointer on one target in stints (Req 17.21, 17.22). */
+export interface StintRun {
+  /** Whether every Outside stint is at most outsideWindowMs and every Invalid stint at most invalidWindowMs, with none next to one of its own kind. */
+  readonly bounded: boolean;
+  readonly stints: readonly Stint[];
+  /** The one hit area, supplied in every step. */
+  readonly area: HitArea;
+  /** The acquiring step (the right wrist inside), then every stint cut into steps of at most maxClockStepMs. */
+  readonly steps: readonly DwellStepCase[];
+}
+
+/**
+ * A duration in whole milliseconds for a stint: at or next to its window, or spread over 0..twice
+ * the window. The window of an Inside stint is dwellMs, so that some runs reach a selection. A
+ * bounded run keeps its Outside and Invalid stints from 0 to their window and no longer.
+ */
+function genStintMs(kind: StintKind, bounded: boolean): fc.Arbitrary<number> {
+  // Not called `window`: tests/dependency-graph.test.ts reads that name as the DOM global.
+  const limit =
+    kind === 'outside' ? TUNING.outsideWindowMs : kind === 'invalid' ? TUNING.invalidWindowMs : TUNING.dwellMs;
+  const capped = bounded && kind !== 'inside';
+  const edges = capped ? [limit - 1, limit] : [limit - 1, limit, limit + 1];
+  return fc.oneof(
+    { arbitrary: fc.constantFrom(...edges), weight: 3 },
+    { arbitrary: genSpread(0, capped ? limit : 2 * limit).map(Math.round), weight: 3 },
+  );
+}
+
+/** A duration cut into steps of at most `size`, summing to it exactly; a duration of 0 is one step of delta 0. */
+function cutInto(ms: number, size: number): number[] {
+  if (ms <= 0) return [0];
+  const parts: number[] = [];
+  for (let left = ms; left > 0; left -= size) parts.push(Math.min(size, left));
+  return parts;
+}
+
+/**
+ * A pointer that rests, leaves and goes invalid in stints of exact lengths (design section 10.1,
+ * Req 17.21, 17.22): the right wrist is inside in the first step, which acquires the target, then
+ * STINT_COUNT_MIN to STINT_COUNT_MAX stints of valid-and-inside, valid-and-outside or invalid (with
+ * its position at the centre), each of whole milliseconds that is at, just under or just over its
+ * window or spread over 0..twice the window, cut into steps of maxClockStepMs, half of it or
+ * STINT_ODD_STEP_MS, so that the sums come out exactly. With `bounded`, no Outside stint is longer
+ * than outsideWindowMs and no Invalid stint longer than invalidWindowMs, and a stint next to one of
+ * its own kind becomes an inside stint, so that the stints of one kind never join.
+ */
+export function genStintRun(bounded: boolean): fc.Arbitrary<StintRun> {
+  const stint = fc
+    .oneof(
+      { arbitrary: fc.constant<StintKind>('inside'), weight: 1 },
+      { arbitrary: fc.constant<StintKind>('outside'), weight: 3 },
+      { arbitrary: fc.constant<StintKind>('invalid'), weight: 3 },
+    )
+    .chain((kind) => genStintMs(kind, bounded).map((ms): Stint => ({ kind, ms })));
+  return fc
+    .record(
+      {
+        x: genSpread(0, ASPECT_MAX),
+        y: genSpread(0, UNIT_EXTENT),
+        radius: genSpread(TUNING.hitRadiusMin, TUNING.hitRadiusMax),
+        acquireDt: genSpread(0, TUNING.maxClockStepMs),
+        stints: fc.array(stint, { minLength: STINT_COUNT_MIN, maxLength: STINT_COUNT_MAX, size: 'max' }),
+        size: fc.constantFrom(TUNING.maxClockStepMs, TUNING.maxClockStepMs / 2, STINT_ODD_STEP_MS),
+      },
+      { noNullPrototype: true },
+    )
+    .map(({ x, y, radius, acquireDt, stints, size }) => {
+      const area: HitArea = { targetId: 't0', activationId: 'a0', centre: { x, y }, radius };
+      const kept = stints.map((s, i): Stint => {
+        const previous = stints[i - 1];
+        const joins = bounded && s.kind !== 'inside' && previous !== undefined && previous.kind === s.kind;
+        return joins ? { kind: 'inside', ms: Math.min(s.ms, TUNING.maxClockStepMs) } : s;
+      });
+      const pointer = (kind: StintKind): PointerInput => {
+        if (kind === 'inside') return { wrist: 'right', valid: true, pos: area.centre };
+        if (kind === 'outside') {
+          return { wrist: 'right', valid: true, pos: { x: x + DWELL_FAR * radius, y } };
+        }
+        return { wrist: 'right', valid: false, pos: area.centre } as PointerInput;
+      };
+      const steps: DwellStepCase[] = [{ dt: acquireDt, pointers: [pointer('inside')], hitAreas: [area] }];
+      for (const s of kept) {
+        for (const dt of cutInto(s.ms, size)) steps.push({ dt, pointers: [pointer(s.kind)], hitAreas: [area] });
+      }
+      return { bounded, stints: kept, area, steps };
+    });
+}

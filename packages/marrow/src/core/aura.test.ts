@@ -327,7 +327,8 @@ describe('auraIntensity (Req 15)', () => {
       }
     }
     expect(mismatches).toEqual([]);
-  });
+    // About 3.7 s alone and over 5 s when the whole suite runs in parallel: the limit is raised, not the work cut.
+  }, 60_000);
 
   it('with two active wrists the point takes the larger of their values; a wrist with no grid is not active', () => {
     const cell: CellIndex = { col: 12, row: 10 };

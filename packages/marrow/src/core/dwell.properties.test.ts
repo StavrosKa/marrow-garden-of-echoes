@@ -12,7 +12,7 @@ import {
 } from './dwell';
 import type { WristId } from './frame';
 import { dist } from './geometry';
-import { genDwellRun, genTwoPointerInterleaving, type DwellStepCase } from './testgen';
+import { genDwellRun, genReselectRun, genStintRun, genTwoPointerInterleaving, type DwellStepCase } from './testgen';
 import { TUNING } from './tuning';
 
 // The properties of Req 17.16 - 17.22 (steering section 10, invariant 1). Each has an oracle that
@@ -202,6 +202,145 @@ describe('dwell properties: time and ownership (Req 17.16 - 17.19)', () => {
           if (i === acquireAt && recordA?.owner !== owner) problems.push(`step ${i}: the owner did not acquire`);
           if (recordA?.owner !== owner) break;
           if (JSON.stringify(recordA) !== JSON.stringify(recordB)) problems.push(`step ${i}: the record differs while held`);
+        }
+        expect(problems.slice(0, SHOWN)).toEqual([]);
+      }),
+      { numRuns: RUNS },
+    );
+  });
+});
+
+describe('dwell properties: re-entry and the release timers (Req 17.20 - 17.22)', () => {
+  // dwell_reentry_between_selections (Req 17.20): between two selections of the same target the activation
+  // id differs, and every pointer latched by the first selection has had a step in which it was valid and
+  // outside the hit area. The oracle takes the latched pointers from the input of the selecting step (the
+  // wrists valid and inside) and marks one as having left in a later step in which the target is supplied
+  // and that pointer is valid and outside this step's hit area. It also requires that no activation id of a
+  // target is selected twice, which is Req 17.13 and holds for an id that comes back after another one. The
+  // runs are the general ones of genDwellRun and the runs of genReselectRun, which select one target again
+  // and again, with ids that repeat and return, and leave it by going outside, going invalid or not at all.
+  it('dwell_reentry_between_selections', () => {
+    fc.assert(
+      fc.property(fc.oneof(genDwellRun(), genReselectRun()), (run) => {
+        const problems: string[] = [];
+        const last = new Map<string, { activationId: string; latched: WristId[]; left: Set<WristId> }>();
+        const used = new Map<string, Set<string>>();
+        for (const { index, events, step } of trace(run)) {
+          for (const [id, entry] of last) {
+            const area = areaOf(step, id);
+            if (area === undefined) continue;
+            for (const wrist of entry.latched) if (standing(step.pointers, wrist, area) === 'outside') entry.left.add(wrist);
+          }
+          for (const event of events) {
+            const area = areaOf(step, event.targetId);
+            if (area === undefined) {
+              problems.push(`step ${index} ${event.targetId}: selected but not supplied`);
+              continue;
+            }
+            const previous = last.get(event.targetId);
+            if (previous !== undefined) {
+              if (previous.activationId === event.activationId) {
+                problems.push(`step ${index} ${event.targetId}: two selections under ${event.activationId}`);
+              }
+              for (const wrist of previous.latched) {
+                if (!previous.left.has(wrist)) problems.push(`step ${index} ${event.targetId}: the ${wrist} wrist never left after the last selection`);
+              }
+            }
+            const ids = used.get(event.targetId) ?? new Set<string>();
+            if (ids.has(event.activationId)) problems.push(`step ${index} ${event.targetId}: ${event.activationId} selected again`);
+            ids.add(event.activationId);
+            used.set(event.targetId, ids);
+            last.set(event.targetId, {
+              activationId: event.activationId,
+              latched: (['left', 'right'] as const).filter((wrist) => standing(step.pointers, wrist, area) === 'inside'),
+              left: new Set(),
+            });
+          }
+        }
+        expect(problems.slice(0, SHOWN)).toEqual([]);
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  // dwell_release_timers_exact (Req 17.21): the Outside rule releases ownership exactly in the first step in
+  // which continuous Outside time exceeds outsideWindowMs, and the Invalid rule exactly in the first step in
+  // which continuous Invalid time exceeds invalidWindowMs, never earlier. genStintRun puts stints at, just
+  // under and just over each window, cut into steps in three sizes. The oracle sums dt over the owner's
+  // consecutive Outside steps and over its consecutive Invalid steps, each reset by any step of another
+  // kind, and demands a release in exactly the steps where a sum is over its window.
+  it('dwell_release_timers_exact', () => {
+    fc.assert(
+      fc.property(genStintRun(false), ({ steps }) => {
+        const problems: string[] = [];
+        let outsideMs = 0;
+        let invalidMs = 0;
+        for (const { index, before, after, events, step } of trace(steps)) {
+          const area = step.hitAreas[0] as HitArea;
+          const owner = dwellView(after, 't0').owner;
+          if (dwellView(before, 't0').owner === null) {
+            // No hold at the start of the step: nothing to time; an acquisition starts both timers at 0.
+            outsideMs = 0;
+            invalidMs = 0;
+            continue;
+          }
+          const where = standing(step.pointers, 'right', area);
+          if (where === 'inside') {
+            outsideMs = 0;
+            invalidMs = 0;
+            if (events.length === 0 && owner === null) problems.push(`step ${index}: released in an Inside step without a selection`);
+            continue;
+          }
+          if (where === 'outside') {
+            outsideMs += step.dt;
+            invalidMs = 0;
+          } else {
+            invalidMs += step.dt;
+            outsideMs = 0;
+          }
+          const over = outsideMs > TUNING.outsideWindowMs || invalidMs > TUNING.invalidWindowMs;
+          if (events.length > 0) problems.push(`step ${index}: a selection in a ${where} step`);
+          if (over && owner !== null) problems.push(`step ${index}: not released with ${where} time ${where === 'outside' ? outsideMs : invalidMs}`);
+          if (!over && owner === null) problems.push(`step ${index}: released early, ${where} time ${where === 'outside' ? outsideMs : invalidMs}`);
+          if (over) {
+            outsideMs = 0;
+            invalidMs = 0;
+          }
+        }
+        expect(problems.slice(0, SHOWN)).toEqual([]);
+      }),
+      { numRuns: RUNS },
+    );
+  });
+
+  // dwell_bounded_stints_never_release (Req 17.22): when every continuous Outside stint is at most
+  // outsideWindowMs and every continuous Invalid stint at most invalidWindowMs, those rules never release
+  // ownership, whatever the total time of the stints. The premise is measured here, from the steps, and not
+  // taken from the generator. The hold ends only in a selection, which the Inside stints can still reach.
+  it('dwell_bounded_stints_never_release', () => {
+    fc.assert(
+      fc.property(genStintRun(true), ({ steps }) => {
+        let outsideMs = 0;
+        let invalidMs = 0;
+        let longestOutside = 0;
+        let longestInvalid = 0;
+        for (const step of steps) {
+          const where = standing(step.pointers, 'right', step.hitAreas[0] as HitArea);
+          outsideMs = where === 'outside' ? outsideMs + step.dt : 0;
+          invalidMs = where === 'invalid' ? invalidMs + step.dt : 0;
+          longestOutside = Math.max(longestOutside, outsideMs);
+          longestInvalid = Math.max(longestInvalid, invalidMs);
+        }
+        expect(longestOutside, 'the longest Outside stint').toBeLessThanOrEqual(TUNING.outsideWindowMs);
+        expect(longestInvalid, 'the longest Invalid stint').toBeLessThanOrEqual(TUNING.invalidWindowMs);
+
+        const problems: string[] = [];
+        let held = false;
+        for (const { index, after, events } of trace(steps)) {
+          const owner = dwellView(after, 't0').owner;
+          if (index === 0 && owner === null) problems.push('step 0: the first step did not acquire the target');
+          if (held && owner === null && events.length === 0) problems.push(`step ${index}: the hold was released without a selection`);
+          held = owner !== null;
         }
         expect(problems.slice(0, SHOWN)).toEqual([]);
       }),

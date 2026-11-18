@@ -16,6 +16,11 @@ import {
   DWELL_STEPS_MIN,
   DWELL_TARGETS_MAX,
   GAP_MAX_MS,
+  RESELECT_CYCLES_MAX,
+  RESELECT_CYCLES_MIN,
+  STINT_COUNT_MAX,
+  STINT_COUNT_MIN,
+  STINT_ODD_STEP_MS,
   HEAD_EDGE_SHARE,
   HEAD_RUN_MAX,
   HEAD_NEUTRAL_MAX,
@@ -41,6 +46,8 @@ import {
   genHitAreas,
   genMappingParams,
   genPointerPath,
+  genReselectRun,
+  genStintRun,
   genTargetPath,
   genTwoPointerInterleaving,
   genUnit,
@@ -49,6 +56,8 @@ import {
   promote,
   type DwellStepCase,
   type PointerPathStep,
+  type StintKind,
+  type StintRun,
 } from './testgen';
 import { TUNING } from './tuning';
 
@@ -222,6 +231,43 @@ function tallyRun(run: readonly DwellStepCase[]): RunTally {
   }
   return tally;
 }
+
+/** The kind of a step of a stint run, from its pointer and its hit area. */
+function stepKind(step: DwellStepCase): StintKind {
+  const pointer = step.pointers[0];
+  const area = step.hitAreas[0];
+  if (pointer === undefined || !pointer.valid || area === undefined) return 'invalid';
+  return insideArea(true, pointer.pos, area) ? 'inside' : 'outside';
+}
+
+/** Kinds and durations with neighbours of one kind joined into one. */
+function joinedKinds(items: readonly { kind: StintKind; ms: number }[]): { kind: StintKind; ms: number }[] {
+  const out: { kind: StintKind; ms: number }[] = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (last !== undefined && last.kind === item.kind) out[out.length - 1] = { kind: last.kind, ms: last.ms + item.ms };
+    else out.push({ ...item });
+  }
+  return out;
+}
+
+/** The stints of a run as its steps show them: every step after the acquiring one, neighbours of one kind joined. */
+const joinedSteps = (run: StintRun): { kind: StintKind; ms: number }[] =>
+  joinedKinds(run.steps.slice(1).map((s) => ({ kind: stepKind(s), ms: s.dt })));
+const joinedStints = (run: StintRun): { kind: StintKind; ms: number }[] =>
+  joinedKinds(run.stints.map((s) => ({ kind: s.kind, ms: s.ms })));
+
+/** Whether the right wrist still holds the one target after the last step of a run. */
+function holdsAtTheEnd(run: readonly DwellStepCase[]): boolean {
+  let state: DwellState = createDwell();
+  for (const step of run) state = stepDwell(state, { dt: step.dt, pointers: step.pointers, hitAreas: step.hitAreas }).state;
+  return dwellView(state, 't0').owner !== null;
+}
+
+/** The least share of bounded stint runs in which the hold is still there at the end, so that Req 17.22 is not run on holds that end at once. A test parameter. */
+const MIN_HELD_AT_END_SHARE = 0.3;
+/** The least share of re-selection runs that select one target twice, so that Req 17.20 is run on re-selections. A test parameter. */
+const MIN_RESELECT_SHARE = 0.5;
 
 /** The least share of dwell runs that must reach a selection, so that the properties are not run on holds that never finish. A test parameter. */
 const MIN_SELECTING_RUN_SHARE = 0.2;
@@ -1081,5 +1127,146 @@ describe('testgen', () => {
     expect(holds / cases.length, 'the share of cases in which the owner holds the target for a while').toBeGreaterThanOrEqual(
       MIN_SELECTING_RUN_SHARE,
     );
+  });
+
+  it('genStintRun cuts its stints into exact steps, and reaches stints at, just under and just over each window, all three step sizes, steps of delta 0, and bounded stints that alternate for far longer than the windows', () => {
+    const W = TUNING.outsideWindowMs;
+    const V = TUNING.invalidWindowMs;
+    const { hitRadiusMin, hitRadiusMax, maxClockStepMs } = TUNING;
+    const free = fc.sample(genStintRun(false), SAMPLE);
+    const bounded = fc.sample(genStintRun(true), SAMPLE);
+    const all = [...free, ...bounded];
+
+    const broken = all.flatMap((run, n) => {
+      const problems: string[] = [];
+      const first = run.steps[0];
+      if (run.stints.length < STINT_COUNT_MIN || run.stints.length > STINT_COUNT_MAX) problems.push(`run ${n}: ${run.stints.length} stints`);
+      if (first === undefined || stepKind(first) !== 'inside') problems.push(`run ${n}: the first step does not acquire`);
+      if (!run.steps.every((s) => s.dt >= 0 && s.dt <= maxClockStepMs && s.hitAreas.length === 1 && s.pointers.length === 1)) {
+        problems.push(`run ${n}: a step outside the contract`);
+      }
+      if (!(run.area.radius >= hitRadiusMin && run.area.radius <= hitRadiusMax)) problems.push(`run ${n}: radius ${run.area.radius}`);
+      // Whole milliseconds, so that every sum of steps is exact.
+      if (!run.stints.every((s) => Number.isInteger(s.ms) && s.ms >= 0)) problems.push(`run ${n}: a stint that is not whole milliseconds`);
+      if (JSON.stringify(joinedSteps(run)) !== JSON.stringify(joinedStints(run))) problems.push(`run ${n}: the steps do not add up to the stints`);
+      if (run.bounded) {
+        // The premise of Req 17.22, measured from the steps.
+        for (const j of joinedSteps(run)) {
+          if (j.kind === 'outside' && j.ms > W) problems.push(`run ${n}: an Outside stint of ${j.ms} ms`);
+          if (j.kind === 'invalid' && j.ms > V) problems.push(`run ${n}: an Invalid stint of ${j.ms} ms`);
+        }
+        run.stints.forEach((s, i) => {
+          if (s.kind !== 'inside' && run.stints[i - 1]?.kind === s.kind) problems.push(`run ${n}: two ${s.kind} stints in a row`);
+        });
+      }
+      return problems;
+    });
+    expect(broken.slice(0, 5)).toEqual([]);
+
+    const stintMs = (runs: readonly StintRun[], kind: StintKind): number[] =>
+      runs.flatMap((r) => joinedSteps(r).filter((j) => j.kind === kind).map((j) => j.ms));
+    const stepsOf = (runs: readonly StintRun[]): DwellStepCase[] => runs.flatMap((r) => r.steps.slice(1));
+    const longestAwayMs = (run: StintRun): number => {
+      let sum = 0;
+      let longest = 0;
+      for (const j of joinedSteps(run)) {
+        sum = j.kind === 'inside' ? 0 : sum + j.ms;
+        longest = Math.max(longest, sum);
+      }
+      return longest;
+    };
+    const freeOutside = stintMs(free, 'outside');
+    const freeInvalid = stintMs(free, 'invalid');
+    const boundedOutside = stintMs(bounded, 'outside');
+    const boundedInvalid = stintMs(bounded, 'invalid');
+    const freeTallies = free.map((r) => tallyRun(r.steps));
+    // One stint as drawn, before neighbours of one kind are joined: longer than the draws at the window.
+    const drawn = (kind: StintKind): number[] => free.flatMap((r) => r.stints.filter((s) => s.kind === kind).map((s) => s.ms));
+    // Runs of steps of one size inside a stint: a remainder cannot make four steps of half a step, or eight odd ones.
+    const longestRunOfDelta = (run: StintRun, dt: number): number => {
+      let longest = 0;
+      let current = 0;
+      for (const s of run.steps.slice(1)) {
+        current = s.dt === dt ? current + 1 : 0;
+        longest = Math.max(longest, current);
+      }
+      return longest;
+    };
+    const reached: Record<string, boolean> = {
+      outsideJustUnder: freeOutside.includes(W - 1),
+      outsideAtTheWindow: freeOutside.includes(W),
+      outsideJustOver: freeOutside.includes(W + 1),
+      outsideLong: drawn('outside').some((ms) => ms > W + 1),
+      invalidJustUnder: freeInvalid.includes(V - 1),
+      invalidAtTheWindow: freeInvalid.includes(V),
+      invalidJustOver: freeInvalid.includes(V + 1),
+      invalidLong: drawn('invalid').some((ms) => ms > V + 1),
+      fullSteps: all.some((r) => longestRunOfDelta(r, maxClockStepMs) >= 3),
+      halfSteps: all.some((r) => longestRunOfDelta(r, maxClockStepMs / 2) >= 4),
+      oddSteps: all.some((r) => longestRunOfDelta(r, STINT_ODD_STEP_MS) >= 8),
+      zeroSteps: stepsOf(all).some((s) => s.dt === 0),
+      invalidPointerCarriesAPosition: stepsOf(all).some((s) => s.pointers.some((p) => !p.valid && 'pos' in p)),
+      boundedOutsideAtTheWindow: boundedOutside.includes(W),
+      boundedInvalidAtTheWindow: boundedInvalid.includes(V),
+      boundedAwayFarPastTheWindows: bounded.some((r) => longestAwayMs(r) >= 2 * (W + V)),
+      outsideReleaseInTheReducer: freeTallies.some((t) => t.outsideRelease),
+      invalidCancelInTheReducer: freeTallies.some((t) => t.invalidCancel),
+      selectionInTheReducer: freeTallies.some((t) => t.selections > 0),
+    };
+    expect(Object.keys(reached).filter((name) => reached[name] !== true), 'what the stint runs did not reach').toEqual([]);
+    expect(
+      bounded.filter((r) => holdsAtTheEnd(r.steps)).length / bounded.length,
+      'the share of bounded runs in which the hold is still there at the end',
+    ).toBeGreaterThanOrEqual(MIN_HELD_AT_END_SHARE);
+  });
+
+  it('genReselectRun selects one target again and again, with activation ids that repeat and come back, and reaches leaving outside, going invalid, staying inside and a latch that blocks', () => {
+    const runs = fc.sample(genReselectRun(), SAMPLE);
+    const { maxClockStepMs } = TUNING;
+    const tallies = runs.map(tallyRun);
+    // The activation ids in the order the steps offer them, neighbours of one id joined.
+    const idsOf = (run: readonly DwellStepCase[]): string[] => {
+      const ids: string[] = [];
+      for (const s of run) {
+        const id = s.hitAreas[0]?.activationId;
+        if (id !== undefined && ids[ids.length - 1] !== id) ids.push(id);
+      }
+      return ids;
+    };
+    const broken = runs.flatMap((run, n) => {
+      const problems: string[] = [];
+      if (run.length < RESELECT_CYCLES_MIN * (TUNING.dwellMs / maxClockStepMs)) problems.push(`run ${n}: only ${run.length} steps`);
+      if (!run.every((s) => s.pointers.length >= 1 && s.pointers.length <= 2 && s.hitAreas.length <= 1 && (s.dt === maxClockStepMs || s.dt === maxClockStepMs / 2))) {
+        problems.push(`run ${n}: a step outside the contract`);
+      }
+      return problems;
+    });
+    expect(broken.slice(0, 5)).toEqual([]);
+    const reached: Record<string, boolean> = {
+      idReturnsAfterAnother: runs.some((run) => idsOf(run).some((id, i, ids) => ids.indexOf(id) !== i)),
+      idsChange: runs.some((run) => idsOf(run).length >= 2),
+      oneIdOnly: runs.some((run) => idsOf(run).length === 1),
+      fullSteps: runs.some((run) => run.every((s) => s.dt === maxClockStepMs)),
+      halfSteps: runs.some((run) => run.every((s) => s.dt === maxClockStepMs / 2)),
+      anOutsideStep: runs.some((run) => run.some((s) => stepKind(s) === 'outside')),
+      aTargetThatIsNotSupplied: runs.some((run) => run.some((s) => s.hitAreas.length === 0)),
+      aSecondPointer: runs.some((run) => run.every((s) => s.pointers.length === 2)),
+      aSecondPointerThatStaysInside: runs.some((run) =>
+        run.every((s) => s.pointers.some((p) => p.wrist === 'left' && p.valid && s.hitAreas[0] !== undefined && insideArea(true, p.pos, s.hitAreas[0]))),
+      ),
+      anInvalidStepAtTheCentre: runs.some((run) => run.some((s) => s.pointers.some((p) => !p.valid && 'pos' in p))),
+      theRightWristGoesInvalid: runs.some((run) => run.some((s) => s.pointers.some((p) => p.wrist === 'right' && !p.valid))),
+      // An activation id selects once for good, so one target selects at most as often as there are ids.
+      everyIdSelected: tallies.some((t) => t.selections >= DWELL_ACTIVATIONS),
+      moreCyclesThanIds: runs.some((run) => run.length >= RESELECT_CYCLES_MAX * (TUNING.dwellMs / maxClockStepMs)),
+      sameTargetTwice: tallies.some((t) => t.sameTargetTwice),
+      latchBlocksAnInsidePointer: tallies.some((t) => t.latchBlocksAnInsidePointer),
+      latchEnded: tallies.some((t) => t.latchEnded),
+    };
+    expect(Object.keys(reached).filter((name) => reached[name] !== true), 'what the re-selection runs did not reach').toEqual([]);
+    expect(
+      tallies.filter((t) => t.sameTargetTwice).length / runs.length,
+      'the share of re-selection runs that select one target twice',
+    ).toBeGreaterThanOrEqual(MIN_RESELECT_SHARE);
   });
 });

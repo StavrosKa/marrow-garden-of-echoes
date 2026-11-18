@@ -130,7 +130,7 @@ Rules for every task:
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 6.7, 6.8, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10_
 
-- [ ] 11. Dwell selection
+- [x] 11. Dwell selection
   - [x] 11.1 Dwell reducer
     - Create `core/dwell.ts` with `HitArea` (target id, activation id, centre, radius), `PointerInput` (wrist, validity, screen position), `DwellState` and `DwellEvent`; `createDwell()`, `stepDwell(state, { dt, pointers, hitAreas }) -> { state, events }` and `dwellView(state, targetId)` (owner, progress in ms, progress as a fraction of `dwellMs`).
     - Rules (design §9.3): only targets supplied in this step count; the owner is Inside, Outside or Invalid; a free, unlatched, unused target goes to the valid pointer inside it nearest the centre, the right wrist on an exact tie, with no progress in that step; Inside adds dt and zeroes both timers; Outside freezes progress and releases once its timer exceeds `outsideWindowMs`; Invalid freezes progress and cancels once its timer exceeds `invalidWindowMs`; a pointer that is not the owner changes nothing; after a release any active pointer can acquire from the next step; at `dwellMs` one selection event, progress 0, release, the activation marked used, and a latch on the pointers valid and inside in that step; a latched pointer leaves the latch only in a valid-and-outside step; one selection per activation; a changed activation id or a missing target drops the hold and keeps the latch.
@@ -143,7 +143,7 @@ Rules for every task:
     - Named tests (design §10.2): `dwell_progress_only_owner_inside` (17.16), `dwell_select_sums_inside_time` (17.17), `dwell_select_requires_valid_inside` (17.18), `dwell_owner_isolated_from_other_pointer` (17.19).
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 17.16, 17.17, 17.18, 17.19, 28.8_
-  - [ ] 11.3 Dwell property tests: re-entry and release timers
+  - [x] 11.3 Dwell property tests: re-entry and release timers
     - Named tests (design §10.2): `dwell_reentry_between_selections` (17.20), `dwell_release_timers_exact` (17.21), `dwell_bounded_stints_never_release` (17.22).
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 17.20, 17.21, 17.22, 28.8_
