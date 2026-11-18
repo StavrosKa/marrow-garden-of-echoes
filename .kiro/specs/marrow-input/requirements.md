@@ -97,6 +97,7 @@ Component names used in the criteria: Tuning, PoseFrame, Camera Source, Pointer 
 6. THE Camera Source SHALL never send, store or record video frames or pose data.
 7. THE Camera Source SHALL request the user-facing camera at 640 x 480 (ideal) and accept the size the browser delivers, setting the frame aspect from the delivered video.
 8. WHILE the camera track is open but no new inference result has arrived for longer than the stale-frame timeout (500 ms), THE Camera Source SHALL publish a new PoseFrame (a fresh object) with every landmark invalid, once per stall, until a new result arrives, so that a stalled model is treated as lost tracking rather than a frozen valid pointer.
+9. THE app's page SHALL declare a Content-Security-Policy whose connect-src is 'self', so that no runtime request, including any telemetry a library sends, reaches another host.
 
 ### Requirement 5: Camera lifecycle and permission outcomes
 

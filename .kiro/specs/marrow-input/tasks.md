@@ -235,7 +235,7 @@ Rules for every task:
     - Export `createCameraSource` from `marrow/input`.
     - Tests (fake landmarker and fake video frames): frames dropped while busy; the rate cap; index and side mapping; validity from visibility; the stale guard wired in; the base path in every loaded URL.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
-    - _Requirements: 2.3, 2.6, 4.1, 4.2, 4.3, 4.4, 4.8, 28.3, 28.5_
+    - _Requirements: 2.3, 2.6, 4.1, 4.2, 4.3, 4.4, 4.8, 4.9, 28.3, 28.5_
 
 - [ ] 16. Shared setup UI (`marrow/react`)
   - [ ] 16.1 Component-test setup, MarrowCopy and UI primitives
