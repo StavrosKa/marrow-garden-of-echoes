@@ -64,3 +64,15 @@ export {
   type Demand,
   type PlacementResult,
 } from './placement';
+export {
+  createDwell,
+  stepDwell,
+  dwellView,
+  type DwellEvent,
+  type DwellInput,
+  type DwellState,
+  type DwellStep,
+  type DwellView,
+  type HitArea,
+  type PointerInput,
+} from './dwell';

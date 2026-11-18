@@ -131,7 +131,7 @@ Rules for every task:
   - _Requirements: 6.7, 6.8, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9, 9.10_
 
 - [ ] 11. Dwell selection
-  - [ ] 11.1 Dwell reducer
+  - [x] 11.1 Dwell reducer
     - Create `core/dwell.ts` with `HitArea` (target id, activation id, centre, radius), `PointerInput` (wrist, validity, screen position), `DwellState` and `DwellEvent`; `createDwell()`, `stepDwell(state, { dt, pointers, hitAreas }) -> { state, events }` and `dwellView(state, targetId)` (owner, progress in ms, progress as a fraction of `dwellMs`).
     - Rules (design §9.3): only targets supplied in this step count; the owner is Inside, Outside or Invalid; a free, unlatched, unused target goes to the valid pointer inside it nearest the centre, the right wrist on an exact tie, with no progress in that step; Inside adds dt and zeroes both timers; Outside freezes progress and releases once its timer exceeds `outsideWindowMs`; Invalid freezes progress and cancels once its timer exceeds `invalidWindowMs`; a pointer that is not the owner changes nothing; after a release any active pointer can acquire from the next step; at `dwellMs` one selection event, progress 0, release, the activation marked used, and a latch on the pointers valid and inside in that step; a latched pointer leaves the latch only in a valid-and-outside step; one selection per activation; a changed activation id or a missing target drops the hold and keeps the latch.
     - Export `createDwell`, `stepDwell`, `dwellView`, `DwellState`, `DwellEvent`, `HitArea` and `PointerInput` from `marrow/core`.
