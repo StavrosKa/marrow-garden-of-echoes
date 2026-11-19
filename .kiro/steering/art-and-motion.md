@@ -15,7 +15,7 @@ fileMatchPattern: ["apps/**/scene/**", "apps/**/stages/**", "apps/**/journeys/**
   - **Level 2, Whisper Hall**: the inside of an old hall in the same forest, warm candlelight, close walls, small parallax, the forest visible through windows and the back door.
   - **Bloom**: the garden behind the hall, where the two palettes meet.
 - Procedural silhouettes and a small set of reusable sprites. Seven base colours plus derived brightness steps, defined once in the theme module (see "Palette and type").
-- Depth layers, 5-6 per scene. Forest: sky, far hills, far trees, main scene with the interaction layer, foreground foliage, fog. Hall: back wall with windows, mid furniture and columns, main scene with the interaction layer, foreground arch or drapes, dust and candle haze.
+- Depth layers, 5-6 per scene. Forest: sky, far hills, far trees, main scene with the interaction layer, fog, foreground foliage. Hall: back wall with windows, mid furniture and columns, main scene with the interaction layer, foreground arch or drapes, dust and candle haze.
 - Targets (lanterns, spirits, echo objects) are separate sprites placed into runtime slots. Scene art never fixes a target to one position, and never draws a foreground object across a slot.
 - External assets only with a verified CC0 licence, or SIL OFL 1.1 for the two fonts named below, logged in `docs/licenses.md` with source URL and date. The mockups are visual reference only: they are never shipped, traced or committed, and no character, creature or building from an existing game, film or illustration is reproduced.
 
