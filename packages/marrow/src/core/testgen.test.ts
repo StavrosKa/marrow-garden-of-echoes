@@ -1770,6 +1770,12 @@ describe('testgen', () => {
     expect(below, 'the shares of help sessions below their floors').toEqual([]);
   });
 
+  /**
+   * The time limit of the settings-string coverage test, in milliseconds. It takes about 1.7 s on a quiet
+   * machine, which is a third of vitest's default limit of 5 s, and went over that limit in one full run
+   * of the suite on a busy machine. The other slow tests of the suite have 60 s. A test parameter.
+   */
+  const SETTINGS_COVERAGE_TIMEOUT_MS = 60_000;
   it('genSettingsString reaches non-JSON text, every top level that is not an object, wrong and missing versions, one invalid or missing field, keys such as "__proto__" and "constructor", deep nesting and very long text', () => {
     const strings = fc.sample(genSettingsString(), SAMPLE);
     const tallies = strings.map(kindsOfSettingsString);
@@ -1794,5 +1800,5 @@ describe('testgen', () => {
       .filter((k) => share(k) < SETTINGS_SHARE_FLOORS[k])
       .map((k) => `${k}: ${share(k)} of the strings, floor ${SETTINGS_SHARE_FLOORS[k]}`);
     expect(below.join('; '), 'the shares of settings strings below their floors').toBe('');
-  });
+  }, SETTINGS_COVERAGE_TIMEOUT_MS);
 });
