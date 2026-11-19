@@ -40,7 +40,7 @@ Conventions used below:
 |---|---|
 | `types.ts` | types only: `SceneLayerSpec`, `ShapeSpec`, `SceneTarget`, `FrameData`, `HitCircle`, `SceneManagerOptions`, `SceneManager` |
 | `ports.ts` | `PixiPorts` (the seam between the Scene Manager and Pixi, section 7.4), `DisplayLike` |
-| `targets.ts` | `applyTargets(targets, active, view, frame, out): HitCircle[]` (writes position, scale and visibility to each display object, returns the circles); no `pixi.js` import |
+| `targets.ts` | `applyTargets(targets, shown, active, travelling, interactionView, frame, out): HitCircle[]` (writes position, scale and visibility to each display object; returns the circles, and none when `travelling` is true); no `pixi.js` import |
 | `frameLoop.ts` | `createFrameLoop(ports, tick)`: `start()`, `stop()`, computes the raw delta from the timestamps; no `pixi.js` import |
 | `sceneManager.ts` | `createSceneManager(options, ports): SceneManager`; no `pixi.js` import |
 | `shapes.ts` | `drawShapes(graphics, shapes, aspect)`, `drawBackdrop(graphics, rect, colour, alpha)`; imports `pixi.js` types only |
@@ -162,18 +162,20 @@ slice.getFrame(rawDt)  ---------------------------------------------------------
   |     travel  = stepTravel(travel, {dtMs: sessionDt, paused: paused || hidden || holdActive, motion: level})  [S]
   |               -> travel, progress, cover, travelling, events    (the frame that starts a travel steps it with dtMs 0)
   |
-  |  9. views (built once, never rebuilt in this frame):
+  |  9. views, built once by the slice and never rebuilt in this frame (the Scene Manager builds none):
   |       view            = { travel, head: decorativeHead }
   |       interactionView = { travel, head: interactionHead }
   |       frame           = scene.projectionFrame()  (the object the Scene Manager built for this frame)
-  |     return FrameData { view, interactionHead, decorativeHead, cover, accentAlpha, travelling, active }
+  |     return FrameData { view, interactionView, interactionHead, decorativeHead, cover, accentAlpha,
+  |                        travelling, active, shown }
   v
 SceneManager.apply(FrameData)  ------------------------------------------------------ src/pixi
-  | 10. every layer: layerTransform(layerDef, viewOf(layer), frame)   [-]   (decorative layers use view,
-  |                                                                          the interaction layer's decor uses interactionView)
-  | 11. every target: targetScreen(point, r, interactionView, frame)   [-]   ONE call per target:
-  |        display.position = result.position, display.scale = result.scale, visible = (result != null)
-  |        circle           = { id, centre: result.position, radius: result.radius }   only if active, not culled, not travelling
+  | 10. every layer: layerTransform(layerDef, viewOf(layer), frame)   [-]   (decorative layers use data.view,
+  |                                                                          the interaction layer's decor uses data.interactionView)
+  | 11. every target: targetScreen(point, r, data.interactionView, frame)   [-]   ONE call per target:
+  |        display.position = result.position, display.scale = result.scale, visible = shown && (result != null)
+  |        circle           = { id, centre: result.position, radius: result.radius }   only if active, not culled, and not travelling
+  |                           (applyTargets receives `travelling` and returns no circle when it is true)
   | 12. render (app.render())
   v
 slice.onFrame(circles)  ----------------------------------------------------------- app
@@ -185,7 +187,8 @@ slice.onFrame(circles)  --------------------------------------------------------
 ### 3.2 Rules the diagram states
 
 - **Where `lockRequested` comes from.** Step 7 reads the dwell state after frame N-1. The dwell of frame N needs hit circles, which need the interaction head of frame N, which needs `lockRequested` of frame N; a dwell state of frame N would be circular. With the one-frame delay, the pointer enters a circle at frame N-1, the owner is set in step 13 of N-1, and the lock starts at frame N with the held value equal to the interaction head of frame N-1. This is exactly Req 6.2: "the value it had in the frame before `lockRequested` became true". The circles of frame N are then the circles of frame N-1, so the hand does not lose the target. `lockRequested` is `owner !== null` for any active target, so it also holds during the 150 ms Outside window, when progress is frozen but the hold still exists. The Bloom stroke input of Req 6.1 is not in this spec (`false`).
-- **Same view for rendering and dwell.** `interactionView` and `frame` are created once in step 9 and travel inside `FrameData`. Step 11 reads them and writes both the display object and the circle from one `targetScreen` result. Step 13 reads only those circles. No code between step 9 and step 13 builds a view. An app test (`frame order: dwell and render share one view`) checks that the `view` object that reached the fake scene is identical (`Object.is`) to the one from which the circles passed to `stepDwell` were computed, and that the circles equal `targetScreen(...)` of that view.
+- **Same view for rendering and dwell.** The slice builds `interactionView` once in step 9 and returns it as `FrameData.interactionView`; `frame` is the object of `scene.projectionFrame()`. The Scene Manager builds no view: it uses `data.interactionView` for the interaction decor (step 10) and for `applyTargets` (step 11), and writes both the display object and the circle from one `targetScreen` result. Step 13 reads only those circles. No code between step 9 and step 13 builds a view. An app test (`frame order: dwell and render share one view`) checks with `Object.is` that `FrameData.interactionView` is the very object that `applyTargets` received in the fake scene and from which the circles passed to `stepDwell` were computed, and that the circles equal `targetScreen(...)` of that view.
+- **Shown set.** `FrameData.shown` holds the ids of the targets that are drawn. Stop-1 targets are shown from the start until the arrival frame; stop-2 targets are shown from the frame in which `startTravel` is called (not before), and stay shown; on arrival the previous stop's targets are hidden. After a Restart only stop-1 targets are shown. `active` is always a subset of `shown`.
 - **Clocks.** Presence: steps 1, 2, 3, 6, 7, 13 (head view, tracking, glide, lock ease, dwell). Session: steps 4 (derived), 8 (reward timer, travel). Pause and hidden tab stop both (`presenceDelta` returns 0). A tracking hold stops only the session clock (Req 14.6): the head eases to centre and the glide and the lock ease keep moving.
 - **Pose rate.** Head View, glide and lock step on every rendered frame with the latest held pose frame (this is what marrow's data flow does for Head View); the pose rate only changes how often the target changes (Req 5.9).
 - **Active set.** A target is active when its stop is the current stop, it is not selected, the reward delay is not running and the travel is neither started nor `travelling`. After arrival the stop-2 target is active in the very frame in which `stepTravel` reports `arrived` (the state is `arrived` and the travel value is exactly `to`, so Req 13.3 holds in that frame).
@@ -342,7 +345,7 @@ One flat, frozen, typed object, in the format of `packages/marrow/src/core/tunin
 | `glideEpsilon` | 0.001 | tune | Appendix B |
 | `lockEaseMs` | 400 | tune | Appendix B |
 | `journeyMinMs`, `journeyMaxMs` | 5000, 7000 | tune | invariants 7 *(tune)* |
-| `doorMs` | 3000 | tune | invariants 7 *(tune)*; used by Req 7.12 and the dev control default |
+| `doorMs` | 3000 | tune | invariants 7 *(tune)*; a door segment's `durationMs` must equal it (5.3); used by Req 7.12 |
 | `arrivalToleranceMs` | 1e-6 | tune | Appendix B |
 | `crossFadeMs` | 1500 | tune | invariants 8 *(tune)* |
 | `minFadeMs` | 600 | rule | accessibility-and-copy (2 x 300 ms); equals `2 * marrow TUNING.uiMinLightEaseMs` |
@@ -390,7 +393,7 @@ File: `apps/garden-of-echoes/src/dev/world/forestSlice.json`. All geometry is in
     "version": { "const": 1 },
     "sceneScale": { "type": "number", "minimum": 0, "maximum": 1 },
     "layers": { "type": "array", "items": { "$ref": "#/$defs/layer" } },      // length layersMin..layersMax (tuning)
-    "segments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/segment" } },
+    "segments": { "type": "array", "items": { "$ref": "#/$defs/segment" } },      // at least one journey and one door (checked in code)
     "stops": { "type": "array", "items": { "$ref": "#/$defs/stop" } }          // exactly 2 in the slice
   },
   "$defs": {
@@ -429,7 +432,7 @@ The anchor of a stop's targets is its `travel` (`segmentEnd` means the `to` of t
 How the validator reports errors. `validateWorldContent(json: unknown, tuning, frame): { ok: true, content } | { ok: false, issues }` is hand-written TypeScript (no JSON-schema library: Req 16.7), one function per node. It never throws and returns every issue, not the first. Each issue has a JSON path and one readable line: `layers[3].factor must be absent on the interaction layer (it is tuning.interactionFactor)`, `layers[4].depth = 18 is not below layers[3].depth = 24 (layers must be listed from the farthest to the nearest)`, `layers[0].shapes[2].u0 = 0 reaches the viewport edge but must extend to -0.0009 (edgeOverscan)`. Unknown keys, wrong types, missing keys and non-finite numbers are issues too. The checks, in order:
 1. Structure and types (the schema above).
 2. Layer rules through `validateLayerTable`: count in `layersMin..layersMax`; ids `layer-0..` in order; depth strictly decreasing along the table; factor in 0..1 and non-decreasing along the table; exactly one `interaction` layer without a factor; `interactionFactor` below the largest factor of the others; `depth - anchor > nearPlane` for every layer; every backdrop layer has a `fill`.
-3. Segments through `validateSegment` (journey: `journeyMinMs <= durationMs <= journeyMaxMs`; door: `0 < durationMs < journeyMinMs`; `from < to`) and `checkDepthScaling` for each segment (Req 2.8, with `maxAspect`; thresholds from tuning by kind).
+3. Segments: the content needs at least one `journey` and at least one `door` segment (the slice's two start options, Req 13.4); each through `validateSegment` (journey: `journeyMinMs <= durationMs <= journeyMaxMs`; door: `durationMs === tuning.doorMs`; `from < to`) and `checkDepthScaling` for each segment (Req 2.8, with `maxAspect`; thresholds from tuning by kind).
 4. Stops: `depth - anchor > nearPlane`, slots inside `[0, 1] x [0, 1]`, more slots than `targets`.
 5. Shapes of non-backdrop layers through `shapeOverscanIssues` (Req 4.3).
 6. Front-layer clearance (Req 11.4), for the aspects `[ASPECT_MIN, frame.aspect, maxAspect]`: see 8.5.
@@ -451,7 +454,7 @@ Why a container per stop is wrong: a container applies one position and one scal
 
 Why Req 10.4 holds bit for bit with the single container: the display object's position and the circle's centre are the same two doubles from the same `ScreenTarget` object, computed once per frame from the same `interactionView` and the same `frame` object. The pixel scale `K` of the `world` container (section 7.2) is applied by the renderer after the position is set, so it never enters the comparison. The test (15.1.2) asserts `Object.is(display.position.x, circle.centre.x)` and the same for y with a fake display object. Culled targets get `visible = false` and no circle.
 
-Consequences: stop-2's target exists in the scene from the start of the journey (it is drawn at `s < 1` while far, and becomes `s = 1` at arrival) but has no circle until it is active; its visibility before arrival is a drawing choice only (section 11).
+Consequences: the stop-2 target is hidden until `startTravel`, then drawn (at `s < 1` while far, `s = 1` at arrival) with no circle until it is active; the previous stop's targets are hidden on arrival. Both are `FrameData.shown` decisions of the slice (section 3.2); `applyTargets` only sets `visible = shown && not culled` (section 11, item 8).
 
 ---
 
@@ -472,13 +475,15 @@ export interface SceneManagerOptions {
   readonly tuning?: Tuning;
 }
 export interface FrameData {
-  readonly view: View;                // { travel, head: decorativeHead }
-  readonly interactionHead: Vec2;
+  readonly view: View;                // { travel, head: decorativeHead }; built once by the slice
+  readonly interactionView: View;     // { travel, head: interactionHead }; built once by the slice, never by the Scene Manager
+  readonly interactionHead: Vec2;     // the head of interactionView
   readonly decorativeHead: Vec2;
   readonly cover: number;
   readonly accentAlpha: number;       // progress in the fade style, else 0
   readonly travelling: boolean;       // Req 10.6
   readonly active: ReadonlySet<string>; // ids of the targets the caller marked active (Req 10.4)
+  readonly shown: ReadonlySet<string>;  // ids of the targets that are drawn; active is a subset
 }
 export interface HitCircle { readonly id: string; readonly centre: Vec2; readonly radius: number }
 export interface SceneManager {
@@ -493,7 +498,7 @@ export interface SceneManager {
   canvasSize(): { width: number; height: number };    // CSS pixels
 }
 ```
-`getFrame` returns the four values of Req 10.3 plus `accentAlpha`, `travelling` and `active`, which Req 10.4 and 10.6 need from the caller.
+`getFrame` returns the four values of Req 10.3 plus `interactionView` (so that rendering and dwell share one object), `accentAlpha`, `travelling`, `active` and `shown`, which Req 10.4, 10.6 and 13.3 need from the caller.
 
 ### 7.2 Lifecycle, containers and the pixel scale
 
@@ -515,16 +520,16 @@ Shapes are drawn into a `Graphics` in local drawing units of `DRAW_UNIT = 1024` 
 
 A target's Graphics is drawn with radius `r * targetVisualRatio * DRAW_UNIT`. `applyTargets` talks to a `DisplayLike` with three members: `position.set(x, y)` in screen units, `setDepthScale(s)` and `visible`. The Pixi adapter turns `setDepthScale(s)` into `graphics.scale.set(s / DRAW_UNIT)`. The position is passed through unchanged, so Req 10.4 compares two untouched doubles.
 
-Aspect and size: each tick reads `host.clientWidth` and `clientHeight` (CSS px). If either changed, `app.renderer.resize(w, h)` and the frame object is replaced by `{ aspect: w / h, sceneScale }`. The frame object is otherwise the same object from tick to tick. If the aspect changed, shapes and backdrop rectangles are rebuilt from their unit coordinates (the only redraw outside colour changes, following the performance rule). A host with zero width or height skips the tick.
+Aspect and size: the host size is read only when the size observer has fired (it sets a dirty flag) and once at start, not every tick. A dirty tick reads `host.clientWidth` and `clientHeight` (CSS px), clears the flag and, if either changed, calls `app.renderer.resize(w, h)` and replaces the frame object with `{ aspect: w / h, sceneScale }`. The frame object is otherwise the same object from tick to tick. If the aspect changed, shapes and backdrop rectangles are rebuilt from their unit coordinates (the only redraw outside colour changes, following the performance rule). A host with zero width or height skips the tick.
 
 ### 7.3 One tick
 
 1. Request the next frame first (so a throw in the app callbacks does not end the loop).
 2. `rawDt = ts - lastTs` from the `requestAnimationFrame` timestamp (0 on the first tick). No `Date.now`, no `performance.now`; no clamp (Req 10.7).
-3. Measure and resize (above); update the pixel ratio.
+3. If the dirty flag is set, measure and resize (above). Read the device pixel ratio every tick (it is not a layout read and can change without a size event) and update the resolution if it changed.
 4. `data = getFrame(rawDt)`.
-5. Layers: for each layer, `t = layerTransform(layerDef, view, frame)`; `view` is `data.view` for decorative layers and `{ travel, head: data.interactionHead }` for the interaction layer's `decor`. `null` -> `visible = false`.
-6. Targets: `circles = applyTargets(targets, data.active, interactionView, frame, out)`, then `circles` is emptied if `data.travelling`. Accent alpha, cover alpha.
+5. Layers: for each layer, `t = layerTransform(layerDef, view, frame)`; `view` is `data.view` for decorative layers and `data.interactionView` for the interaction layer's `decor`. The Scene Manager builds no view. `null` -> `visible = false`.
+6. Targets: `circles = applyTargets(targets, data.shown, data.active, data.travelling, data.interactionView, frame, out)`; it returns no circle when `data.travelling` is true. Accent alpha, cover alpha.
 7. `app.render()`.
 8. `onFrame(circles)`.
 
@@ -641,9 +646,9 @@ Each test title starts with the name of its invariant; extra `it` blocks of the 
 Generators and the assertions they feed (all in `testgen.ts` unless noted; every number comes from `TUNING` or marrow's `TUNING`):
 
 1. **Round trip.** `genFrame` (aspect in `[ASPECT_MIN, maxAspect]`, sceneScale from `{0, 0.6, 1}` and uniform 0..1), `genLayerRef` (`depth - anchor > nearPlane`, factor in 0..1), `genView(layer)` (travel in `[anchor - 5, depth - nearPlane - 1e-3]` so culled cases are drawn only by a separate generator, head axes from `{-1, 0, 1}` and uniform), `genWorldPoint`. Compare `x`, `y` with `|a - b| <= 1e-9 * max(1, |a|, |b|)` (the requirement's relative tolerance, with 1 as the floor so a result near 0 is not compared relatively).
-2. **Hit circle = rendered position.** `genView` and `genFrame` as above; `genLockSequence` (liveHead walks, lockRequested runs, dt) run through the real `stepGlide` and `stepLock` for each level of `genMotionLevels`, so `interactionHead` is a genuine lock output; `genTargets` (1-4 targets, random depth/anchor/factor, `r` in `[hitRadiusMin, hitRadiusMax]`, active flags, a `travelling` flag). The fake display object records `position.set`, `setDepthScale`, `visible`. Assertions: `Object.is` on both coordinates between display and circle; `radius === r * scale`; no circle when inactive, culled or travelling; display hidden when culled.
-3. **Reachable region.** Own generators `genGrid` (a grid from `createGrid`, then `addSample` or `markAllValid` over random rectangles of cells), `genMapping` (`makeMapping` with playAspect in range, gain in 1..1.6), `genSlots`, `genDemand`; `placeTargets` with `m = parallaxMargin(...)`; for each slot of the result and each generated head (corners of the square, axes and random points; the interaction head of any lock state is a point of this square, and test 4 checks that the lock output stays in it) the centre comes from `targetScreen` at the stop view. Assertions: `dist(centre, slot) <= m * (1 + 1e-12)`; `dist(centre, slot) + radius <= r + m` (hit area inside the disc that `isSlotUsable` accepted); `isSlotUsable(slot, r, m)` returns a wrist for every slot in the result; the circle's `radius` is `r` because `s = 1` at the stop.
-4. **Lock.** `genLockSequence` as in 2; layer tables from `genLayerTable` provide at least one decorative layer with factor > 0 and the interaction layer. For consecutive frames with `lockRequested` true: `interactionHead` is identical (`Object.is`) to the first locked frame's value, which equals the previous frame's head; the shift of an interaction point (`parallaxShift`) is unchanged; for each frame in which `liveHead` moved by more than 1e-9, the shift of a decorative layer changes. Blocks for 6.4 (ease reaches `liveHead` exactly after `lockEaseMs`), 6.5 (re-lock during an ease has no jump) and 6.6.
+2. **Hit circle = rendered position.** `genView` and `genFrame` as above; `genLockSequence` (liveHead walks, lockRequested runs, dt) run through the real `stepGlide` and `stepLock` for each level of `genMotionLevels`, so `interactionHead` is a genuine lock output; `genTargets` (1-4 targets, random depth/anchor/factor, `r` in `[hitRadiusMin, hitRadiusMax]`, shown and active flags, a `travelling` flag passed to `applyTargets`). The fake display object records `position.set`, `setDepthScale`, `visible`. Assertions: `Object.is` on both coordinates between display and circle; `radius === r * scale`; no circle when inactive, culled or when `travelling` is true; display hidden when culled or not shown.
+3. **Reachable region.** Own generators `genGrid` (a grid from `createGrid`, then `addSample` or `markAllValid` over random rectangles of cells), `genMapping` (`makeMapping` with playAspect in range, gain in 1..1.6), `genSlots`, `genDemand`; `placeTargets` with `m = parallaxMargin(...)`; for each slot of the result and each generated head (corners of the square, axes and random points; the interaction head of any lock state is a point of this square, and test 4 checks that the lock output stays in it) the centre comes from `targetScreen` at the stop view. Assertions (`sceneScale` is drawn in `[0, 1]`, so `m` can be 0; both distance checks carry an absolute floor of 1e-12, named `DISTANCE_FLOOR` in `testgen.ts`): `dist(centre, slot) <= m * (1 + 1e-12) + 1e-12`; `dist(centre, slot) + radius <= r + m + 1e-12` (hit area inside the disc that `isSlotUsable` accepted); `isSlotUsable(slot, r, m)` returns a wrist for every slot in the result; the circle's `radius` is `r` because `s = 1` at the stop.
+4. **Lock.** `genLockSequence` as in 2; layer tables from `genLayerTable` provide at least one decorative layer with factor > 0 and the interaction layer. For consecutive frames with `lockRequested` true: `interactionHead` is identical (`Object.is`) to the first locked frame's value, which equals the previous frame's head; the shift of an interaction point (`parallaxShift`) is unchanged; for each frame in which `liveHead` moved by more than 1e-9, the shift of a decorative layer changes. For that last assertion `sceneScale` is drawn in `(0, 1]` (at 0 no layer shifts); the other assertions of the property use `[0, 1]`. Blocks for 6.4 (ease reaches `liveHead` exactly after `lockEaseMs`), 6.5 (re-lock during an ease has no jump) and 6.6.
 5. **Travel arrives once.** `genSegment` (journey: `durationMs` in `[journeyMinMs, journeyMaxMs]`, whole and fractional; door: `doorMs` and fractions of it; `from < to`), `genDeltaRun` (up to 10000 steps; deltas from `{0, whole ms 1..maxClockStepMs, uniform (0, maxClockStepMs]}`; pauses in runs), one constant level from `genLevel`. Per 7.10: at most one `arrived`; none with `paused`; unpaused sum `>= R + tol` implies exactly one, `< R - tol` none; no assertion between. `R` is read from `startTravel`'s state, not recomputed. The 7.12 block uses whole-millisecond deltas that sum to exactly the duration, for 5000, 7000 and `doorMs`.
 6. **No edge exposed.** `genLayerTable` (5-6 layers, depth strictly decreasing, factors non-decreasing, one interaction layer, backdrop flags on a prefix), `genTravelRange(table)` (within the not-culled part), `genFrame`, `genHead`. Backdrop: the four corners of `backdropRect(layer, range, frame)` through `worldToScreen` at sampled travels (both ends and random) and sampled heads (corners and random) contain `[0, A] x [0, 1]`. Other layers: `genEdgeShape(layer)` (a rectangle in unit coordinates that touches an edge and extends by `edgeOverscan` times a factor in `[1, 3]`) still reaches the edge for travels in the range (the scale is at least 1 there) and heads in the square; `shapeOverscanIssues` returns no issue for it and returns an issue for a shape that extends by `0.5 * edgeOverscan` (so a validator that never rejects fails the test). Blocks: Gentle and Reduced shifts never exceed Full (4.7, 8.10); a culled layer is hidden and the backdrops behind it still satisfy 4.5 (4.8).
 7. **Glide.** `genPoseSchedule` (a target changes every `1000 / POSE_HZ` ms, and a second variant with each interval scaled by a random factor in `[0.5, 1.5]`), `genRenderTimes` (60 Hz, 144 Hz, and variable deltas from `genDelta`), targets uniform in the square. Blocks: (5.7) range and no overshoot; (5.8) the same schedule run at 60 and 144 Hz, compared at common times (`k / 12 s`), tolerance `PARITY_TOLERANCE`; (5.9) while `dist > glideEpsilon` and `dt >= 1`, the output changes in every frame; (5.10) per-frame change `<= glideCapPerS * dt / 1000` (0.0667 at 60 Hz, 0.4 at 100 ms, computed in the test). Plus unit blocks for 5.3 (formula), 5.6 (`dt = 0` moves nothing) and 5.4-5.5 (the glide has no ease to centre and reads no landmark: `stepGlide` has no such input; checked by type and by a test that its output follows a Head View ramp like any target).
@@ -654,7 +659,7 @@ Generators and the assertions they feed (all in `testgen.ts` unless noted; every
 | Test title | Criteria |
 |---|---|
 | `tuning shipped valid and labelled` (`tests/world-view-tuning-labels.test.ts`); `tuning rejects ...` one block per rule of 5.2 | 1.1-1.4, 1.7 |
-| `core reads numbers from tuning` (a scan of `src/core` for numeric literals, as marrow's task 18 does; the only literals allowed are named geometry constants such as `ZERO`, `ONE`, `HALF`) | 1.6, 15.6 |
+| `core reads numbers from tuning` (a scan of `src/core` for numeric literals, as marrow's task 18 does; the only literals allowed are named geometry constants such as `ZERO`, `ONE`, `HALF` and the named smootherstep coefficients `SMOOTHERSTEP_A`, `SMOOTHERSTEP_B`, `SMOOTHERSTEP_C` (6, 15, 10) in `ease.ts`; `testgen.ts` and `*.test.ts` are excluded from the scan) | 1.6, 15.6 |
 | `worldToScreen worked example` (section 2.4); `depth scale grows with travel and is 1 at the anchor`; `two depths, two scales` | 2.3, 2.4, 2.7, 2.8 (flat zoom) |
 | `layer table rules`; `depth scaling thresholds for the journey and door segments` (shipped numbers and negative cases) | 2.8, 2.10, 1.4 |
 | `parallax direction and bounds` (sign, ordering by depth, bound per axis, interaction at most 0.2 of the nearest, no head zoom) | 3.1-3.7 |
@@ -685,7 +690,7 @@ One test, `world playground in simulated-input mode`, timeout 120 s. Pixi needs 
 2. The play-area element exists; `getComputedStyle(el).touchAction === 'none'` (Req 11.5, 15.4). `window.__worldPlayground` is defined; on `goto('/')` it is not.
 3. Choose the door segment on the start panel (Req 13.4: a 3 s travel in Full keeps the test short), then click "Use mouse" (names from `copy/`). Wait until `snapshot().screen === 'running'` and `snapshot().canvas.width > 0` (the scene started).
 4. Rendered equals hit: for 20 consecutive animation frames (a page-side loop), every active target has `rendered` equal to `circle.centre` (deep equal on the two numbers) and `circle.radius === r` at stop 1.
-5. Take the first active target `T1`. Convert its circle to client pixels with `K = canvas.height`: `x = rect.left + centre.x * K`, `y = rect.top + centre.y * K`. `mouse.move(x, y)`. Wait until `snapshot().targets[T1].dwell.owner !== null`.
+5. Take the first active target `T1`. Convert its circle to client pixels with `K = snapshot().canvas.height` (CSS pixels, the Scene Manager's `canvasSize()`; not the `height` attribute of the canvas element, which includes the pixel ratio): `x = rect.left + centre.x * K`, `y = rect.top + centre.y * K`. `mouse.move(x, y)`. Wait until `snapshot().targets[T1].dwell.owner !== null`.
 6. Record `h0 = snapshot().interactionHead`, `d0 = decorative layer offset` (a layer with factor > 0 from `snapshot().layers`). Start the head driver ramp inside the page: `setHead({x: 0, y: 0})`, then every animation frame increase `x` to 0.5 over about 1 s (a ramp of 0.5 is larger than 0.1). Keep the mouse still.
 7. While the dwell is in progress (`owner !== null`), sample every frame: `interactionHead` equals `h0` exactly; the interaction layer's applied offset equals its first sample; the circle centre equals its first sample. After at least 0.1 head change, the decorative layer's applied offset differs from `d0`. Wait for `targets[T1].selected === true` (dwell completed). Assert the change of head during the dwell was more than 0.1 and `selected` is true.
 8. `setHead(null)`. Move to `T2` and wait for its selection (no driver).
@@ -757,10 +762,10 @@ Nothing else. `npm view` shows these direct dependencies of `pixi.js@8.22.0`, wh
 2. **Keys I added that Appendix A and B do not list:** `maxAspect` 2.4 (Req 2.8 writes the number), `layersMin` and `layersMax` (Appendix A, "5-6 layers"), `journeyMinMs`, `journeyMaxMs` and `doorMs` (Appendix A), and the extra validation rules of 5.2. *Assumption:* adding keys is allowed; Req 1.1 says what the object holds, not that it holds nothing else. Say if you want them out.
 3. **Trailing `tuning` parameter.** The requirement signatures (`stepGlide(state, targetHead, dtMs)`) have no tuning argument and Req 1.6 forbids literals. *Assumption:* an optional trailing parameter defaulting to `TUNING`, so every call written in the requirements stays valid.
 4. **Req 2.6 and 15.6 numbers.** The aspect range 1.0 to 2.4 that I wrote into 2.6 is a test parameter (`ASPECT_MIN`) plus `maxAspect`, not an Appendix B key; `ASPECT_MIN = 1.0` is the only literal.
-5. **`getFrame` returns more than 10.3 lists** (`accentAlpha`, `travelling`, `active`), because 10.4, 10.6 and 13.5 need them from the caller. *Assumption:* acceptable.
+5. **`getFrame` returns more than 10.3 lists** (`interactionView`, `accentAlpha`, `travelling`, `active`, `shown`), because 10.4, 10.6, 13.3 and 13.5 need them from the caller. *Assumption:* acceptable.
 6. **Head View steps per rendered frame** on the held pose frame (marrow's own data flow does this), and the Glide follows its output. Req 5.1 says the Head View output is "held unchanged between pose frames", which is true of the pose-driven target, not of the ramp to centre.
 7. **Shape and slot coordinates are unit fractions** (`u` of the width, `v` of the height), so a window with another aspect stretches the placeholders and moves slots in screen space; the overscan check is independent of the aspect (2.3). On a change of aspect the slice re-runs placement (no dwell in progress is kept) and recomputes the world points; a dev limitation, not a requirement.
-8. **Stop-2 target is drawn from the start of the journey** (as a small, far object) and has no circle until it is active. Alternative: hide it until arrival. The first matches "appears gradually"; either satisfies Req 13.3.
+8. **Stop-2 target is hidden until `startTravel`, then drawn** (small and far, growing to `s = 1`), with no circle until it is active; the previous stop's targets are hidden on arrival (user decision, section 6 and 3.2).
 9. **Theme module.** The slice needs colours as numbers (grey ramp, `night`, `lanternWarm`). No theme module exists yet; the marrow-input playground task creates `src/ui` theme values. *Assumption:* the world slice reads a `ui/theme.ts` token object; if it does not exist when the first world-view task that draws something starts, that task creates it with the hex values of `art-and-motion.md` and the same token names, and the marrow-input task reuses it. The cover colour is the darkest grey of the ramp (`#0A0C14`), not a new colour.
 10. **Route wiring.** `main.tsx` has no `?playground` router yet. *Assumption:* the dynamic-import branch of 8.3 is added by this spec and the marrow-input spec adds its own branch to the same place.
 11. **Drawing unit.** Graphics are drawn at 1024 units per screen unit and scaled by 1/1024 (7.2) because I assume small circles tessellate coarsely at sub-unit radii; I tried to read Pixi's `buildCircle` for v8.22.0 and could not retrieve it, so this is a precaution, not a verified need. It costs nothing in the tests, because positions stay in screen units.
@@ -772,3 +777,17 @@ Nothing else. `npm view` shows these direct dependencies of `pixi.js@8.22.0`, wh
 17. **Extra tests beyond Req 15:** `csp_allows_pixi_shaders`, the wall-clock test extension, the numeric-literal scan and the world-view tuning-label file. Each is small; drop any you do not want.
 18. **`lockRequested` has a one-frame delay** (3.2). Req 6.1 says the caller computes it from dwell; the requirements do not say from which frame. If you want the lock to engage in the frame the owner is set, hit circles would have to be computed twice per frame, and I did not choose that.
 19. **Fade length when the floor binds.** Req 7.3 and 8.4 now agree (R is X in the fade style). One consequence of the floor: a switch to Reduced at `p = 0.9` gives a fade of 600 ms during which `progress` moves from 0.9 to 1, slower than the travel it replaces; that is the rule, not a defect.
+
+---
+
+## Appendix D (design): edits after the first review
+
+1. `FrameData` has `interactionView: View`, built once by the slice (step 9). The Scene Manager builds no view and uses that object for the interaction decor and for `applyTargets`. Sections 3.1, 3.2, 7.1 and 7.3 agree; the app test checks `Object.is` between `FrameData.interactionView` and the view the circles came from.
+2. Property 3: both distance assertions have an absolute floor of 1e-12 (`<= m * (1 + 1e-12) + 1e-12`, `dist + radius <= r + m + 1e-12`), because `m` is 0 when `sceneScale` is 0.
+3. Property 4: `sceneScale` is drawn in `(0, 1]` for the "decorative shift changes" assertion.
+4. 9.2 literal scan: the named smootherstep coefficients are allowed; `testgen.ts` and `*.test.ts` are excluded.
+5. `applyTargets` takes `travelling` and returns no circle when it is true (section 1.2, 7.3 step 6, property 2). It also takes a `shown` set (item 9).
+6. 9.4 step 5: `K = snapshot().canvas.height` in CSS pixels, not the canvas element's `height`.
+7. 7.2 and 7.3: the host size is read only when the size observer has set a dirty flag (and once at start). The device pixel ratio is still read every tick, because it is not a layout read and can change without a size event.
+8. 5.3: the content needs at least one journey and one door segment; a door segment's `durationMs` must equal `tuning.doorMs`.
+9. Section 6 and section 11 item 8: the stop-2 target is hidden until `startTravel`, then drawn; the previous stop's targets are hidden on arrival. This is carried by a `FrameData.shown` set, which is my addition to implement it.
