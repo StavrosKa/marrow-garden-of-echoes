@@ -21,8 +21,8 @@ import type { ProjectionFrame } from './types';
 
 // The aspect of the example of design 2.3: 16/9 (a test parameter of that example).
 const EXAMPLE_ASPECT = 16 / 9;
-// The scene scale of the example: the scale of a full scene, derived from tuning.
-const FULL_SCALE = TUNING.nearPlane / TUNING.nearPlane;
+// The scene scale of the example: the scale of a full scene.
+const FULL_SCALE = 1;
 
 const dist = (a: Vec2, b: Vec2): number => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -116,7 +116,7 @@ describe('parallaxMargin is the Euclidean length', () => {
       fc.property(genSpread(ASPECT_MIN, TUNING.maxAspect), genSpread(0, FULL_SCALE), (aspect, scale) => {
         const full = parallaxMargin(FULL_SCALE, aspect);
         expect(Math.abs(parallaxMargin(scale, aspect) - scale * full)).toBeLessThanOrEqual(DISTANCE_FLOOR);
-        expect(parallaxMargin(scale - scale, aspect)).toBe(scale - scale);
+        expect(parallaxMargin(0, aspect)).toBe(0);
       }),
     );
   });

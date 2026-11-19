@@ -35,6 +35,11 @@ export const ASPECT_MIN = 1.0;
  * differ from the exact value by a few ulps (design Appendix D, item 2).
  */
 export const DISTANCE_FLOOR = 1e-12;
+/**
+ * The travel step that moves a view just inside the cull test in projection.test.ts. A test
+ * parameter, not a tuning value: it is only a step small enough to stay on the near side.
+ */
+export const TRAVEL_STEP = 1e-6;
 
 // --- Test parameters of the generators below ---
 

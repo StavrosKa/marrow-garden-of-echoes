@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolveLayerTable, type LayerTableEntry } from './layers';
+import { depthScale } from './projection';
 import { checkDepthScaling, validateSegment, type SegmentSpec } from './segments';
 import { TUNING } from './tuning';
 
@@ -28,14 +29,17 @@ const JOURNEY: SegmentSpec = {
 const DOOR: SegmentSpec = { id: 'segment-door', kind: 'door', from: 0, to: DOOR_TO, durationMs: TUNING.doorMs };
 
 /** The farthest a point of the viewport can be from the vanishing point at the widest aspect. */
-const REACH = Math.hypot(
-  TUNING.maxAspect / 2,
-  Math.max(TUNING.vanishingPointY, TUNING.nearPlane / TUNING.nearPlane - TUNING.vanishingPointY),
-);
+const REACH = Math.hypot(TUNING.maxAspect / 2, Math.max(TUNING.vanishingPointY, 1 - TUNING.vanishingPointY));
+const HALF = 0.5;
 
-/** The move of a viewport point of a layer over a segment, by the formula of Req 2.8. */
-function move(depth: number, spec: SegmentSpec): number {
-  return REACH * Math.abs(depth / (depth - spec.to) - depth / (depth - spec.from));
+/**
+ * The move of a viewport point of a layer over a segment, by the check of Req 2.8: a point at the
+ * start is at most REACH / start from the vanishing point, so its move is REACH * (end - start) / start.
+ */
+function move(depth: number, spec: SegmentSpec, anchor = 0): number {
+  const start = (depth - anchor) / (depth - spec.from);
+  const end = (depth - anchor) / (depth - spec.to);
+  return (REACH * (end - start)) / start;
 }
 
 describe('depth scaling thresholds for the journey and door segments', () => {
@@ -71,6 +75,24 @@ describe('depth scaling thresholds for the journey and door segments', () => {
     expect(move(DEPTHS[HILLS]!, twiceAsFar)).toBeGreaterThanOrEqual(TUNING.journeyHorizonMaxMove);
     // The sky (depth 4000) still moves less than the threshold there.
     expect(issues.map((issue) => issue.path)).not.toContain('layers[0].depth');
+  });
+
+  it('depth scaling thresholds for the journey and door segments: a horizon layer anchored above the segment start is rejected', () => {
+    // A horizon layer anchored halfway to its depth has a start scale of 0.5 (below 1). A viewport
+    // point at the start is then twice as far from the vanishing point in layer units, so the
+    // move is twice what the scale change alone gives. The old formula, reach * |end - start|,
+    // passes this layer; the check of Req 2.8 must reject it.
+    const depth = TUNING.horizonDepth;
+    const anchor = depth * HALF;
+    const layers = resolveLayerTable([{ id: 'layer-0', depth, anchor, backdrop: true, factor: 0 }]);
+    const start = depthScale({ depth, anchor, factor: 0 }, JOURNEY.from);
+    const end = depthScale({ depth, anchor, factor: 0 }, JOURNEY.to);
+    expect(start).toBeLessThan(1);
+    expect(REACH * Math.abs(end - start)).toBeLessThan(TUNING.journeyHorizonMaxMove);
+    expect(move(depth, JOURNEY, anchor)).toBeGreaterThanOrEqual(TUNING.journeyHorizonMaxMove);
+    const issues = checkDepthScaling(layers, JOURNEY);
+    expect(issues.map((issue) => issue.path)).toEqual(['layers[0].depth']);
+    expect(issues[0]?.message).toContain(`it must stay below ${TUNING.journeyHorizonMaxMove}`);
   });
 
   it('depth scaling thresholds for the journey and door segments: thresholds and depths come from tuning', () => {

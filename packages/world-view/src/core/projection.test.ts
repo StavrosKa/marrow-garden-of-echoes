@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { parallaxShift } from './parallax';
 import { depthScale, isCulled, layerTransform, screenToWorld, worldToScreen } from './projection';
 import { targetScreen } from './target';
-import { DISTANCE_FLOOR, ROUND_TRIP_TOLERANCE, genCulledView, genFrame, genLayerRef, genSpread, genView, genWorldPoint } from './testgen';
+import { DISTANCE_FLOOR, ROUND_TRIP_TOLERANCE, TRAVEL_STEP, genCulledView, genFrame, genLayerRef, genSpread, genView, genWorldPoint } from './testgen';
 import { TUNING } from './tuning';
 import type { WorldPoint } from './types';
 
@@ -25,7 +25,7 @@ const EXAMPLE_FRAME = { aspect: EXAMPLE_ASPECT, sceneScale: 1 };
 const PRINTED = { x: 1.476148, y: 0.85, radius: 0.12, restX: 1.333333, restY: 0.75, shiftX: -0.005333 };
 const PRINTED_PRECISION = 6;
 // The depth scale at the anchor, derived from tuning instead of written as a literal.
-const ONE = TUNING.nearPlane / TUNING.nearPlane;
+const ONE = 1;
 
 /** |a - b| <= tolerance * max(1, |a|, |b|): the relative tolerance of Req 2.6 with 1 as the floor. */
 function near(a: number, b: number, tolerance: number): boolean {
@@ -123,7 +123,7 @@ describe('projection round trip', () => {
     const exactlyNear = { travel: point.depth - TUNING.nearPlane, head: { x: 0, y: 0 } };
     expect(point.depth - exactlyNear.travel).toBe(TUNING.nearPlane);
     expect(worldToScreen(point, exactlyNear, EXAMPLE_FRAME)).toBeNull();
-    const justBefore = { travel: exactlyNear.travel - TUNING.arrivalToleranceMs, head: exactlyNear.head };
+    const justBefore = { travel: exactlyNear.travel - TRAVEL_STEP, head: exactlyNear.head };
     expect(point.depth - justBefore.travel).toBeGreaterThan(TUNING.nearPlane);
     expect(worldToScreen(point, justBefore, EXAMPLE_FRAME)).not.toBeNull();
   });

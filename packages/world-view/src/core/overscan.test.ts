@@ -21,10 +21,10 @@ import { TUNING } from './tuning';
 import type { ProjectionFrame, Rect, View } from './types';
 
 // The extension of the shape of the rejection check: half of edgeOverscan (design 9.1, item 6).
-const HALF = TUNING.nearPlane / (TUNING.nearPlane + TUNING.nearPlane);
+const HALF = 0.5;
 // The heads that always run: the four corners of the head square and the centre.
-const ONE = TUNING.nearPlane / TUNING.nearPlane;
-const ZERO = TUNING.nearPlane - TUNING.nearPlane;
+const ONE = 1;
+const ZERO = 0;
 const CORNER_HEADS: Vec2[] = [
   { x: -ONE, y: -ONE },
   { x: ONE, y: -ONE },

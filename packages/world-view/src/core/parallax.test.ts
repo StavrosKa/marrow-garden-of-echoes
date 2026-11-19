@@ -6,8 +6,8 @@ import { resolveLayerTable } from './layers';
 import { DISTANCE_FLOOR, ROUND_TRIP_TOLERANCE, genFrame, genFramePositive, genHead, genLayerRef, genLayerTable, genView } from './testgen';
 import { TUNING } from './tuning';
 
-// The factor of the nearest layer, the limit of Req 3.1: derived from tuning, not written as a literal.
-const FULL_FACTOR = TUNING.nearPlane / TUNING.nearPlane;
+// The factor of the nearest layer, the limit of Req 3.1.
+const FULL_FACTOR = 1;
 
 describe('parallax direction and bounds', () => {
   const tableCase = genLayerTable().map((entries) => resolveLayerTable(entries));

@@ -40,8 +40,8 @@ const sample = <T>(arbitrary: fc.Arbitrary<T>, runs: number = SAMPLE): T[] =>
   fc.sample(arbitrary, { numRuns: runs, seed: SEED });
 
 // Boundaries and levels, derived from tuning or fixed by the requirements.
-const ONE = TUNING.nearPlane / TUNING.nearPlane;
-const ZERO = TUNING.nearPlane - TUNING.nearPlane;
+const ONE = 1;
+const ZERO = 0;
 const SCENE_SCALE_MID = 0.6;
 const near = (a: number, b: number): boolean => Math.abs(a - b) <= DISTANCE_FLOOR;
 

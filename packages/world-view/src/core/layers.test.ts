@@ -16,8 +16,8 @@ const [SKY, HILLS, TREES, MAIN, FOG, FRONT] = TABLE as [
   LayerTableEntry, LayerTableEntry, LayerTableEntry, LayerTableEntry, LayerTableEntry, LayerTableEntry,
 ];
 // Boundaries of the rules, derived from tuning.
-const ONE = TUNING.nearPlane / TUNING.nearPlane;
-const ZERO = TUNING.nearPlane - TUNING.nearPlane;
+const ONE = 1;
+const ZERO = 0;
 
 /** The table with the layer at `index` replaced by its change. */
 function change(index: number, update: Partial<LayerTableEntry>): LayerTableEntry[] {

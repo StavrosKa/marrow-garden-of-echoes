@@ -75,7 +75,9 @@ export function checkDepthScaling(
     const start = depthScale(layer, spec.from);
     const end = depthScale(layer, spec.to);
     if (layer.depth >= tuning.horizonDepth) {
-      const move = reach * Math.abs(end - start);
+      // A viewport point at the start has |p - v| <= reach / start, so its move is
+      // reach * (end - start) / start. A start scale below 1 (anchor above the start) enlarges it.
+      const move = (reach * (end - start)) / start;
       if (!(move < maxMove)) {
         issues.push({
           path: `${at}.depth`,
