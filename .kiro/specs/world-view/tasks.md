@@ -41,7 +41,7 @@ Rules for every task:
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.5, 4.6, 4.8, 9.1, 9.2, 9.4, 9.5, 9.6, 15.1_
 
-- [ ] 3. Glide, lock and motion profile
+- [x] 3. Glide, lock and motion profile
   - Create `src/core/glide.ts` (design §4.1): `createGlide`, `stepGlide(state, targetHead, dtMs, tuning = TUNING)`, `GlideState`. Per axis: the target clamped to -1..1, the exponential move, the cap `glideCapPerS * dt / 1000`, no move for a `dt` that is 0, negative or not finite, no ease to centre and no landmark input.
   - Create `src/core/lock.ts` (design §4.2): `createLock`, `stepLock(state, input, dtMs, tuning = TUNING)`, `LockState`, `LockMode`, `LockInput`, `LockStep`, with the seven rows of the transition table (the held value is `last`, the ease uses `smootherstep` over `lockEaseMs`, a `dt` of 0 does not advance the ease).
   - Create `src/core/motion.ts`: `motionProfile(level)` returning the table of Req 8.2 with values from tuning and the named constants `ONE` and `ZERO`, `motionRank(level)` (not on the entry), `MotionProfile`. `MotionLevel` is imported from `marrow/core`.

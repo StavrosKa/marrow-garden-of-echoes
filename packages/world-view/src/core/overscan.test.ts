@@ -2,6 +2,8 @@ import fc from 'fast-check';
 import type { Vec2 } from 'marrow/core';
 import { describe, expect, it } from 'vitest';
 import { resolveLayerTable, type LayerDef } from './layers';
+import { parallaxShift } from './parallax';
+import { motionProfile } from './motion';
 import { backdropRect, edgeOverscan, shapeOverscanIssues, type TravelRange } from './overscan';
 import { isCulled, layerTransform, worldToScreen } from './projection';
 import {
@@ -237,6 +239,26 @@ describe('backdropRect and edgeOverscan', () => {
           const over = edgeOverscan(layer, frame);
           expect(over.x).toBe(layer.factor * TUNING.limitX * frame.aspect * frame.sceneScale);
           expect(over.y).toBe(layer.factor * TUNING.limitY * frame.sceneScale);
+        }
+      }),
+    );
+  });
+});
+
+describe('no layer edge exposed: a lower motion level never shifts more than Full', () => {
+  it('no layer edge exposed: the shift of Gentle and Reduced never exceeds Full for any head offset (4.7, 8.10)', () => {
+    fc.assert(
+      fc.property(genFrame(), genLayerTable(), genHead(), (frame, entries, head) => {
+        // The head the glide would hand the shift at each level: the head times the level's multiplier.
+        const atLevel = (multiplier: number): Vec2 => ({ x: head.x * multiplier, y: head.y * multiplier });
+        const full = atLevel(motionProfile('full').headMultiplier);
+        for (const layer of resolveLayerTable(entries)) {
+          const fullShift = parallaxShift(layer.factor, full, frame);
+          for (const level of ['gentle', 'reduced'] as const) {
+            const shift = parallaxShift(layer.factor, atLevel(motionProfile(level).headMultiplier), frame);
+            expect(Math.abs(shift.x)).toBeLessThanOrEqual(Math.abs(fullShift.x));
+            expect(Math.abs(shift.y)).toBeLessThanOrEqual(Math.abs(fullShift.y));
+          }
         }
       }),
     );

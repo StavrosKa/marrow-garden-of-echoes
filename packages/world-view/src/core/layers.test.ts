@@ -17,6 +17,7 @@ const [SKY, HILLS, TREES, MAIN, FOG, FRONT] = TABLE as [
 ];
 // Boundaries of the rules, derived from tuning.
 const ONE = 1;
+const HALF = 0.5;
 const ZERO = 0;
 
 /** The table with the layer at `index` replaced by its change. */
@@ -79,7 +80,7 @@ describe('layer table rules', () => {
 
   it('layer table rules: the factor must not increase with depth', () => {
     // The fog layer with a factor below the interaction layer's, which comes before it in the table.
-    const issues = validateLayerTable(change(4, { factor: TUNING.interactionFactor - TUNING.limitY }));
+    const issues = validateLayerTable(change(4, { factor: TUNING.interactionFactor * HALF }));
     const issue = issues.find((candidate) => candidate.path === 'layers[4].factor');
     expect(issue?.message).toContain('is below layers[3].factor');
     expect(issue?.message).toContain('must not increase with depth');
@@ -88,13 +89,13 @@ describe('layer table rules', () => {
   });
 
   it('layer table rules: a factor must be in 0..1', () => {
-    const above = validateLayerTable(change(5, { factor: ONE + TUNING.limitX }));
+    const above = validateLayerTable(change(5, { factor: ONE + HALF }));
     expect(above.find((issue) => issue.path === 'layers[5].factor')?.message).toBe(
-      `layers[5].factor = ${ONE + TUNING.limitX} is out of range [${ZERO}, ${ONE}]`,
+      `layers[5].factor = ${ONE + HALF} is out of range [${ZERO}, ${ONE}]`,
     );
-    const below = validateLayerTable(change(0, { factor: -TUNING.limitX }));
+    const below = validateLayerTable(change(0, { factor: -HALF }));
     expect(below.find((issue) => issue.path === 'layers[0].factor')?.message).toBe(
-      `layers[0].factor = ${-TUNING.limitX} is out of range [${ZERO}, ${ONE}]`,
+      `layers[0].factor = ${-HALF} is out of range [${ZERO}, ${ONE}]`,
     );
   });
 
@@ -105,7 +106,7 @@ describe('layer table rules', () => {
     const beyond = change(2, { anchor: TREES.depth });
     expect(paths(beyond)).toEqual(['layers[2].depth']);
     // Just inside is accepted.
-    expect(validateLayerTable(change(2, { anchor: TREES.depth - TUNING.nearPlane - TUNING.limitY }))).toEqual([]);
+    expect(validateLayerTable(change(2, { anchor: TREES.depth - TUNING.nearPlane - ONE }))).toEqual([]);
   });
 
   it('layer table rules: the interaction layer has no factor', () => {
@@ -141,7 +142,7 @@ describe('layer table rules', () => {
       `interactionFactor = ${largest} must be below the largest factor of the other layers = ${largest}`,
     );
     // Just below the largest is accepted by this rule (the order rule needs the table to agree).
-    const nearlyLargest = { ...TUNING, interactionFactor: largest - TUNING.limitY };
+    const nearlyLargest = { ...TUNING, interactionFactor: largest * HALF };
     expect(validateLayerTable(TABLE, nearlyLargest).find((candidate) => candidate.path === 'layers')).toBeUndefined();
   });
 
@@ -161,7 +162,7 @@ describe('layer table rules', () => {
   it('layer table rules: every failing rule is reported, in table order, not just the first', () => {
     const broken = TABLE.map((entry, i) => {
       if (i === 2) return { ...entry, id: 'layer-9', anchor: TREES.depth };
-      if (i === 5) return { ...entry, factor: -TUNING.limitX };
+      if (i === 5) return { ...entry, factor: -HALF };
       return entry;
     });
     const issues = validateLayerTable(broken);

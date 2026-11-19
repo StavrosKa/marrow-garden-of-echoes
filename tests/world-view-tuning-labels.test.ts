@@ -230,7 +230,7 @@ describe('tuning rejects', () => {
 // core_reads_numbers_from_tuning (Req 1.6): no numeric literal in the core except the
 // named constants below and the starting values inside the TUNING object itself. Found
 // with the TypeScript parser, so a number in a comment or a string does not count.
-const ALLOWED_NAMES = new Set(['ZERO', 'ONE', 'HALF', 'SMOOTHERSTEP_A', 'SMOOTHERSTEP_B', 'SMOOTHERSTEP_C']);
+const ALLOWED_NAMES = new Set(['ZERO', 'ONE', 'HALF', 'SMOOTHERSTEP_A', 'SMOOTHERSTEP_B', 'SMOOTHERSTEP_C', 'MS_PER_SECOND']);
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 const TESTGEN_FILE = /^testgen\.[cm]?[jt]sx?$/;
@@ -294,6 +294,7 @@ describe('core reads numbers from tuning', () => {
       'const first = list[0];',
       'const neg = -2;',
       'const ONES = 1;',
+      'const perSecond = dtMs / 1000;',
     ].join('\n');
     expect(findNumericLiterals('positive.ts', positive)).toEqual([
       '1: 3',
@@ -301,6 +302,7 @@ describe('core reads numbers from tuning', () => {
       '3: 0',
       '4: 2',
       '5: 1',
+      '6: 1000',
     ]);
     const negative = [
       '// 7 in a comment, "8" in a string below',
@@ -308,6 +310,8 @@ describe('core reads numbers from tuning', () => {
       'const ZERO = 0;',
       'const ONE = 1;',
       'const HALF = 0.5;',
+      'const MS_PER_SECOND = 1000;',
+      'const perSecond = dtMs / MS_PER_SECOND;',
       'const SMOOTHERSTEP_A = 6;',
       'type Rank = 0 | 1 | 2;',
       'export const TUNING = Object.freeze({ a: 4, b: [5, 6] });',

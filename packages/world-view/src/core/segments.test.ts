@@ -30,6 +30,7 @@ const DOOR: SegmentSpec = { id: 'segment-door', kind: 'door', from: 0, to: DOOR_
 
 /** The farthest a point of the viewport can be from the vanishing point at the widest aspect. */
 const REACH = Math.hypot(TUNING.maxAspect / 2, Math.max(TUNING.vanishingPointY, 1 - TUNING.vanishingPointY));
+const ONE = 1;
 const HALF = 0.5;
 
 /**
@@ -98,7 +99,7 @@ describe('depth scaling thresholds for the journey and door segments', () => {
   it('depth scaling thresholds for the journey and door segments: thresholds and depths come from tuning', () => {
     const strict = { ...TUNING, journeyHorizonMaxMove: move(DEPTHS[HILLS]!, JOURNEY) };
     expect(checkDepthScaling(LAYERS, JOURNEY, strict).map((issue) => issue.path)).toEqual([`layers[${HILLS}].depth`]);
-    const demanding = { ...TUNING, journeyForegroundMinGrowth: DEPTHS[FOREGROUND]! / (DEPTHS[FOREGROUND]! - JOURNEY_TO) + TUNING.limitY };
+    const demanding = { ...TUNING, journeyForegroundMinGrowth: DEPTHS[FOREGROUND]! / (DEPTHS[FOREGROUND]! - JOURNEY_TO) + ONE };
     expect(checkDepthScaling(LAYERS, JOURNEY, demanding).map((issue) => issue.path)).toEqual([`layers[${FOREGROUND}].depth`]);
     // A layer between the two depths is not checked (far trees at 120, the interaction layer at 24, fog at 18).
     const inBetween = checkDepthScaling(LAYERS, { ...JOURNEY, to: JOURNEY_TO + JOURNEY_TO }, { ...TUNING, journeyForegroundMinGrowth: TUNING.journeyForegroundMinGrowth * TUNING.journeyForegroundMinGrowth });
@@ -116,7 +117,7 @@ describe('segment rules', () => {
   it('segment rules: a journey lasts journeyMinMs..journeyMaxMs, ends included', () => {
     expect(validateSegment({ ...JOURNEY, durationMs: TUNING.journeyMinMs })).toEqual([]);
     expect(validateSegment({ ...JOURNEY, durationMs: TUNING.journeyMaxMs })).toEqual([]);
-    for (const durationMs of [TUNING.journeyMinMs - TUNING.nearPlane, TUNING.journeyMaxMs + TUNING.nearPlane]) {
+    for (const durationMs of [TUNING.journeyMinMs - ONE, TUNING.journeyMaxMs + ONE]) {
       const issues = validateSegment({ ...JOURNEY, durationMs });
       expect(issues).toHaveLength(1);
       expect(issues[0]?.message).toBe(
@@ -126,7 +127,7 @@ describe('segment rules', () => {
   });
 
   it('segment rules: a door lasts exactly doorMs', () => {
-    for (const durationMs of [TUNING.doorMs - TUNING.nearPlane, TUNING.doorMs + TUNING.nearPlane]) {
+    for (const durationMs of [TUNING.doorMs - ONE, TUNING.doorMs + ONE]) {
       const issues = validateSegment({ ...DOOR, durationMs });
       expect(issues.map((issue) => issue.path)).toEqual(['durationMs']);
       expect(issues[0]?.message).toBe(`durationMs = ${durationMs} must equal doorMs = ${TUNING.doorMs} for a door`);
@@ -135,7 +136,7 @@ describe('segment rules', () => {
 
   it('segment rules: from must be below to, and both finite', () => {
     expect(validateSegment({ ...JOURNEY, to: JOURNEY.from }).map((issue) => issue.path)).toEqual(['to']);
-    expect(validateSegment({ ...JOURNEY, to: JOURNEY.from - TUNING.nearPlane }).map((issue) => issue.path)).toEqual(['to']);
+    expect(validateSegment({ ...JOURNEY, to: JOURNEY.from - ONE }).map((issue) => issue.path)).toEqual(['to']);
     expect(validateSegment({ ...JOURNEY, from: NaN }).map((issue) => issue.path)).toEqual(['from']);
     expect(validateSegment({ ...JOURNEY, to: Infinity }).map((issue) => issue.path)).toEqual(['to']);
   });

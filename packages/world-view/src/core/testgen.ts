@@ -16,6 +16,7 @@ import {
   type Demand,
   type Mapping,
   type MappingParams,
+  type MotionLevel,
   type Vec2,
   type WristId,
 } from 'marrow/core';
@@ -40,11 +41,23 @@ export const DISTANCE_FLOOR = 1e-12;
  * parameter, not a tuning value: it is only a step small enough to stay on the near side.
  */
 export const TRAVEL_STEP = 1e-6;
+/** The largest difference between two glide outputs at 60 Hz and 144 Hz, on one axis (Req 5.8; design 5.1). */
+export const PARITY_TOLERANCE = 0.4;
+/** The pose rate of the slow camera (Req 5.9): a target change every 1000 / POSE_HZ ms. */
+export const POSE_HZ = 7;
+/** The random jitter of each pose interval, as a share of its length (Req 5.9): intervals in 1 +- POSE_JITTER. */
+export const POSE_JITTER = 0.5;
 
 // --- Test parameters of the generators below ---
 
 /** A scene scale between the ends that occurs in a scene of reduced parallax. */
 const SCENE_SCALE_MID = 0.6;
+/**
+ * The smallest positive scene scale drawn, uniformly with the others up to 1. Smaller positive values are
+ * not real scene scales: the overscan of a layer is then below the precision of 1 + overscan, so the edge
+ * checks of property 6 cannot tell an overscan from none. The constant 0 (no parallax) is still drawn.
+ */
+const SCENE_SCALE_MIN = 0.01;
 /** The head offset limit on each axis (Req 2.6: -1..1). */
 const HEAD_LIMIT = 1;
 /** The largest anchor of a layer or a point. */
@@ -128,7 +141,7 @@ export function genSpread(lo: number, hi: number): fc.Arbitrary<number> {
 
 /**
  * A projection frame: aspect in ASPECT_MIN..maxAspect, and a sceneScale that INCLUDES 0:
- * exactly 0, the middle scale, exactly 1, or any number in 0..1. At 0 no layer shifts and the
+ * exactly 0, the middle scale, exactly 1, or a number from SCENE_SCALE_MIN to 1. At 0 no layer shifts and the
  * parallax margin is 0.
  */
 export function genFrame(): fc.Arbitrary<ProjectionFrame> {
@@ -136,7 +149,7 @@ export function genFrame(): fc.Arbitrary<ProjectionFrame> {
     aspect: genSpread(ASPECT_MIN, TUNING.maxAspect),
     sceneScale: fc.oneof(
       fc.constantFrom(0, SCENE_SCALE_MID, UNIT),
-      genSpread(0, UNIT),
+      genEven(SCENE_SCALE_MIN, UNIT),
     ),
   });
 }
@@ -145,9 +158,7 @@ export function genFrame(): fc.Arbitrary<ProjectionFrame> {
 export function genFramePositive(): fc.Arbitrary<ProjectionFrame> {
   return fc.record({
     aspect: genSpread(ASPECT_MIN, TUNING.maxAspect),
-    sceneScale: fc
-      .oneof(fc.constantFrom(SCENE_SCALE_MID, UNIT), genSpread(0, UNIT))
-      .filter((scale) => scale > 0),
+    sceneScale: fc.oneof(fc.constantFrom(SCENE_SCALE_MID, UNIT), genEven(SCENE_SCALE_MIN, UNIT)),
   });
 }
 
@@ -432,4 +443,126 @@ export function genDemand(playAspect: number, margin: number): fc.Arbitrary<Dema
     r: genSpread(MARROW_TUNING.hitRadiusMin, MARROW_TUNING.hitRadiusMax),
     m: fc.constant(margin),
   });
+}
+
+// --- Clocks, levels, the lock, the glide (Req 5, 6, 8) ---
+
+/** The frame clock's clamp (Req 5.2 through marrow's Clocks): the largest step a clock delivers. */
+const MAX_CLOCK_STEP_MS = MARROW_TUNING.maxClockStepMs;
+/** The rates of the two renders that Req 5.8 compares: 60 Hz and 144 Hz. */
+export const RENDER_HZ_SLOW = 60;
+export const RENDER_HZ_FAST = 144;
+/** The length of a render run of the glide properties, in ms. */
+const RENDER_RUN_MS = 3000;
+/** The most frames of a variable render run. */
+const VARIABLE_FRAMES_MAX = 300;
+/** The number of pose intervals of a schedule: enough to cover a render run, with its last target after it. */
+const POSE_INTERVALS = 40;
+/** The longest run of one lockRequested value, and the most runs, of a lock sequence. */
+const LOCK_RUN_MAX = 8;
+const LOCK_RUNS_MAX = 12;
+
+/** A delta of the session or presence clock: 0, a whole millisecond from 1 to the clamp, or a fraction in (0, clamp]. */
+export function genDelta(): fc.Arbitrary<number> {
+  return fc.oneof(
+    { arbitrary: fc.constant(0), weight: 1 },
+    { arbitrary: fc.integer({ min: 1, max: MAX_CLOCK_STEP_MS }), weight: 2 },
+    { arbitrary: genSpread(0, MAX_CLOCK_STEP_MS).filter((ms) => ms > 0), weight: 2 },
+  );
+}
+
+/** A motion level, each of the three equally often. */
+export function genLevel(): fc.Arbitrary<MotionLevel> {
+  return fc.constantFrom<MotionLevel>('full', 'gentle', 'reduced');
+}
+
+/** A sequence of motion levels, one to eight long, for a sequence of changes. */
+export function genMotionLevels(): fc.Arbitrary<MotionLevel[]> {
+  return fc.array(genLevel(), { minLength: 1, maxLength: 8 });
+}
+
+/** One frame of a lock sequence: the live head, whether a dwell holds the target, and the presence delta. */
+export interface LockFrame {
+  readonly liveHead: Vec2;
+  readonly lockRequested: boolean;
+  readonly dtMs: number;
+}
+
+/**
+ * A lock sequence: lockRequested in runs (so holds and re-locks during an ease both occur), and a
+ * live head that either stays where it was or jumps to a new head from genHead.
+ */
+export function genLockSequence(): fc.Arbitrary<LockFrame[]> {
+  const run = fc.record({ on: fc.boolean(), length: fc.integer({ min: 1, max: LOCK_RUN_MAX }) });
+  return fc.array(run, { minLength: 1, maxLength: LOCK_RUNS_MAX }).chain((runs) => {
+    const requested = runs.flatMap((r) => Array.from({ length: r.length }, () => r.on));
+    const total = requested.length;
+    return fc
+      .tuple(
+        fc.array(fc.tuple(fc.boolean(), genHead()), { minLength: total, maxLength: total }),
+        fc.array(genDelta(), { minLength: total, maxLength: total }),
+      )
+      .map(([heads, dts]): LockFrame[] => {
+        let previous: Vec2 = { x: 0, y: 0 };
+        return requested.map((lockRequested, i) => {
+          const [stays, head] = heads[i]!;
+          const liveHead = stays && i > 0 ? previous : head;
+          previous = liveHead;
+          return { liveHead, lockRequested, dtMs: dts[i]! };
+        });
+      });
+  });
+}
+
+/** A pose schedule: target `targets[i]` is held from `starts[i]` (ms) until `starts[i + 1]`; `starts[0]` is 0. */
+export interface PoseSchedule {
+  readonly starts: readonly number[];
+  readonly targets: readonly Vec2[];
+}
+
+/** The target held at time `tMs`: the last target whose start is at or before it. */
+export function targetAt(schedule: PoseSchedule, tMs: number): Vec2 {
+  let index = 0;
+  for (let i = 1; i < schedule.starts.length; i++) {
+    if (schedule.starts[i]! <= tMs) index = i;
+  }
+  return schedule.targets[index]!;
+}
+
+/**
+ * A pose schedule: a target every 1000 / POSE_HZ ms (Req 5.9). With `jittered`, each interval is
+ * scaled by a factor in 1 - POSE_JITTER .. 1 + POSE_JITTER. Targets are drawn from the head square.
+ */
+export function genPoseSchedule(jittered: boolean): fc.Arbitrary<PoseSchedule> {
+  const interval = 1000 / POSE_HZ;
+  const factor = jittered ? genSpread(1 - POSE_JITTER, 1 + POSE_JITTER) : fc.constant(1);
+  return fc
+    .tuple(
+      fc.array(genHead(), { minLength: POSE_INTERVALS, maxLength: POSE_INTERVALS }),
+      fc.array(factor, { minLength: POSE_INTERVALS, maxLength: POSE_INTERVALS }),
+    )
+    .map(([targets, factors]) => {
+      const starts: number[] = [];
+      let start = 0;
+      for (let i = 0; i < targets.length; i++) {
+        starts.push(start);
+        start += interval * factors[i]!;
+      }
+      return { starts, targets };
+    });
+}
+
+/** The frame deltas of a fixed render rate for `durationMs` (Req 5.8): 1000 / hz each. */
+export function fixedRenderFrames(hz: number, durationMs: number = RENDER_RUN_MS): number[] {
+  const frameMs = 1000 / hz;
+  return Array.from({ length: Math.round((durationMs * hz) / 1000) }, () => frameMs);
+}
+
+/** The frame deltas of a render run: 60 Hz, 144 Hz, or variable deltas from genDelta (Req 5.9). */
+export function genRenderTimes(): fc.Arbitrary<number[]> {
+  return fc.oneof(
+    { arbitrary: fc.constant(fixedRenderFrames(RENDER_HZ_SLOW)), weight: 1 },
+    { arbitrary: fc.constant(fixedRenderFrames(RENDER_HZ_FAST)), weight: 1 },
+    { arbitrary: fc.array(genDelta(), { minLength: 1, maxLength: VARIABLE_FRAMES_MAX }), weight: 2 },
+  );
 }

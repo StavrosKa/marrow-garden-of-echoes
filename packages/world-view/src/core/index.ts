@@ -5,6 +5,9 @@ export { worldToScreen, screenToWorld, depthScale, isCulled } from './projection
 export { parallaxShift, parallaxMargin } from './parallax';
 export { edgeOverscan, backdropRect, shapeOverscanIssues, type TravelRange } from './overscan';
 export { targetScreen, type ScreenTarget } from './target';
+export { createGlide, stepGlide, type GlideState } from './glide';
+export { createLock, stepLock, type LockInput, type LockMode, type LockState, type LockStep } from './lock';
+export { motionProfile, type MotionProfile } from './motion';
 export {
   resolveLayerTable,
   validateLayerTable,
