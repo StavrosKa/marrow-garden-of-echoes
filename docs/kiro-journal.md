@@ -949,3 +949,9 @@ Entries are appended. Earlier entries are never rewritten.
 - Two things for the user's decision, written in Appendix D: a switch to Reduced late in a travel gives a fade of `crossFadeMs * (1 - p)`, which is 150 ms at p = 0.9 and under the 300 ms minimum for light changes in `accessibility-and-copy.md`; I applied the formula as given and added no floor. Gentle to Full mid-travel speeds the travel up from the same `p`.
 - Housekeeping: the journal has no blank line between older entries; the entry of the previous commit now has one before its heading, as the user asked, and the older entries are untouched. The edit script was in `.scratch` and is removed.
 - No tests were run: only documents changed.
+
+## 2026-11-19 - world-view spec: requirements, review round 3
+- Kiro feature used: spec session, requirements only, edited in place after the user's review of `d3bc6e2` (model: Claude Sonnet 5.5). No design, tasks or code. The edits were made with the file-editing tool, not scripts.
+- Applied: (1) a fade floor, `X = max(crossFadeMs * (1 - b), minFadeMs)` with `minFadeMs = 600` as a rule value from `accessibility-and-copy.md` (8.4, 8.6.2, 8.12, 1.4, Appendix A and B); (2) Gentle to Full mid-travel no longer changes the running travel, and 8.6 now uses a travel level so that several changes in a row are exact (8.6, 8.11-8.13); (3) draw order is depth order with no exception (2.10, 11.2, Appendix B): sky, far hills, far trees, main, fog, foreground. Appendix D has a third-round section.
+- Notes: the floor binds only for a switch to Reduced at `p > 0.6`. The new draw order differs from the list in `art-and-motion.md` (fog after the foreground); that file is unchanged and the difference is written in 11.2 and Appendix D. The travel-level rule is my wording of the user's "only Full to Gentle starts a new part", extended to chains of changes (for example Gentle to Full to Gentle changes nothing).
+- No tests were run: only documents changed.
