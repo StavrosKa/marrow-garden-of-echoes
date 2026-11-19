@@ -14,7 +14,7 @@ fileMatchPattern: ["apps/**/scene/**", "apps/**/stages/**", "apps/**/journeys/**
   - **Level 1, Lantern Garden**: open night forest, cool moonlight, deep space, wide parallax.
   - **Level 2, Whisper Hall**: the inside of an old hall in the same forest, warm candlelight, close walls, small parallax, the forest visible through windows and the back door.
   - **Bloom**: the garden behind the hall, where the two palettes meet.
-- Procedural silhouettes and a small set of reusable sprites. Seven base colours plus derived brightness steps, defined once in the theme module (see "Palette and type").
+- **The user makes every image and sprite. Kiro never draws, paints, generates or procedurally builds scene art, targets, props or backdrops**, and never adds image files of its own. Until a file from the list in "Art files" exists, use a flat placeholder shape in its place. Kiro's work is loading, placing, layering and animating the user's files, and the effects drawn in code: glows, light pools, fog drift, sway, colour reveal, the wisp, the dwell ring and the Bloom plants. Seven base colours plus derived brightness steps, defined once in the theme module (see "Palette and type").
 - Depth layers, 5-6 per scene. Forest: sky, far hills, far trees, main scene with the interaction layer, fog, foreground foliage. Hall: back wall with windows, mid furniture and columns, main scene with the interaction layer, foreground arch or drapes, dust and candle haze.
 - Targets (lanterns, spirits, echo objects) are separate sprites placed into runtime slots. Scene art never fixes a target to one position, and never draws a foreground object across a slot.
 - External assets only with a verified CC0 licence, or SIL OFL 1.1 for the two fonts named below, logged in `docs/licenses.md` with source URL and date. The mockups are visual reference only: they are never shipped, traced or committed, and no character, creature or building from an existing game, film or illustration is reproduced.
@@ -76,6 +76,22 @@ Neutral for text and light cores: `bone` `#F3EBDD`; secondary text `boneMuted` `
 - Echo objects: glass orbs with a slow inner swirl in `echoViolet`.
 - The hall from outside (journey B): a moss-roofed stone hall with warm windows among the trees.
 - Light: soft additive radial glows, cool rim light from the moon, warm pools from lanterns and candles, fog in the `night` steps.
+
+## Art files
+
+The user delivers these as PNG with transparency (sRGB) in `art/incoming/` at the repo root; Kiro moves them into the app and logs each in `docs/licenses.md` as the user's own work. Sizes are at a reference height of 1440 px. Images contain no text and no painted glow.
+
+- Targets, 512x512: `lantern-unlit`, `lantern-lit`, `spirit-blue`, `spirit-gold`, `echo-orb`, `echo-swirl` (the swirl sits inside the orb and is rotated in code).
+- Forest, shared: `forest-sky` (3840x1440, opaque), `forest-hills` (3840x700), `forest-fartrees-a` (3840x900), `fog-1`, `fog-2` (1600x500), `foliage-1..3` (1200x800), `grass-1..2` (800x300).
+- Lantern Glade: `glade1-ground` (3840x900, path from bottom centre to the vanishing point), `glade1-trunk-left`, `glade1-trunk-right` (900x2160).
+- Whisper Glade: `glade2-ground`, `forest-fartrees-b`, `glade2-trunk-left`, `glade2-trunk-right`.
+- Journeys: `stones-1..2`, `mushrooms-1..2` (600x400), `hall-exterior` (1600x1000), `hall-door-frame`, `hall-door-leaf` (1000x1400).
+- Whisper Hall: `hall-wall` (3840x1440, opaque), `hall-columns` (600x1800), `hall-furniture` (1200x900), `hall-arch` (3840x1440, open centre), `hall-drape-left`, `hall-drape-right` (900x2160), `hall-backdoor-frame`, `hall-backdoor-leaf` (1000x1400), `candle-unlit`, `candle-lit` (256x512).
+- Bloom: `bloom-backdrop` (3840x1440, opaque), `bloom-ground` (3840x900, no plants).
+
+**Uncoloured versions.** The user also delivers the uncoloured version of every forest, journey and hall file above, named with a `-grey` suffix (`forest-sky-grey`, `hall-wall-grey`, ...): same canvas size and the same geometry pixel for pixel, painted only with the grey ramp plus a faint `night2` wash. The colour reveal blends between the two files. Targets, candles (they already have unlit and lit files) and the Bloom files have no grey version. Kiro never derives a grey version in code; if a `-grey` file is missing, the placeholder is used.
+
+Anything that moves (foliage, grass, fog, drapes, door leaves) is its own file. The middle band where slots sit stays clear of foreground pieces. Pieces that touch a screen edge extend past it. Sizes may be rescaled in the app; they are not redrawn.
 
 ## Colour reveal
 
