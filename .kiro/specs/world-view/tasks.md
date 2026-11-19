@@ -29,7 +29,7 @@ Rules for every task:
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.6, 1.7, 2.9, 15.6, 16.3, 16.4, 16.5_
 
-- [ ] 2. Projection and geometry
+- [x] 2. Projection and geometry
   - Create `src/core/projection.ts` (design §2.1-2.2): `worldToScreen`, `screenToWorld`, `depthScale`, `isCulled`, and `layerTransform` (not on the entry), with one internal function that fixes the evaluation order so the three cannot drift apart. `targetScreen` calls `worldToScreen` once and `depthScale` once.
   - Create `src/core/parallax.ts`: `parallaxShift`, `maxParallaxShift` (not on the entry), `parallaxMargin(sceneScale, aspect)` as the Euclidean length (design §2.3). Create `src/core/overscan.ts`: `edgeOverscan`, `backdropRect`, `shapeOverscanIssues`, `TravelRange`. Create `src/core/target.ts`: `targetScreen(point, r, view, frame)` and `ScreenTarget`.
   - Create `src/core/layers.ts`: `LayerTableEntry`, `LayerDef`, `resolveLayerTable`, `validateLayerTable` (layer count, ids `layer-0..`, depth order, factor non-increasing as depth increases, factor in 0..1, one interaction layer without a factor, interaction factor below the largest factor of the others, `depth - anchor > nearPlane`, backdrop layers have a fill; no rule names a layer). Create `src/core/segments.ts`: `SegmentSpec`, `validateSegment`, `checkDepthScaling` (Req 2.8, with `maxAspect`, thresholds by kind from tuning).
