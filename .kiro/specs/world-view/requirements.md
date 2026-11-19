@@ -37,6 +37,9 @@ This session writes requirements only. There is no design and no code. Appendix 
 - **Scene Manager**: the object in `src/pixi` that owns the Pixi application and the render loop.
 - **World Playground**: the screen at `?playground=world`.
 - **Reachable region**: the set of screen points that Marrow's `isSlotUsable` accepts for a hit radius and a margin.
+- **Backdrop layer**: a layer drawn as a rectangle that must cover the whole viewport (Requirement 4). Other layers are made of shapes that need not.
+- **Style**: how a travel is shown, `travel` (the view moves) or `fade` (a cross-fade, Requirement 8.4).
+- **Head driver**: a dev-only control under `?playground=world` that replaces the Head View output (Requirement 12.10).
 
 ## Requirements
 
@@ -49,7 +52,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 1. THE World-view Tuning SHALL be one typed object exported from `packages/world-view/src/core/tuning.ts` that holds every number in Appendix A and Appendix B marked as a package value.
 2. THE Tuning SHALL carry a comment on each key: `tune` for values marked *(tune)* in steering and for new values, and `rule: change only with the user's approval` for every other value.
 3. THE Tuning SHALL provide a validation function that returns every out-of-range key with its value and allowed range in a readable message.
-4. THE validation SHALL reject: a parallax factor outside 0..1; an interaction factor that is not strictly between the factor of the far-trees layer and the foreground layer; a foreground factor that is not the largest of the layer factors; `nearPlane <= 0`; a glide time constant `<= 0`; a glide cap `<= 0`; a multiplier below 0; a cross-fade duration `<= 0`.
+4. THE validation SHALL reject: a parallax factor outside 0..1; a layer table in which the factor is not non-increasing as depth increases; a layer with `depth - anchor <= nearPlane`; an interaction factor that is not below the largest factor of the layer table; `nearPlane <= 0`; a glide time constant `<= 0`; a glide cap `<= 0`; a multiplier below 0; a cross-fade duration `<= 0`; `arrivalToleranceMs < 0`. These rules SHALL not name any layer.
 5. WHEN the World Playground loads, it SHALL validate the world-view tuning object, the layer table and the stop content, and IF validation fails, THEN it SHALL show the message instead of running.
 6. THE logic in `packages/world-view/src/core` SHALL read every number of Appendix A and B from the tuning object, with no other numeric literal for these values.
 7. A test SHALL check that the shipped tuning passes validation and that every key carries a `tune` or `rule` label.
@@ -67,7 +70,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 5. WHEN `depth - view.travel <= nearPlane`, THE `worldToScreen` function SHALL return no position (culled).
 6. FOR ALL valid views and all non-culled points, `screenToWorld(worldToScreen(p, view), view, layer)` SHALL equal `p` within a relative tolerance of 1e-9. A valid view has a finite `travel` inside the range of its segments and a head offset in -1..1 on both axes.
 7. FOR ALL views, THE depth scale SHALL not decrease as `travel` increases, SHALL be exactly 1 when `travel` equals the anchor, and SHALL be greater than 1 when `travel` is greater than the anchor.
-8. FOR ALL layers with depth at least `horizonDepth`, THE screen position of any point on the layer SHALL change by less than `horizonMaxMove` (in screen units) across the whole travel range of the scene, while a layer with depth at most `foregroundDepth` SHALL grow by at least `foregroundMinGrowth` over the same range. A single flat image zoom SHALL not be used: two layers with different depths SHALL get different scales for the same `travel`.
+8. FOR ALL segments, THE depth scaling SHALL meet the thresholds that Appendix B states for that segment (growth depends on the distance travelled, so the forest segment and the door segment have their own): for every layer with depth at least `horizonDepth`, the screen position of any point inside the viewport (aspect up to 2.4, head offset 0) SHALL change by less than the segment's `horizonMaxMove` between the start and the end of the segment, and for every layer with depth at most `foregroundDepth`, the depth scale at the end of the segment divided by the depth scale at its start SHALL be at least the segment's `foregroundMinGrowth`. A single flat image zoom SHALL not be used: two layers with different depths SHALL get different scales for the same `travel`.
 9. THE View Model SHALL not read the clock, the DOM or Pixi, and SHALL import only `marrow/core` types and pure functions.
 10. THE draw order of layers SHALL be the order of the layer table, not the order of depth, so that the fog layer (a translucent overlay) is drawn last.
 
@@ -78,8 +81,8 @@ This session writes requirements only. There is no design and no code. Appendix 
 #### Acceptance Criteria
 
 1. THE Parallax SHALL compute the shift of a point as `shift.x = -head.x * factor * limitX * A * sceneScale` and `shift.y = -head.y * factor * limitY * sceneScale`, with `limitX = 0.03` and `limitY = 0.02` of the viewport at factor 1 (the nearest layer).
-2. WHEN the head offset x is greater than 0 (the head moved to the right of the screen), THE shift x of every layer with factor greater than 0 SHALL be less than 0, and a nearer layer SHALL shift more than a farther one.
-3. THE Parallax SHALL use the factors of Appendix B (sky 0.00, far hills 0.03, far trees 0.10, interaction layer 0.20, foreground 1.00, fog 0.60) and no roll and no head-driven zoom: the head offset SHALL not change the depth scale.
+2. WHEN the head offset x is greater than 0 (the head moved to the right of the screen), THE shift x of every layer with factor greater than 0 SHALL be less than 0, and a layer with a smaller depth SHALL shift at least as much as one with a larger depth (strictly more when the factors differ).
+3. THE Parallax SHALL use the factors of Appendix B (sky 0.00, far hills 0.03, far trees 0.10, interaction layer 0.20, fog 0.60, foreground 1.00; in order of depth: sky, far hills, far trees, interaction layer, fog, foreground) and no roll and no head-driven zoom: the head offset SHALL not change the depth scale.
 4. THE Parallax SHALL multiply every limit by the scene parallax scale of the scene, which is 1 for the forest and 0.6 for the hall (the hall value is an app value, passed in; the package holds no name from the story).
 5. FOR ALL head offsets in -1..1 on both axes, scene scales in 0..1 and layers, THE absolute shift of a layer SHALL not exceed `factor * limit * sceneScale` on each axis.
 6. FOR ALL head offsets, THE shift of the interaction layer SHALL not exceed 0.2 of the shift of the nearest layer for the same head offset and scene scale.
@@ -91,12 +94,14 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 #### Acceptance Criteria
 
-1. THE View Model SHALL export a pure function that returns, for a layer, a travel range and a scene scale, the smallest drawn rectangle (in layer units) that covers the whole viewport for every travel distance in the range and every head offset in -1..1.
-2. THE returned rectangle SHALL extend past the viewport by at least the maximum parallax shift of the layer on each axis, after the depth scale is taken into account.
-3. THE Scene Manager SHALL draw each layer with a rectangle at least as large as the one this function returns for the scene's travel range.
-4. FOR ALL layers, travel distances in the range, and head offsets in -1..1 on both axes, WHILE the layer is not culled, THE screen image of the drawn rectangle SHALL contain the viewport `[0, A] x [0, 1]` (no layer edge is exposed at maximum head offset or at any travel distance).
-5. THE overscan SHALL hold for every `MotionLevel`, because the Gentle and Reduced shifts are never larger than the Full one.
-6. A culled layer SHALL be removed from the render, and SHALL not leave an exposed edge: the layers behind it SHALL still satisfy 4.4.
+1. THE layer table SHALL mark each layer as a backdrop layer or not. A backdrop layer is drawn as a rectangle that must cover the viewport (in the slice: sky and far hills). Any other layer is made of shapes (trunks, foliage, fog patches, targets) that need not cover it.
+2. THE View Model SHALL export a pure function that returns, for a backdrop layer, a travel range and a scene scale, the smallest drawn rectangle (in layer units) that covers the whole viewport for every travel distance in the range and every head offset in -1..1, extended past the viewport by at least the maximum parallax shift of the layer on each axis, after the depth scale is taken into account.
+3. THE View Model SHALL export a pure function `edgeOverscan(layer, sceneScale)` that returns, for any other layer, the maximum parallax shift of the layer on each axis in screen units (`factor * limit * sceneScale`, with `A` for x). A shape of that layer that touches a viewport edge at the rest view (head offset 0, travel equal to the anchor of the layer) SHALL extend past that edge by at least this amount. The content validation (Requirements 1.5 and 11.9) SHALL reject a shape that does not.
+4. THE Scene Manager SHALL draw each backdrop layer with a rectangle at least as large as the one 4.2 returns for the travel range of the scene.
+5. FOR ALL backdrop layers, travel distances in the range, and head offsets in -1..1 on both axes, WHILE the layer is not culled, THE screen image of the drawn rectangle SHALL contain the viewport `[0, A] x [0, 1]`.
+6. FOR ALL other layers, shapes that touch a viewport edge at rest and extend past it by at least `edgeOverscan`, travel distances in the range (the depth scale is at least 1 there, so it moves an edge only outwards) and head offsets in -1..1 on both axes, THE shape SHALL still reach that viewport edge, so no edge of the shape is exposed, and the validation of 4.3 SHALL accept every such shape.
+7. THE overscan SHALL hold for every `MotionLevel`, because the Gentle and Reduced shifts are never larger than the Full one.
+8. A culled layer SHALL be removed from the render, and SHALL not leave an exposed edge: the backdrop layers behind it SHALL still satisfy 4.5.
 
 ### Requirement 5: Head glide
 
@@ -140,16 +145,16 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 1. THE Travel SHALL be a pure step `stepTravel(state, { dtMs, paused, motion }) -> { state, events, travel, progress, cover, travelling }`, with `dtMs` the session clock delta.
 2. THE Travel SHALL move the view along one finite pre-defined segment `{ from, to, durationMs }`. A journey segment SHALL support `durationMs` from 5000 to 7000, and a door threshold segment SHALL support about 3000, with the same engine and the same rules.
-3. THE Travel SHALL keep a progress fraction `p` in 0..1. WHILE not paused, it SHALL add `dtMs / D` to `p`, where `D` is the duration of the current motion profile (Requirement 8).
-4. THE reported travel distance SHALL be `from + (to - from) * ease(p)`, where `ease` is a smootherstep (zero speed at both ends, so there is ease-in and ease-out), with exactly `from` at `p = 0` and exactly `to` at `p = 1`.
-5. WHEN `p` reaches 1, THE Travel SHALL emit one `arrived` event and enter the state `arrived`. THE Travel SHALL emit no other `arrived` event, and SHALL not emit it again in any later step, for any later input.
+3. THE Travel SHALL keep a progress fraction `p` in 0..1 per constant part. A part is a run of steps with the same style (Requirement 8.4) and the same duration `D` (Requirement 8.2). A part has a base `b` (the value of `p` when it starts, 0 for the first part), a remaining duration `R = D * (1 - b)` in ms, and `elapsed` in ms, the sum of the unpaused deltas of this part. WHILE not paused, each step SHALL add `dtMs` to `elapsed`, and `p = b + (1 - b) * min(1, elapsed / R)`.
+4. IN the travel style, THE reported travel distance SHALL be `from + (to - from) * ease(p)`, where `ease` is a smootherstep (zero speed at both ends, so there is ease-in and ease-out), exactly `from` at the start and exactly `to` at arrival (assigned, not computed). The fade style is defined in Requirement 8.4.
+5. WHEN `elapsed >= R - arrivalToleranceMs` (`arrivalToleranceMs = 1e-6`, a guard so that a float sum such as 0.9999999 of the duration still arrives), THE Travel SHALL set `p = 1`, report the distance exactly `to`, emit one `arrived` event and enter the state `arrived`. THE Travel SHALL emit no other `arrived` event, and SHALL not emit it again in any later step, for any later input.
 6. WHILE `paused` is true, THE Travel SHALL not change `p` and SHALL emit no event. THE caller SHALL pass `paused` for pause, hidden tab and tracking hold. Because the delta is the session clock delta, the tracking hold also stops it.
 7. A start request while the state is `travelling` or `arrived` SHALL have no effect (steering section 7: a repeated or late event never starts a second journey). A new journey SHALL need a new state.
 8. A delta that is negative, not finite or zero SHALL move nothing.
 9. WHILE the state is `travelling`, THE Travel SHALL report `travelling = true`; the caller SHALL use it for Requirement 13.2. Targets are active only after the Travel has reported `arrived` (or before it started).
-10. FOR ALL segments, delta sequences and pause sequences, THE number of `arrived` events SHALL be at most 1; it SHALL be exactly 1 if and only if the sum of unpaused deltas reaches the duration; and no `arrived` event SHALL occur in a step with `paused = true`.
-11. FOR ALL segments and delta sequences, THE reported travel distance SHALL not decrease and SHALL stay in `[from, to]`, and the distance moved in the first step and in the last step of a run with a small delta SHALL be less than the distance moved in a step of the same delta at `p = 0.5` (ease-in and ease-out).
-12. FOR ALL durations at the long end (5000 and 7000 ms) and at the door length (3000 ms), THE sum of unpaused deltas equal to the duration SHALL end exactly at `arrived` with the distance exactly `to`.
+10. FOR ALL segments, delta sequences (up to 10000 steps) and pause sequences at one constant motion level, THE number of `arrived` events SHALL be at most 1, and no `arrived` event SHALL occur in a step with `paused = true`. WHEN the sum of the unpaused deltas is at least `R + arrivalToleranceMs`, exactly one `arrived` event SHALL have occurred; WHEN it is below `R - arrivalToleranceMs`, none SHALL have occurred. The test SHALL not assert for sums between these two bounds, because a float sum depends on the order of additions (10000 additions of values up to 7000 differ by far less than the tolerance, so the bounds are safe).
+11. FOR ALL segments and delta sequences at one constant motion level of Full or Gentle (travel style), THE reported travel distance SHALL not decrease and SHALL stay in `[from, to]`, and, for deltas up to `R / 20`, the distance moved in the first step and in the last step before arrival SHALL be less than the distance moved in a step of the same delta around `p = 0.5` (ease-in and ease-out). At the constant level Reduced (fade style), the distance SHALL be `from` until the fade reaches its midpoint and `to` after, and no other value.
+12. FOR ALL durations at the long end (5000 and 7000 ms) and at the door length (3000 ms), with deltas that are whole milliseconds (exact in floating point), THE step in which the sum of the unpaused deltas first equals the duration SHALL report `arrived` and the distance exactly `to`, and no earlier step SHALL report it.
 
 ### Requirement 8: Motion settings
 
@@ -172,13 +177,20 @@ This session writes requirements only. There is no design and no code. Appendix 
 | pointer trail | on | on | off |
 
 3. THE 5-7 s journey range and the 3 s door length SHALL apply to Full only. In Gentle, the duration SHALL be the segment duration times 1.3.
-4. IN Reduced, THE Travel SHALL replace the move by a cross-fade of `crossFadeMs`. THE Travel step SHALL report `cover` in 0..1 (an eased triangle that is 1 at `p = 0.5`) for the app to draw as a fade through the stage colour, and SHALL report the travel distance as `from` while `p < 0.5` and as `to` from `p >= 0.5`. It SHALL still report `progress = p` in 0..1 so the app can brighten the path or doorway to show progress.
-5. THE motion level SHALL be read each frame from the Marrow settings store, and a change SHALL take effect from the next frame (steering section 8, within one frame).
-6. WHEN the level changes during a travel, THE Travel SHALL keep `p`. THE remaining time SHALL be `D' * (1 - p)`, where `D'` is the duration of the new profile, which is `crossFadeMs` for Reduced. A switch from Reduced back to Full or Gentle mid-fade SHALL resume the travel from `p`. The reported distance SHALL follow Requirement 7.4 or 8.4 for the new level from that frame on.
+4. THE fade style SHALL replace the move by a cross-fade. A fade has a start progress `b` (0 for a travel that starts in Reduced; the current `p` for a switch in 8.6), a start distance `d0` (`from` for a travel that starts in Reduced; the current distance for a switch) and lasts `X = crossFadeMs * (1 - b)`. With `q = elapsed / X` in 0..1, THE Travel step SHALL report `cover = smootherstep(1 - abs(2q - 1))` (0 at `q = 0`, 1 at `q = 0.5`, 0 at `q = 1`), `progress = b + (1 - b) * q`, and the distance `d0` while `q < 0.5` and exactly `to` from the first step in which `q >= 0.5`. IN that first step, THE Travel SHALL report `cover = 1`, so the switch of the distance happens under a full cover. The caller draws the cover as a fade through the stage colour and brightens the path or doorway with `progress`.
+5. THE motion level SHALL be read each frame from the Marrow settings store. A change SHALL take effect from the next frame, with two readings of steering section 8 ("takes effect within one frame"): the head offset follows through the Glide (Requirement 8.7), and the style of a running travel follows Requirement 8.6.
+6. WHEN the motion level changes while a travel is running, a change to less motion (Full to Gentle to Reduced) SHALL apply at once, and a change to more motion SHALL apply its travel style from the next travel. In detail:
+   1. Full to Gentle, and Gentle to Full: the travel keeps its style and `p`, and starts a new part with `b = p` and the duration `D'` of the new level, so the remaining time is `D' * (1 - p)`. The distance and the cover do not jump.
+   2. Full or Gentle to Reduced: the travel switches to the fade style with `b = p` and `d0` = the current distance, so the cross-fade lasts `crossFadeMs * (1 - p)`. The distance stays `d0` until the cover is 1 (8.4) and then becomes `to`. The cover starts from 0.
+   3. Reduced to Full or Gentle during a fade: the fade finishes as a fade. The head multiplier, the ambient multipliers and every other value of the new profile apply at once; the next travel uses the style of the new level.
+   4. A change while no travel is running only decides what the next travel uses.
 7. IN Reduced, THE head multiplier SHALL be 0 so the Glide target is (0, 0) and the offset eases to 0 through the Glide; the interaction layer does not jump (Requirement 6.8).
 8. THE default level SHALL be the one Marrow's `parseSettings` returns, which is Reduced when the browser reports `prefers-reduced-motion: reduce` and no choice has been stored. THE slice SHALL create the store with that preference, with no second rule for it.
 9. FOR ALL levels, THE profile SHALL equal the table above; a test SHALL compare the whole object for each level.
-10. FOR ALL levels, parallax shifts SHALL not exceed those of Full (Requirement 4.5).
+10. FOR ALL levels, parallax shifts SHALL not exceed those of Full (Requirement 4.7).
+11. FOR ALL sequences of motion levels, deltas and pauses during one travel (up to 10000 steps), THE reported distance SHALL never decrease and SHALL stay in `[from, to]`, `progress` SHALL never decrease, THE number of `arrived` events SHALL be at most 1, and WHEN the unpaused time after the last level change is at least the remaining time `R` of the current part plus `arrivalToleranceMs`, exactly one `arrived` event SHALL have occurred.
+12. FOR ALL such sequences, THE cover SHALL be 0 while the style is travel, and in every step the change of the cover SHALL be at most `3.75 * dt / X`, where 3.75 is the steepest slope of the cover curve and `X` is the fade duration (no jump, including the step of a switch to Reduced and the step in which the distance switches to `to`).
+13. FOR ALL such sequences, THE style SHALL change at most once during a travel, and only from travel to fade.
 
 ### Requirement 9: Parallax margin and placement
 
@@ -205,7 +217,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 4. THE Scene Manager SHALL expose `hitCircles()`, returning the screen-space circle of each target that the caller marked active. The circle SHALL be computed by one function `targetScreen(point, r, view)` that also gives the position at which the target is rendered. FOR ALL views, THE rendered position of a target (the position given to its display object) and the centre of its hit circle SHALL be equal, bit for bit, because both come from one call of `worldToScreen` for the same frame.
 5. THE hit circle radius SHALL be `r * s`, where `s` is the depth scale of the target. At the stop `s = 1`.
 6. THE Scene Manager SHALL return no hit circle for a target that is not active, for a culled target, or while the Travel is `travelling`.
-7. THE Scene Manager SHALL clamp the frame delta to 100 ms with Marrow's Clocks, and SHALL not use `Date.now()` or `performance.now()` for any logic.
+7. THE Scene Manager SHALL give `getFrame` the raw frame delta in ms from the `requestAnimationFrame` timestamps and SHALL not clamp it: the only place where the frame delta is clamped to 100 ms is Marrow's `stepClocks`, called by the slice (Requirement 12.8). THE Scene Manager SHALL not use `Date.now()` or `performance.now()` for any logic.
 8. THE Scene Manager SHALL set `touch-action: none` on the play area element and SHALL size the canvas to the play area, with the device pixel ratio capped by `performance-budget.md`.
 9. THE Scene Manager SHALL destroy the application, remove its listeners and cancel its frame request on `dispose()`, and a test SHALL check that no frame request remains.
 10. THE `src/pixi` code SHALL import PixiJS and may import `world-view` core; the `src/core` code SHALL import neither (lint rule in `structure.md`).
@@ -217,7 +229,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 #### Acceptance Criteria
 
 1. THE World Playground SHALL be reachable only with `?playground=world`, and the normal app and `?playground=1` SHALL not load it.
-2. THE slice SHALL draw 6 placeholder layers in this order, with only the grey ramp and `lanternWarm` from the theme module: sky, far hills, far trees, main scene with the interaction layer, foreground foliage, fog. Every colour SHALL come from the theme module.
+2. THE slice SHALL draw 6 placeholder layers in this order, with only the grey ramp and `lanternWarm` from the theme module: sky, far hills, far trees, main scene with the interaction layer, foreground foliage, fog. Sky and far hills SHALL be backdrop layers (Requirement 4.1). The order is the draw order; the depths differ from it (Appendix B). Every colour SHALL come from the theme module.
 3. THE slice SHALL draw the layer shapes as flat shapes (rectangles, circles, rounded shapes). It SHALL not load any image, font file or external asset.
 4. THE foreground and fog layers SHALL not cover a required target: FOR ALL candidate slots in the stop content and for all head offsets in -1..1 on both axes at the rest view, no shape of the foreground or fog layer SHALL intersect the hit circle of a target placed in that slot, given the shifts of both layers.
 5. THE play area element SHALL have `touch-action: none` (computed style).
@@ -235,12 +247,13 @@ This session writes requirements only. There is no design and no code. Appendix 
 1. THE slice SHALL place the two targets of stop 1 with Marrow's `placeTargets` (`n = 2`) and the one target of stop 2 with `n = 1`, with `m = parallaxMargin(...)`, and SHALL use only the slots the result gives.
 2. IF the placement result is not `simultaneous` for stop 1, or is `none` for stop 2, THEN THE slice SHALL show a plain notice from `copy/` and SHALL not start. It SHALL not enlarge the comfort grid to make the placement succeed, except for the whole-screen grid of Requirement 14.2.
 3. THE slice SHALL pass the hit circles of the active targets to Marrow's Dwell Engine as `HitArea` values each frame, with the same `view` value used for rendering in that frame.
-4. THE slice SHALL support the mouse, touch and pen through Marrow's Pointer Source in simulated-input mode, with the head offset taken from the pointer by Marrow's Head View (marrow Req 6.7). IN mouse mode, THE comfort grid SHALL come from Marrow's `chooseWholeScreen`.
+4. THE slice SHALL support the mouse, touch and pen through Marrow's Pointer Source in simulated-input mode, with the head offset taken from the pointer by Marrow's Head View (marrow Req 6.7), except while the head driver is on (12.10). IN mouse mode, THE comfort grid SHALL come from Marrow's `chooseWholeScreen`.
 5. THE slice SHALL support the camera through Marrow's Camera Source (Requirement 14).
-6. WHILE a dwell is in progress on a target, THE slice SHALL set `lockRequested` to true (Requirement 6) and the target SHALL stay under the pointer while the head moves: dwell on a target SHALL complete while the head offset changes by more than `0.1` in the live input.
+6. WHILE a dwell is in progress on a target, THE slice SHALL set `lockRequested` to true (Requirement 6) and the target SHALL stay under the pointer while the head moves. In simulated-input mode the head follows the pointer at 30%, so the head cannot move by more than 0.1 while the pointer stays on a target; the check therefore uses the head driver: with the pointer held inside a hit circle and the head driver changing the head offset by more than 0.1 during the hold, the dwell SHALL complete, the interaction-layer offset SHALL not change and the offset of a decorative layer SHALL change.
 7. WHEN a dwell completes, THE slice SHALL turn that target's placeholder `lanternWarm`. There SHALL be no stage rule, no audio and no colour reveal.
-8. THE slice SHALL read the presence and session clocks from Marrow's `stepClocks`, with the flags pause, hidden tab and tracking hold.
+8. THE slice SHALL read the presence and session clocks from Marrow's `stepClocks`, with the flags pause, hidden tab and tracking hold. `stepClocks` is the only place that clamps the frame delta to 100 ms (steering section 6).
 9. THE slice SHALL provide a DOM Pause button. WHILE paused, no dwell progress, travel, glide or lock ease SHALL advance.
+10. THE slice SHALL provide a dev-only head driver, present only under `?playground=world` and off by default: two sliders (x and y, -1..1) in the debug panel and a programmatic setter for the Playwright test. WHILE it is on, its value SHALL replace Marrow's Head View output as the input of the head multiplier and the Glide (Requirement 5.1), in mouse mode and in camera mode; the pointer and the Dwell Engine SHALL not be affected. The debug panel SHALL show that the driver is on.
 
 ### Requirement 13: Proof slice: travel and activation
 
@@ -252,7 +265,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 2. WHILE the Travel is `travelling` (or the reward delay is running), THE slice SHALL pass no hit area to the Dwell Engine, so dwell cannot select, no dwell can start and no completion can occur (steering section 7).
 3. THE targets of stop 2 SHALL become active only after the Travel has reported `arrived` (a stop is "fully stopped" when travel equals `to` and the state is `arrived`).
 4. THE slice SHALL travel along one forest segment of 6000 ms in Full (7800 ms in Gentle, 1500 ms cross-fade in Reduced). A dev control SHALL let the developer choose a 3000 ms door-length segment instead. Both use the same Travel.
-5. IN Reduced, THE slice SHALL draw the cover (Requirement 8.4) and brighten the path placeholder from the grey ramp to `lanternWarm` with `progress`, so the cross-fade shows progress.
+5. WHILE the travel style is fade (Reduced, or a switch to Reduced during the travel), THE slice SHALL draw the cover (Requirement 8.4) and brighten the path placeholder from the grey ramp to `lanternWarm` with `progress`, so the cross-fade shows progress.
 6. WHEN the target at stop 2 is selected, THE slice SHALL show a Restart button (DOM). THE Restart SHALL create new clean states (view, glide, lock, travel, dwell, placement) and return to stop 1.
 7. THE slice SHALL run no ambient motion, particles or audio.
 
@@ -267,7 +280,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 3. IN camera mode, THE slice SHALL record the neutral head only from a frame in which the nose and both shoulders are valid, because the shoulder width is needed. WHILE no such frame has arrived, THE slice SHALL show a plain waiting line from `copy/` and the head offset SHALL stay at (0, 0).
 4. THE slice SHALL offer a "Set centre" button that records the neutral head again from the next frame that qualifies.
 5. THE slice SHALL stop the camera tracks on exit and on unmount (`tech.md` rule 10), and SHALL not store or send any frame.
-6. IN camera mode, THE slice SHALL run Marrow's Tracking Lifecycle for the tracking hold and SHALL pass its flag to the clocks, so travel and the glide stop while tracking is lost. It SHALL show a plain dev line for the hold, not the tracking-lost overlay (task 16.5 is out of scope).
+6. IN camera mode, THE slice SHALL run Marrow's Tracking Lifecycle for the tracking hold and SHALL pass its flag to `stepClocks`. A tracking hold SHALL stop the session clock, so the travel stops, and dwell does not count because no active wrist is valid. It SHALL not stop the presence clock: the Head View eases to centre, and the Glide and the lock ease keep running on the presence clock (Appendix D, decision 6). It SHALL show a plain dev line for the hold, not the tracking-lost overlay (task 16.5 is out of scope).
 7. IF the camera is denied or missing, THEN THE slice SHALL show a plain notice and SHALL continue in mouse mode.
 8. THE slice SHALL continue to work with a pose-frame rate of 7 per second.
 
@@ -283,13 +296,14 @@ This session writes requirements only. There is no design and no code. Appendix 
    3. `hit area inside reachable region for all head offsets`: Requirement 9.4-9.5 (invariant 2).
    4. `lock holds interaction layer, decorative layers move`: Requirement 6.9.
    5. `travel arrives exactly once and never while paused`: Requirement 7.10.
-   6. `no layer edge exposed`: Requirement 4.4.
+   6. `no layer edge exposed`: Requirements 4.5 and 4.6.
    7. `glide per-frame limits at 7 pose frames per second`: Requirements 5.7-5.10.
-2. THE tests of 15.1.1 to 15.1.7 SHALL run in `npm test` without WebGL, the DOM or a camera: the Scene Manager's hit circle and position come from the pure `targetScreen` function and are checked with a fake display object.
+   8. `travel across motion level changes`: Requirements 7.11 and 8.11-8.13.
+2. THE tests of 15.1.1 to 15.1.8 SHALL run in `npm test` without WebGL, the DOM or a camera: the Scene Manager's hit circle and position come from the pure `targetScreen` function and are checked with a fake display object.
 3. WHEN a property test fails, THE failing seed SHALL be kept as a regression test and noted in `docs/bugs-found.md` (seed, what broke, fix commit), for real bugs only.
-4. THE spec SHALL have one Playwright test in simulated-input mode on `?playground=world` that checks: the play area has `touch-action: none`; a target's rendered sprite position equals its hit circle (read through a read-only debug snapshot that exists only under `?playground=world`); dwell completes on a target while the simulated head moves, with the interaction layer offset unchanged and a decorative layer offset changed during the dwell; both targets selected lead to travel, no dwell can select during travel, and the stop 2 target becomes active only after arrival.
+4. THE spec SHALL have one Playwright test in simulated-input mode on `?playground=world` that checks: the play area has `touch-action: none`; a target's rendered sprite position equals its hit circle (read through a read-only debug snapshot that exists only under `?playground=world`); with the pointer held on a target and the head driver (12.10) changing the head offset by more than 0.1, dwell completes, the interaction layer offset is unchanged and a decorative layer offset changes during the dwell; both targets selected lead to travel, no dwell can select during travel, and the stop 2 target becomes active only after arrival.
 5. THE camera path SHALL be checked by the user with a real camera. The task list SHALL include that check as a manual step, and the journal SHALL not state that the camera path was verified unless the user reports it.
-6. EVERY test of Requirements 5, 6 and 7 SHALL read its numbers from the tuning object.
+6. EVERY test of Requirements 5, 6, 7 and 8 SHALL read its numbers from the tuning object.
 7. A requirement coverage check SHALL map every acceptance criterion of this document to at least one test, a manual step, or a stated reason why it has none (as in marrow-input).
 
 ### Requirement 16: Dependencies, packaging and security
@@ -327,7 +341,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 | Travel 5-7 s with ease-in and ease-out *(tune)*; door thresholds about 3 s *(tune)* | section 7 | 7.2, 13.4 |
 | Travel starts 1-2 s after the completion reward *(tune)* | section 7 | 13.1 |
 | Dwell cannot select and targets become active only after travel has fully stopped | section 7 | 13.2-13.3 |
-| Frame delta clamp 100 ms; session clock stops during tracking hold | section 6 | 5.2, 7.6, 10.7 |
+| Frame delta clamp 100 ms (only in `stepClocks`); session clock stops during tracking hold | section 6 | 5.2, 7.6, 12.8 |
 | Head lost: view eases to centre over about 0.5 s (done by Head View) | section 6 | 5.4 |
 | View lock: held at the value at the start, eased back after | section 8 | 6 |
 | 5-6 depth layers per scene; order of the forest layers | art-and-motion | 11.2 |
@@ -342,12 +356,15 @@ All are `tune` values in `world-view/src/core/tuning.ts` unless marked.
 |---|---|---|
 | `limitX`, `limitY` | 0.03, 0.02 | rule (steering) |
 | `interactionFactor` | 0.2 | steering *(tune)* |
-| layer factors | sky 0.00, far hills 0.03, far trees 0.10, interaction 0.20, foreground 1.00, fog 0.60 | agreed with the user |
+| layer factors | sky 0.00, far hills 0.03, far trees 0.10, interaction 0.20, fog 0.60, foreground 1.00 | agreed with the user; non-increasing as depth increases (1.4) |
 | `nearPlane` | 0.5 | depth units |
 | `vanishingPointY` | 0.45 | a little above centre |
-| layer depths (forest slice) | sky 4000, far hills 600, far trees 120, main 24, foreground 14, fog 40 | starting values; the stop 2 targets sit at depth 36 with anchor 12 |
+| layer depths (forest slice) | sky 4000, far hills 600, far trees 120, main (interaction) 24, fog 18, foreground 14 | starting values; the layer table order (draw order) is sky, far hills, far trees, main, foreground, fog; the stop 2 targets sit at depth 36 with anchor 12 |
 | slice segment | `from` 0, `to` 12, 6000 ms; door `from` 0, `to` 4, 3000 ms | app values |
-| `horizonDepth`, `horizonMaxMove`, `foregroundDepth`, `foregroundMinGrowth` | 500, 0.03, 15, 3 | for 2.8 |
+| `horizonDepth`, `foregroundDepth` | 500, 15 | for 2.8 (fog at 18 is not a near layer for this check) |
+| `horizonMaxMove`, `foregroundMinGrowth` per segment | forest segment (`to` 12): 0.03, 3; door segment (`to` 4): 0.01, 1.3 | for 2.8. Hand check, aspect up to 2.4 (farthest viewport point from the vanishing point about 1.32): far hills move at most about 0.027 (forest) and 0.009 (door); foreground at depth 14 grows by 7 (forest) and 1.4 (door) |
+| `arrivalToleranceMs` | 1e-6 | float guard for arrival (7.5) |
+| cover slope bound | 3.75 | derived: steepest slope of smootherstep (1.875) times 2 for the triangle; test parameter for 8.12 |
 | `glideTauMs` | 150 | user |
 | `glideCapPerS` | 4.0 | user, hard cap |
 | `glideEpsilon` | 0.001 | for 5.9 |
@@ -382,7 +399,7 @@ Decisions I made, for review:
 1. **Margin is a Euclidean length.** My earlier proposal was `max(0.2 * 0.03 * A, 0.2 * 0.02)`. At the corner of the head square (1, 1) the interaction layer moves by the hypotenuse, which is larger, so a `max` would let a hit area leave the expanded circle. The function is therefore `sceneScale * hypot(...)`, and it takes `(sceneScale, aspect)`, not a motion level, because it returns the Full value (the largest) and every other level is smaller (9.1-9.2).
 2. **Depth scale is relative to an anchor**: `(depth - anchor) / (depth - travel)`. A plain `focal / (depth - travel)` would shrink far layers to a point at the start. With an anchor, every layer is 1 at its own authoring distance, far layers tend to 1 (the horizon stays still), near layers grow without bound and are culled at the near plane. The stop 2 targets use an anchor at their stop.
 3. **Motion changes the Glide target, not the shift.** Switching to Reduced therefore eases the head to 0 over a few frames, with no jump, and a motion change during a lock cannot move the interaction layer. A direct multiplier on the shift would jump, and it would break the lock. The cost: Reduced reaches 0 parallax in about half a second, not in the first frame. Steering's "takes effect within one frame" is read as "starts within one frame".
-4. **Reduced cross-fade is a fade through a cover**, not two views drawn at once. The travel distance switches from `from` to `to` at p = 0.5, where the cover is 1. This keeps one view per frame. When the level changes mid-travel the distance can change by a step in that one frame (for example Reduced at p = 0.3 to Full), while the cover or the scale changes to match the new level.
+4. **Reduced cross-fade is a fade through a cover**, not two views drawn at once: the distance is held at its start value and becomes `to` under a full cover at the fade's midpoint. This keeps one view per frame. Changes of the level during a travel follow the user's review rule (Requirement 8.6).
 5. **Ambient speed in Reduced is 1.** Steering gives an amplitude of x0.25 for sway and fog drift and says nothing about speed. The profile table only holds the numbers; the slice has no ambient motion.
 6. **Glide and the lock ease run on the presence clock**, like Head View. Travel runs on the session clock (steering section 6), so a tracking hold stops the travel and lets the head ease to centre.
 7. **Camera mode uses `markAllValid` for the comfort grid.** `chooseWholeScreen` works only in simulated-input mode. The slice marks the whole camera frame comfortable, shows it in the debug panel, and leaves Marrow's placement rules as they are.
@@ -391,4 +408,14 @@ Decisions I made, for review:
 10. **Placement outside `simultaneous`** shows a notice and does not start; sequential presentation is not built in the slice.
 11. **Where depth lives**: a target at stop 2 is on the interaction layer but has its own depth. Whether the design uses one container or one per stop is left to design.md, as long as 10.4 holds.
 
-Open for you: the numbers in Appendix B marked "starting values" (layer depths, segment lengths, `horizon*` thresholds) are mine; they are not from steering.
+From the user's review of this document (second round), all applied in this revision:
+1. Layers: fog moved to depth 18, between the interaction layer (24) and the foreground (14), and the validation uses generic rules instead of names: factor non-increasing as depth increases, `depth - anchor > nearPlane` for every layer, interaction factor below the largest factor (1.4, 3.2-3.3, Appendix B).
+2. Motion change during travel replaces the earlier rule (keep `p` and use `D'(1 - p)` for every change), which snapped the distance and the cover: a change to less motion applies at once, a change to more motion applies its style from the next travel; Full and Gentle keep `p`; Full or Gentle to Reduced starts a fade of `crossFadeMs * (1 - p)` from the current distance, held until the cover is 1; Reduced to Full or Gentle lets the fade finish (8.4, 8.6, 8.11-8.13). For review: this reads steering's "takes effect within one frame" as follows. The head offset (through the Glide), the ambient values and every non-travel value change at once. A change to less motion changes the running travel at once. A change to more motion changes the travel style from the next travel. Two consequences I noticed: (a) a switch to Reduced late in a travel gives a short fade (`crossFadeMs * (1 - p)`, 150 ms at p = 0.9), under the 300 ms minimum for light changes in `accessibility-and-copy.md`; I applied your formula and added no floor, which is your decision; (b) Gentle to Full mid-travel speeds the travel up from the same `p`, with the distance still continuous.
+3. 2.8: thresholds stated per segment (forest and door), with the hand check in Appendix B.
+4. 14.6 now follows decision 6: the glide and the lock ease keep running on the presence clock during a tracking hold; only the session clock, travel and dwell (no valid wrist) stop.
+5. A dev-only head driver replaces the Head View output for 12.6 and the Playwright test (12.10, 15.4), because the simulated head follows the pointer at 30%.
+6. Exact arrival: `elapsed` per constant part with `arrivalToleranceMs = 1e-6`; the property asserts only outside the tolerance band, plus an exact case with whole-millisecond deltas (7.3, 7.5, 7.10-7.12). 7.11 is per constant level; the cross-level property is 8.11-8.13.
+7. Overscan: full-viewport coverage for backdrop layers only; any other shape that touches a viewport edge at rest extends past it by at least the layer's maximum shift (4).
+8. The 100 ms clamp is in `stepClocks` only (12.8); the Scene Manager passes the raw delta (10.7).
+
+Open for you: the numbers in Appendix B marked "starting values" (layer depths, segment lengths, `horizonDepth`, `foregroundDepth`, per-segment thresholds, `arrivalToleranceMs`) are mine; they are not from steering.
