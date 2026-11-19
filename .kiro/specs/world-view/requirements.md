@@ -18,7 +18,8 @@ This session writes requirements only. There is no design and no code. Appendix 
 - **Head offset**: a two-axis value in -1..1, in screen orientation, where 1 is the full parallax limit. It is the output of Marrow's Head View (task 10), changed by the glide and the motion level.
 - **View**: the value `{ travel, head }`: the travel distance and the head offset.
 - **Layer**: a group of drawn things with one parallax factor and one nominal depth. Layer ids are content-free names (`layer-0` ..) in the package; the app names them.
-- **World point**: `{ x, y, depth, factor }`: a position in layer units, the depth of the point and the parallax factor of its layer.
+- **World point**: `{ x, y, depth, anchor, factor }`: a position in layer units, the depth of the point, its anchor and the parallax factor of its layer.
+- **Projection frame** (`frame`): the value `{ aspect, sceneScale }`: the play-area aspect A and the scene parallax scale. The caller builds one per rendered frame and passes the same object to every call of `worldToScreen`, `screenToWorld` and `targetScreen` in that frame.
 - **Anchor**: the travel distance at which a point's depth scaling is exactly 1. A point is authored at its anchor.
 - **Interaction layer**: the layer that carries the targets. Its factor is `interactionFactor`. Targets of different stops sit on it at the depth of their stop.
 - **Decorative layers**: every layer except the interaction layer.
@@ -63,12 +64,12 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 #### Acceptance Criteria
 
-1. THE View Model SHALL export a function `worldToScreen(point, view)` and a function `screenToWorld(screenPoint, view, layer)` from `world-view`, where `layer` supplies the depth, the anchor and the factor of the point (the inverse needs them).
+1. THE View Model SHALL export a function `worldToScreen(point, view, frame)` and a function `screenToWorld(screenPoint, view, layer, frame)` from `world-view`, where `layer` supplies the depth, the anchor and the factor of the point (the inverse needs them) and `frame` is the projection frame (the aspect A for the vanishing point and the horizontal shift, the scene parallax scale for the shift).
 2. THE View Model SHALL be the only code in the repository that converts between world and screen space. Rendering, hit testing, placement of targets from slots and the margin calculation SHALL call these functions.
-3. THE `worldToScreen` function SHALL return, for a point that is not culled, the screen position `v + (p - v) * s + shift`, where `v` is the vanishing point, `p` is `(x, y)` in screen units, `s` is the depth scale and `shift` is the parallax shift of Requirement 3.
+3. THE `worldToScreen` function SHALL return, for a point that is not culled, the screen position `v + (p - v) * s + shift`, where `v` is the vanishing point `(frame.aspect / 2, vanishingPointY)`, `p` is `(x, y)` in screen units, `s` is the depth scale and `shift` is the parallax shift of Requirement 3 for `view.head` and `frame`.
 4. THE depth scale SHALL be `s = (depth - anchor) / (depth - view.travel)`.
 5. WHEN `depth - view.travel <= nearPlane`, THE `worldToScreen` function SHALL return no position (culled).
-6. FOR ALL valid views and all non-culled points, `screenToWorld(worldToScreen(p, view), view, layer)` SHALL equal `p` within a relative tolerance of 1e-9. A valid view has a finite `travel` inside the range of its segments and a head offset in -1..1 on both axes.
+6. FOR ALL valid views, all projection frames (aspect from 1.0 to 2.4, scene scale in 0..1) and all non-culled points, `screenToWorld(worldToScreen(p, view, frame), view, layer, frame)` SHALL equal `p` within a relative tolerance of 1e-9. A valid view has a finite `travel` inside the range of its segments and a head offset in -1..1 on both axes.
 7. FOR ALL views, THE depth scale SHALL not decrease as `travel` increases, SHALL be exactly 1 when `travel` equals the anchor, and SHALL be greater than 1 when `travel` is greater than the anchor.
 8. FOR ALL segments, THE depth scaling SHALL meet the thresholds that Appendix B states for that segment (growth depends on the distance travelled, so the forest segment and the door segment have their own): for every layer with depth at least `horizonDepth`, the screen position of any point inside the viewport (aspect up to 2.4, head offset 0) SHALL change by less than the segment's `horizonMaxMove` between the start and the end of the segment, and for every layer with depth at most `foregroundDepth`, the depth scale at the end of the segment divided by the depth scale at its start SHALL be at least the segment's `foregroundMinGrowth`. A single flat image zoom SHALL not be used: two layers with different depths SHALL get different scales for the same `travel`.
 9. THE View Model SHALL not read the clock, the DOM or Pixi, and SHALL import only `marrow/core` types and pure functions.
@@ -80,7 +81,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 #### Acceptance Criteria
 
-1. THE Parallax SHALL compute the shift of a point as `shift.x = -head.x * factor * limitX * A * sceneScale` and `shift.y = -head.y * factor * limitY * sceneScale`, with `limitX = 0.03` and `limitY = 0.02` of the viewport at factor 1 (the nearest layer).
+1. THE Parallax SHALL compute the shift of a point as `shift.x = -head.x * factor * limitX * A * sceneScale` and `shift.y = -head.y * factor * limitY * sceneScale` (`A` is `frame.aspect` and `sceneScale` is `frame.sceneScale`), with `limitX = 0.03` and `limitY = 0.02` of the viewport at factor 1 (the nearest layer).
 2. WHEN the head offset x is greater than 0 (the head moved to the right of the screen), THE shift x of every layer with factor greater than 0 SHALL be less than 0, and a layer with a smaller depth SHALL shift at least as much as one with a larger depth (strictly more when the factors differ).
 3. THE Parallax SHALL use the factors of Appendix B (sky 0.00, far hills 0.03, far trees 0.10, interaction layer 0.20, fog 0.60, foreground 1.00; in order of depth: sky, far hills, far trees, interaction layer, fog, foreground) and no roll and no head-driven zoom: the head offset SHALL not change the depth scale.
 4. THE Parallax SHALL multiply every limit by the scene parallax scale of the scene, which is 1 for the forest and 0.6 for the hall (the hall value is an app value, passed in; the package holds no name from the story).
@@ -95,8 +96,8 @@ This session writes requirements only. There is no design and no code. Appendix 
 #### Acceptance Criteria
 
 1. THE layer table SHALL mark each layer as a backdrop layer or not. A backdrop layer is drawn as a rectangle that must cover the viewport (in the slice: sky and far hills). Any other layer is made of shapes (trunks, foliage, fog patches, targets) that need not cover it.
-2. THE View Model SHALL export a pure function that returns, for a backdrop layer, a travel range and a scene scale, the smallest drawn rectangle (in layer units) that covers the whole viewport for every travel distance in the range and every head offset in -1..1, extended past the viewport by at least the maximum parallax shift of the layer on each axis, after the depth scale is taken into account.
-3. THE View Model SHALL export a pure function `edgeOverscan(layer, sceneScale)` that returns, for any other layer, the maximum parallax shift of the layer on each axis in screen units (`factor * limit * sceneScale`, with `A` for x). A shape of that layer that touches a viewport edge at the rest view (head offset 0, travel equal to the anchor of the layer) SHALL extend past that edge by at least this amount. The content validation (Requirements 1.5 and 11.9) SHALL reject a shape that does not.
+2. THE View Model SHALL export a pure function that returns, for a backdrop layer, a travel range and a projection frame, the smallest drawn rectangle (in layer units) that covers the whole viewport for every travel distance in the range and every head offset in -1..1, extended past the viewport by at least the maximum parallax shift of the layer on each axis, after the depth scale is taken into account.
+3. THE View Model SHALL export a pure function `edgeOverscan(layer, frame)` that returns, for any other layer, the maximum parallax shift of the layer on each axis in screen units (`factor * limit * frame.sceneScale`, with `frame.aspect` for x). A shape of that layer that touches a viewport edge at the rest view (head offset 0, travel equal to the anchor of the layer) SHALL extend past that edge by at least this amount. The content validation (Requirements 1.5 and 11.9) SHALL reject a shape that does not.
 4. THE Scene Manager SHALL draw each backdrop layer with a rectangle at least as large as the one 4.2 returns for the travel range of the scene.
 5. FOR ALL backdrop layers, travel distances in the range, and head offsets in -1..1 on both axes, WHILE the layer is not culled, THE screen image of the drawn rectangle SHALL contain the viewport `[0, A] x [0, 1]`.
 6. FOR ALL other layers, shapes that touch a viewport edge at rest and extend past it by at least `edgeOverscan`, travel distances in the range (the depth scale is at least 1 there, so it moves an edge only outwards) and head offsets in -1..1 on both axes, THE shape SHALL still reach that viewport edge, so no edge of the shape is exposed, and the validation of 4.3 SHALL accept every such shape.
@@ -145,7 +146,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 1. THE Travel SHALL be a pure step `stepTravel(state, { dtMs, paused, motion }) -> { state, events, travel, progress, cover, travelling }`, with `dtMs` the session clock delta.
 2. THE Travel SHALL move the view along one finite pre-defined segment `{ from, to, durationMs }`. A journey segment SHALL support `durationMs` from 5000 to 7000, and a door threshold segment SHALL support about 3000, with the same engine and the same rules.
-3. THE Travel SHALL keep a progress fraction `p` in 0..1 per constant part. A part is a run of steps with the same style (Requirement 8.4) and the same duration `D` (Requirement 8.2). A part has a base `b` (the value of `p` when it starts, 0 for the first part), a remaining duration `R = D * (1 - b)` in ms, and `elapsed` in ms, the sum of the unpaused deltas of this part. WHILE not paused, each step SHALL add `dtMs` to `elapsed`, and `p = b + (1 - b) * min(1, elapsed / R)`.
+3. THE Travel SHALL keep a progress fraction `p` in 0..1 per constant part. A part is a run of steps with the same style (Requirement 8.4) and the same duration `D` (Requirement 8.2). A part has a base `b` (the value of `p` when it starts, 0 for the first part), a remaining duration `R` in ms (`R = D * (1 - b)` in the travel style; in the fade style `R = X`, the fade duration of Requirement 8.4, which equals `D * (1 - b)` unless the `minFadeMs` floor binds), and `elapsed` in ms, the sum of the unpaused deltas of this part. WHILE not paused, each step SHALL add `dtMs` to `elapsed`, and `p = b + (1 - b) * min(1, elapsed / R)`.
 4. IN the travel style, THE reported travel distance SHALL be `from + (to - from) * ease(p)`, where `ease` is a smootherstep (zero speed at both ends, so there is ease-in and ease-out), exactly `from` at the start and exactly `to` at arrival (assigned, not computed). The fade style is defined in Requirement 8.4.
 5. WHEN `elapsed >= R - arrivalToleranceMs` (`arrivalToleranceMs = 1e-6`, a guard so that a float sum such as 0.9999999 of the duration still arrives), THE Travel SHALL set `p = 1`, report the distance exactly `to`, emit one `arrived` event and enter the state `arrived`. THE Travel SHALL emit no other `arrived` event, and SHALL not emit it again in any later step, for any later input.
 6. WHILE `paused` is true, THE Travel SHALL not change `p` and SHALL emit no event. THE caller SHALL pass `paused` for pause, hidden tab and tracking hold. Because the delta is the session clock delta, the tracking hold also stops it.
@@ -200,7 +201,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 1. THE World-view SHALL export `parallaxMargin(sceneScale, aspect)`, which returns the largest displacement, in screen units, that the interaction layer can have for any head offset in -1..1 on both axes at Full: `sceneScale * hypot(interactionFactor * limitX * aspect, interactionFactor * limitY)`.
 2. THE margin SHALL use the Euclidean length, because the head offset is clamped per axis and the corner of the square (1, 1) is farther than either axis.
-3. THE App SHALL call Marrow's `placeTargets` with `m = parallaxMargin(...)` and with slots in screen space, and SHALL place each target in the world with `screenToWorld(slot, restView, layer)`, where `restView = { travel: stop, head: (0, 0) }`.
+3. THE App SHALL call Marrow's `placeTargets` with `m = parallaxMargin(...)` and with slots in screen space, and SHALL place each target in the world with `screenToWorld(slot, restView, layer, frame)`, where `restView = { travel: stop, head: (0, 0) }` and `frame` is the projection frame of the scene.
 4. FOR ALL head offsets in -1..1 on both axes, scene scales in 0..1, motion levels and lock states, THE centre of the hit circle SHALL be at most `m` from its slot, and THE whole hit area SHALL lie inside the circle of radius `r + m` around the slot.
 5. FOR ALL comfort grids, mappings and placement results from `placeTargets`, and for every allowed head offset, THE hit area of each placed target SHALL lie inside the reachable region: Marrow's `isSlotUsable` accepts the slot for `r` and `m` (it checks every point within `r + m`), and by 9.4 the hit area is inside that disk (invariant 2).
 6. THE hit radius `r` SHALL be the Marrow value (0.07-0.13), unchanged by world-view. THE depth scale of the interaction layer at the stop SHALL be 1, so the hit radius equals `r` at every stop.
@@ -212,13 +213,13 @@ This session writes requirements only. There is no design and no code. Appendix 
 #### Acceptance Criteria
 
 1. THE Scene Manager in `packages/world-view/src/pixi` SHALL own the Pixi application, the canvas and the render loop on `requestAnimationFrame`. There SHALL be no `@pixi/react`.
-2. THE Scene Manager SHALL create one container per layer, in the layer order, and SHALL each frame apply the View to every layer container (position, scale and visibility) using only `worldToScreen`, converted to pixels by one scale from screen space to the canvas size.
+2. THE Scene Manager SHALL create one container per layer, in the layer order, and SHALL each frame apply the View to every layer container (position, scale and visibility) using only `worldToScreen` with the projection frame of that rendered frame, converted to pixels by one scale from screen space to the canvas size.
 3. THE Scene Manager SHALL read the view each frame from a callback `getFrame(dtMs)` that returns the view, the interaction head, the decorative head and the cover value. It SHALL not compute a head offset, a travel or a lock itself.
-4. THE Scene Manager SHALL expose `hitCircles()`, returning the screen-space circle of each target that the caller marked active. The circle SHALL be computed by one function `targetScreen(point, r, view)` that also gives the position at which the target is rendered. FOR ALL views, THE rendered position of a target (the position given to its display object) and the centre of its hit circle SHALL be equal, bit for bit, because both come from one call of `worldToScreen` for the same frame.
+4. THE Scene Manager SHALL expose `hitCircles()`, returning the screen-space circle of each target that the caller marked active. The circle SHALL be computed by one function `targetScreen(point, r, view, frame)` that also gives the position at which the target is rendered. FOR ALL views and projection frames, THE rendered position of a target (the position given to its display object) and the centre of its hit circle SHALL be equal, bit for bit, because both come from one call of `worldToScreen` with the same view and the same frame object in the same rendered frame.
 5. THE hit circle radius SHALL be `r * s`, where `s` is the depth scale of the target. At the stop `s = 1`.
 6. THE Scene Manager SHALL return no hit circle for a target that is not active, for a culled target, or while the Travel is `travelling`.
 7. THE Scene Manager SHALL give `getFrame` the raw frame delta in ms from the `requestAnimationFrame` timestamps and SHALL not clamp it: the only place where the frame delta is clamped to 100 ms is Marrow's `stepClocks`, called by the slice (Requirement 12.8). THE Scene Manager SHALL not use `Date.now()` or `performance.now()` for any logic.
-8. THE Scene Manager SHALL set `touch-action: none` on the play area element and SHALL size the canvas to the play area, with the device pixel ratio capped by `performance-budget.md`.
+8. THE Scene Manager SHALL set `touch-action: none` on the play area element and SHALL size the canvas to the play area, with the device pixel ratio used for rendering capped at the tuning key `maxPixelRatio` (starting value 2, `tune`), as the line "Canvas resolution" of `performance-budget.md` states. Hit testing works in screen space and does not depend on it.
 9. THE Scene Manager SHALL destroy the application, remove its listeners and cancel its frame request on `dispose()`, and a test SHALL check that no frame request remains.
 10. THE `src/pixi` code SHALL import PixiJS and may import `world-view` core; the `src/core` code SHALL import neither (lint rule in `structure.md`).
 
@@ -229,7 +230,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 #### Acceptance Criteria
 
 1. THE World Playground SHALL be reachable only with `?playground=world`, and the normal app and `?playground=1` SHALL not load it.
-2. THE slice SHALL draw 6 placeholder layers in this order, with only the grey ramp and `lanternWarm` from the theme module: sky, far hills, far trees, main scene with the interaction layer, fog, foreground foliage. This is the depth order and the draw order (Requirement 2.10, Appendix B); `art-and-motion.md` lists fog after the foreground, and this document puts fog before it, as the user decided. Sky and far hills SHALL be backdrop layers (Requirement 4.1). Every colour SHALL come from the theme module.
+2. THE slice SHALL draw 6 placeholder layers in this order, with only the grey ramp and `lanternWarm` from the theme module: sky, far hills, far trees, main scene with the interaction layer, fog, foreground foliage. This is the depth order and the draw order (Requirement 2.10, Appendix B). Sky and far hills SHALL be backdrop layers (Requirement 4.1). Every colour SHALL come from the theme module.
 3. THE slice SHALL draw the layer shapes as flat shapes (rectangles, circles, rounded shapes). It SHALL not load any image, font file or external asset.
 4. THE foreground and fog layers SHALL not cover a required target: FOR ALL candidate slots in the stop content and for all head offsets in -1..1 on both axes at the rest view, no shape of the foreground or fog layer SHALL intersect the hit circle of a target placed in that slot, given the shifts of both layers.
 5. THE play area element SHALL have `touch-action: none` (computed style).
@@ -246,7 +247,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 1. THE slice SHALL place the two targets of stop 1 with Marrow's `placeTargets` (`n = 2`) and the one target of stop 2 with `n = 1`, with `m = parallaxMargin(...)`, and SHALL use only the slots the result gives.
 2. IF the placement result is not `simultaneous` for stop 1, or is `none` for stop 2, THEN THE slice SHALL show a plain notice from `copy/` and SHALL not start. It SHALL not enlarge the comfort grid to make the placement succeed, except for the whole-screen grid of Requirement 14.2.
-3. THE slice SHALL pass the hit circles of the active targets to Marrow's Dwell Engine as `HitArea` values each frame, with the same `view` value used for rendering in that frame.
+3. THE slice SHALL pass the hit circles of the active targets to Marrow's Dwell Engine as `HitArea` values each frame, with the same `view` value and the same projection frame object used for rendering in that frame.
 4. THE slice SHALL support the mouse, touch and pen through Marrow's Pointer Source in simulated-input mode, with the head offset taken from the pointer by Marrow's Head View (marrow Req 6.7), except while the head driver is on (12.10). IN mouse mode, THE comfort grid SHALL come from Marrow's `chooseWholeScreen`.
 5. THE slice SHALL support the camera through Marrow's Camera Source (Requirement 14).
 6. WHILE a dwell is in progress on a target, THE slice SHALL set `lockRequested` to true (Requirement 6) and the target SHALL stay under the pointer while the head moves. In simulated-input mode the head follows the pointer at 30%, so the head cannot move by more than 0.1 while the pointer stays on a target; the check therefore uses the head driver: with the pointer held inside a hit circle and the head driver changing the head offset by more than 0.1 during the hold, the dwell SHALL complete, the interaction-layer offset SHALL not change and the offset of a decorative layer SHALL change.
@@ -292,7 +293,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 
 1. THE spec SHALL have these property-based tests with fast-check, each with a name that starts with its invariant:
    1. `projection round trip`: Requirement 2.6.
-   2. `hit circle equals rendered target position`: Requirement 10.4, over views, motion levels and lock states (invariant 3).
+   2. `hit circle equals rendered target position`: Requirement 10.4, over views, projection frames, motion levels and lock states (invariant 3).
    3. `hit area inside reachable region for all head offsets`: Requirement 9.4-9.5 (invariant 2).
    4. `lock holds interaction layer, decorative layers move`: Requirement 6.9.
    5. `travel arrives exactly once and never while paused`: Requirement 7.10.
@@ -348,6 +349,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 | 5-6 depth layers per scene; order of the forest layers | art-and-motion | 11.2 |
 | Hit radius 0.07-0.13 (Marrow) | section 4 | 9.6 |
 | `touch-action: none` on the play area | product and tech rules | 10.8, 11.5 |
+| Canvas device pixel ratio capped at 2 *(tune)*; hit testing never depends on it | performance-budget | 10.8 |
 
 ## Appendix B: Numbers that are new relative to steering
 
@@ -374,6 +376,7 @@ All are `tune` values in `world-view/src/core/tuning.ts` unless marked.
 | `crossFadeMs` | 1500 | steering *(tune)* |
 | `rewardDelayMs` | 1500 | app value, steering 1-2 s |
 | motion profile | Requirement 8.2 | steering |
+| `maxPixelRatio` | 2 | steering *(tune)*, `performance-budget.md` "Canvas resolution"; used by the Scene Manager (10.8) |
 | 144 Hz / 60 Hz agreement tolerance | 0.08 | test parameter |
 
 ## Appendix C: Steering invariants covered here
@@ -423,6 +426,11 @@ From the user's review of this document (second round), all applied in this revi
 From the user's review of this document (third round), all applied in this revision:
 1. Fade floor: `X = max(crossFadeMs * (1 - p), minFadeMs)` with `minFadeMs = 600`, a rule value derived from `accessibility-and-copy.md` (light changes of at least 300 ms; the cover rises and falls, so two changes). The floor binds only for a switch at `p > 0.6`. It applies to 8.4, 8.6.2, the 8.12 bound (`X >= minFadeMs`, and a fade lasts at least `minFadeMs`), the validation (1.4) and Appendix B. The progress cue still reaches 1 at the end of the fade, more slowly.
 2. Gentle to Full mid-travel: a change to more motion applies from the next travel, so the running travel keeps its Gentle duration. Only Full to Gentle starts a new part with `D'`. To make this exact when levels change several times, 8.6 uses a travel level: the level at the start of the travel, lowered by any change to less motion. A change applies to the running travel only if it goes below the travel level; for example Gentle to Full to Gentle changes nothing. 8.11-8.13 now assert that the travel level never rises, `D` changes at most once and only from the Full duration to the Gentle one, and a change to more motion alters nothing of the running travel.
-3. Draw order is depth order, with no exception (2.10, 11.2): sky, far hills, far trees, main, fog, foreground. This differs from the list in `art-and-motion.md` ("foreground foliage, fog"), as you decided; that file is not changed in this spec. The fog is now behind the foreground, so 11.4 still checks both front layers.
+3. Draw order is depth order, with no exception (2.10, 11.2): sky, far hills, far trees, main, fog, foreground. The fog is now behind the foreground, so 11.4 still checks both front layers.
+
+From the user's answers at the start of the design session, all applied:
+1. Pixel ratio: `performance-budget.md` now has the "Canvas resolution" line (cap 2, `tune`). 10.8 names the tuning key `maxPixelRatio`; Appendix A and B list it.
+2. Projection inputs: the world point carries its anchor and the functions take a projection frame `{ aspect, sceneScale }` (glossary, 2.1, 2.3, 2.6, 3.1, 4.2, 4.3, 9.3, 10.2, 10.4, 12.3, 15.1.2). 4.2 and 4.3 take the frame too, because `edgeOverscan` and the backdrop rectangle need the aspect for the x shift (the same gap as 2.1).
+3. 7.3: in the fade style `R = X` (8.4), so 7.3 and 8.4 agree.
 
 Open for you: the numbers in Appendix B marked "starting values" (layer depths, segment lengths, `horizonDepth`, `foregroundDepth`, per-segment thresholds, `arrivalToleranceMs`) are mine; they are not from steering.
