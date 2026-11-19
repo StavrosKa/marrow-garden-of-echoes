@@ -17,7 +17,7 @@ Rules for every task:
 
 ## Tasks
 
-- [ ] 1. Package and tuning
+- [x] 1. Package and tuning
   - The package scaffold already exists: `packages/world-view/package.json` (`exports` for `.` and `./pixi`, no dependencies, script `typecheck`), `tsconfig.json`, empty `src/core/index.ts` and `src/pixi/index.ts`, and a placeholder `src/smoke.test.ts`. Keep `package.json` without `pixi.js`. Check that `tsconfig.json` extends `tsconfig.base.json` with `include: ["src"]`. Delete `smoke.test.ts` when the first real test of the package exists.
   - Create `src/core/types.ts` (`LayerRef`, `WorldPoint`, `View`, `ProjectionFrame`, `Rect`; `Vec2` and `MotionLevel` come from `marrow/core`, world-view defines neither), `src/core/issues.ts` (`ValidationIssue {path, value, message}`, `formatIssues(title, issues)`) and `src/core/ease.ts` (`smootherstep(u)`, `u` clamped to 0..1, with the named coefficients `SMOOTHERSTEP_A`, `SMOOTHERSTEP_B`, `SMOOTHERSTEP_C`; not exported from the entry).
   - Create `src/core/tuning.ts` in the format of `packages/marrow/src/core/tuning.ts`: the `Tuning` interface with `// <start> <label> (<source>)` comments and the frozen `TUNING`, with every key of design §5.1 (including the keys added there: `maxAspect`, `layersMin`, `layersMax`, `journeyMinMs`, `journeyMaxMs`, `doorMs`, and the four `journey*` and `door*` threshold keys). Each key carries `tune` or `rule: change only with the user's approval` as the table of §5.1 says (`rule`: `limitX`, `limitY`, `layersMin`, `layersMax`, `minFadeMs`).

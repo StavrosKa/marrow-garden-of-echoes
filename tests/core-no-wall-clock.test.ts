@@ -9,7 +9,10 @@ import ts from 'typescript';
 import { expect, it } from 'vitest';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const coreDir = path.join(repoRoot, 'packages', 'marrow', 'src', 'core');
+const coreDirs = [
+  path.join(repoRoot, 'packages', 'marrow', 'src', 'core'),
+  path.join(repoRoot, 'packages', 'world-view', 'src', 'core'),
+];
 
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
@@ -67,7 +70,7 @@ function findWallClockUses(fileName: string, text: string): string[] {
 }
 
 it('core_no_wall_clock', () => {
-  const files = listFiles(coreDir);
+  const files = coreDirs.flatMap(listFiles);
   // The scan reaches the core, so a wrong path cannot pass by finding nothing.
   expect(files.map(rel)).toContain('packages/marrow/src/core/clocks.ts');
   const uses = files.flatMap((file) =>
