@@ -1179,3 +1179,11 @@ Entries are appended. Earlier entries are never rewritten.
 pm run typecheck exit 0 (marrow, world-view and garden-of-echoes each 	sc --noEmit with no output). 
 pm run lint exit 0 (eslint ., no output). 
 pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration  44.05s, wall clock 49 s.
+
+## 2026-11-20 - world-view: clamp smootherstep output to 0..1
+- Kiro feature used: none; a bug found by the task 7 e2e test, fixed before task 7 (model: Claude Haiku 5.5, Medium). Committed as "Clamp smootherstep output to 0..1" and pushed. Task 7 is in the working tree but not in this commit.
+- Changed: `packages/world-view/src/core/ease.ts` (the result of the polynomial is clamped to [0, 1]; the Horner form and the input clamp are unchanged); `packages/world-view/src/core/ease.test.ts` (new: a fixed-input block at 0.999999986952898 and a property over [0, 1] with inputs near 0 and 1, and the endpoint checks); `packages/world-view/src/core/travelLevels.test.ts` (the per-step bound 0 <= cover <= 1); `docs/bugs-found.md` (one entry).
+- Left as it was: the clamp in `travel.ts` stage 4.
+- Failing-before check. On the unclamped file the fixed-input block fails with `expected 1.000000000000002 to be less than or equal to 1`. Checked from a `.scratch` copy with `node --experimental-strip-types`: `smootherstep(0.999999986952898) = 1.000000000000002`. The SHA-256 of `ease.ts` was 069EA8D8723CCE6320FAFA244430DE1D1B0AA87B7382106CAB1D05AE57446B78 before and after, and the repo file was not changed. The property fails on the unclamped file at seed 692136 with counterexample 0.999999.
+- The level-run property did not catch the bug. With the per-step cover bound, `travel across motion level changes` and its regression block for seed 774323422 both passed on the unclamped file. The bug needs an input within about 1e-7 of 1, which the level-run generators rarely reach, so the fixed-input block and the smootherstep property are the tests that catch it.
+- Evidence (real output, run on the working tree; the uncommitted task 7 files were in the tree but not in this commit): `npm run typecheck` exit 0; `npm run lint` exit 0; `npm test` exit 0, `Tests  1090 passed (1090)`, `Duration  51.80s`, wall clock 116.5 s for all three commands.

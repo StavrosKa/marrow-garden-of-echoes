@@ -86,6 +86,9 @@ function levelRunHolds(segment: { from: number; to: number; durationMs: number }
 
     // Req 8.12: the cover is 0 in the travel style, and its change per step is bounded by the slope.
     if (after.part?.style === 'travel') expect(step.cover).toBe(ZERO);
+    // Req 8.4: the cover is in 0..1 at every step, including the steps around the switch.
+    expect(step.cover).toBeGreaterThanOrEqual(ZERO);
+    expect(step.cover).toBeLessThanOrEqual(ONE);
     const dtMs = input.paused ? ZERO : input.dtMs;
     expect(Math.abs(step.cover - before.cover)).toBeLessThanOrEqual((COVER_SLOPE_MAX * dtMs) / TUNING.minFadeMs + DISTANCE_FLOOR);
 

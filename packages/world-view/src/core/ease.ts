@@ -9,5 +9,7 @@ const SMOOTHERSTEP_C = 10;
 /** Smootherstep of `u`, with `u` clamped to 0..1 (NaN counts as 0). Zero slope at both ends. */
 export function smootherstep(u: number): number {
   const x = !(u > ZERO) ? ZERO : u >= ONE ? ONE : u;
-  return x * x * x * (x * (x * SMOOTHERSTEP_A - SMOOTHERSTEP_B) + SMOOTHERSTEP_C);
+  const value = x * x * x * (x * (x * SMOOTHERSTEP_A - SMOOTHERSTEP_B) + SMOOTHERSTEP_C);
+  // Rounding in the polynomial can put the value a few ulps above 1 for an input just below 1 (Req 8.4).
+  return Math.min(ONE, Math.max(ZERO, value));
 }
