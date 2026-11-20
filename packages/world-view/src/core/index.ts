@@ -9,6 +9,19 @@ export { createGlide, stepGlide, type GlideState } from './glide';
 export { createLock, stepLock, type LockInput, type LockMode, type LockState, type LockStep } from './lock';
 export { motionProfile, type MotionProfile } from './motion';
 export {
+  createTravel,
+  startTravel,
+  stepTravel,
+  type TravelEvent,
+  type TravelInput,
+  type TravelPart,
+  type TravelPhase,
+  type TravelSegment,
+  type TravelState,
+  type TravelStep,
+  type TravelStyle,
+} from './travel';
+export {
   resolveLayerTable,
   validateLayerTable,
   type LayerDef,

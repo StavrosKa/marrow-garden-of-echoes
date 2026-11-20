@@ -283,12 +283,12 @@ export function stepTravel(state: TravelState, input: TravelInput, tuning = TUNI
 `stepTravel` in this order (phase `travelling`; in `idle` and `arrived` it returns the stored values, no event, `travelling = false`):
 
 1. **Level change** (Req 8.6): if `motionRank(input.motion) < motionRank(state.level)`, `level = input.motion`, and the part is replaced: to Gentle (from Full) a `MovePart` with `b = p`, `D' = durationMs * gentleTravelMultiplier`, `R = D' * (1 - p)`; to Reduced a `FadePart` with `b = p`, `d0 = distance`, `R = X = max(crossFadeMs * (1 - p), minFadeMs)`, `elapsed = 0`, `switched = false`. Any other input level is ignored.
-2. **Add time**: if `!paused` and `dtMs` is finite and positive, `elapsed += dtMs`; otherwise nothing is added and no event can occur (Req 7.6, 7.8).
+2. **Add time**: if `!paused` and `dtMs` is finite and positive, `elapsed += dtMs`; otherwise nothing is added, no event can occur (Req 7.6, 7.8), and the step returns the stored `p`, `distance` and `cover` unchanged (only stage 1 can apply).
 3. **Arrival**: if `elapsed >= R - arrivalToleranceMs`: `p = 1`, `distance = to` (assigned), `cover` = 0, phase `arrived`, one `arrived` event.
 4. **Move part**: `p = b + (1 - b) * min(1, elapsed / R)`, `distance = from + (to - from) * smootherstep(p)`, `cover = 0`.
-5. **Fade part**: `q = elapsed / R`; `progress = b + (1 - b) * q`; if `q < 0.5` the distance is `d0` and `cover = smootherstep(1 - abs(2q - 1))`; at the first step with `q >= 0.5` the distance becomes `to`, `switched = true` and `cover = 1`; afterwards `cover = smootherstep(1 - abs(2q - 1))`.
+5. **Fade part**: `q = elapsed / R`; `progress = b + (1 - b) * q`; `cover = fadeCover(q) = smootherstep(min(1, (1 - abs(2q - 1)) / (1 - 2h)))` with `h = maxClockStepMs / minFadeMs` (1/6 shipped), at every step; if `q < 0.5` the distance is `d0`; at the first step with `q >= 0.5` the distance becomes `to` and `switched = true`. No step is forced to a cover value: that first step lies on the plateau `abs(q - 0.5) <= h`, where the formula gives exactly 1.
 
-The cover bound of Req 8.12 holds for deltas up to `maxClockStepMs` (100 ms), which is what the session clock delivers: `X >= 600`, so one step crosses at most one sixth of the fade and cannot jump over `q = 0.5` into arrival. The generators of section 9 draw deltas in that range (plus 0).
+The cover bound of Req 8.12 holds for deltas up to `maxClockStepMs` (100 ms), which is what the session clock delivers: `X >= minFadeMs = 600`, so one step crosses at most `h = 1/6` of the fade. That keeps the first step with `q >= 0.5` on the plateau of full cover, and no step crosses from `q < 0.5` into arrival. The generators of section 9 draw deltas in that range (plus 0).
 
 ### 4.4 State diagram (the Reduced fade is a normal path)
 
@@ -303,7 +303,7 @@ stateDiagram-v2
     MoveGentle --> FadeRising: level Reduced, b p, d0 current distance
     MoveFull --> Arrived: elapsed reaches R
     MoveGentle --> Arrived: elapsed reaches R
-    FadeRising --> FadeFalling: q reaches 0.5, distance becomes to, cover 1
+    FadeRising --> FadeFalling: q reaches 0.5, distance becomes to, cover on the plateau
     FadeFalling --> Arrived: elapsed reaches X
     Arrived --> Arrived: any input, no event
 ```
@@ -360,7 +360,7 @@ Not keys of this object, with the place of each Appendix A and B row:
 - Frame delta clamp (100 ms), head ease to centre (500 ms), hit radius (0.07-0.13) and the light-ease minimum stay in marrow's `TUNING` and tests read them there. World-view never repeats them.
 - Hall limits 60%, `rewardDelayMs` 1500, the slice segments and the layer rows (depths, anchors, factors, backdrop flags) are app values or content (section 5.3). The interaction layer's factor is `interactionFactor` only.
 - Full-level multipliers (1) and the Reduced head multiplier (0) define the levels; they are named constants in `motion.ts` (`ONE`, `ZERO`), as marrow does for `OFFSET_LIMIT`. Particles, flicker and trail are booleans.
-- Test parameters (not tuning, like the parity tolerance of Appendix B): `COVER_SLOPE_MAX = 2 * 15/8 = 3.75`, `PARITY_TOLERANCE = 0.4` (per axis; measured, not derived: over 20000 random jittered 7 Hz schedules (seed 7, the schedules of the test) the worst per-axis difference between 60 Hz and 144 Hz at common times is 0.287; 0.4 leaves about a third of margin. At 0.4 the interaction layer differs by at most 0.4 * interactionFactor * limitX * A, about 0.004 of the screen height, far below the hit radius), `ROUND_TRIP_TOLERANCE = 1e-9`, `POSE_HZ = 7`, `POSE_JITTER = 0.5`, `ASPECT_MIN = 1.0`, in `testgen.ts`.
+- Test parameters (not tuning, like the parity tolerance of Appendix B): `COVER_SLOPE_MAX = 2 * 15/8 / (1 - 2h) = 5.625` (computed in `testgen.ts` from `maxClockStepMs` and `minFadeMs`, with `h = maxClockStepMs / minFadeMs`), `PARITY_TOLERANCE = 0.4` (per axis; measured, not derived: over 20000 random jittered 7 Hz schedules (seed 7, the schedules of the test) the worst per-axis difference between 60 Hz and 144 Hz at common times is 0.287; 0.4 leaves about a third of margin. At 0.4 the interaction layer differs by at most 0.4 * interactionFactor * limitX * A, about 0.004 of the screen height, far below the hit radius), `ROUND_TRIP_TOLERANCE = 1e-9`, `POSE_HZ = 7`, `POSE_JITTER = 0.5`, `ASPECT_MIN = 1.0`, in `testgen.ts`.
 
 ### 5.2 Validation (Req 1.3-1.4)
 
@@ -792,3 +792,4 @@ Nothing else. `npm view` shows these direct dependencies of `pixi.js@8.22.0`, wh
 8. 5.3: the content needs at least one journey and one door segment; a door segment's `durationMs` must equal `tuning.doorMs`.
 9. Section 6 and section 11 item 8: the stop-2 target is hidden until `startTravel`, then drawn; the previous stop's targets are hidden on arrival. This is carried by a `FrameData.shown` set, which is my addition to implement it.
 10. Parity tolerance (5.1, Requirement 5.8): changed from 0.08 to 0.4 per axis, on the measured worst case of 0.287 over 20000 jittered 7 Hz schedules.
+11. Cover rule (4.3, 4.4, 5.1, Requirements 8.4 and 8.12): the switch step lies on a plateau of full cover, `abs(q - 0.5) <= h`, instead of a forced cover of 1; `COVER_SLOPE_MAX` becomes 5.625. Found by seed 774323422: a paused step after the switch moved the cover under the forced value.

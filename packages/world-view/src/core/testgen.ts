@@ -23,6 +23,7 @@ import {
 import type { LayerDef, LayerTableEntry } from './layers';
 import { TUNING } from './tuning';
 import type { LayerRef, ProjectionFrame, Rect, View, WorldPoint } from './types';
+import type { TravelInput, TravelSegment } from './travel';
 
 // --- Test parameters of design 5.1 ---
 
@@ -565,4 +566,99 @@ export function genRenderTimes(): fc.Arbitrary<number[]> {
     { arbitrary: fc.constant(fixedRenderFrames(RENDER_HZ_FAST)), weight: 1 },
     { arbitrary: fc.array(genDelta(), { minLength: 1, maxLength: VARIABLE_FRAMES_MAX }), weight: 2 },
   );
+}
+
+// --- Travel (Req 7, 8) ---
+
+/**
+ * The bound on the cover slope of Req 8.12: the steepest slope of smootherstep (15/8) times 2, over the
+ * stretch (1 - 2h) of the plateau-adjusted triangle, with h = maxClockStepMs / minFadeMs. With the shipped values, 5.625.
+ */
+export const COVER_SLOPE_MAX = (2 * 15) / 8 / (1 - 2 * (MARROW_TUNING.maxClockStepMs / TUNING.minFadeMs));
+/** The most steps of a travel run (Req 7.10: up to 10000). */
+export const TRAVEL_STEPS_MAX = 10000;
+/** The longest run of one pause value in a travel run. */
+const PAUSE_RUN_MAX = 200;
+/** The longest span of a segment, in layer units (the table's travel range is far smaller). */
+const SEGMENT_SPAN_MAX = 12;
+
+/**
+ * A segment for a travel: a journey (durationMs from journeyMinMs to journeyMaxMs, whole or fractional),
+ * or a door (doorMs, or a fraction of it), with from < to.
+ */
+export function genSegment(): fc.Arbitrary<TravelSegment> {
+  const journey = fc.oneof(
+    fc.integer({ min: TUNING.journeyMinMs, max: TUNING.journeyMaxMs }),
+    genSpread(TUNING.journeyMinMs, TUNING.journeyMaxMs),
+  );
+  const door = fc.oneof(
+    fc.constant(TUNING.doorMs),
+    genSpread(0, UNIT)
+      .filter((share) => share > 0)
+      .map((share) => TUNING.doorMs * share),
+  );
+  return fc
+    .record({
+      durationMs: fc.oneof({ arbitrary: journey, weight: 1 }, { arbitrary: door, weight: 1 }),
+      from: genSpread(0, ANCHOR_MAX),
+      span: genSpread(UNIT, SEGMENT_SPAN_MAX),
+    })
+    .map(({ durationMs, from, span }) => ({ from, to: from + span, durationMs }));
+}
+
+/** One step of a travel run: the session clock delta and whether the travel is paused. */
+export interface TravelFrame {
+  readonly dtMs: number;
+  readonly paused: boolean;
+}
+
+/**
+ * A run of up to TRAVEL_STEPS_MAX steps: deltas from genDelta (zero, whole ms, or a fraction up to the
+ * clamp), and pauses in runs.
+ */
+export function genDeltaRun(): fc.Arbitrary<TravelFrame[]> {
+  const pauseRun = fc.record({ paused: fc.boolean(), length: fc.integer({ min: UNIT, max: PAUSE_RUN_MAX }) });
+  return fc.array(pauseRun, { minLength: UNIT, maxLength: TRAVEL_STEPS_MAX }).chain((runs) => {
+    const paused = runs.flatMap((run) => Array.from({ length: run.length }, () => run.paused)).slice(0, TRAVEL_STEPS_MAX);
+    return fc
+      .array(genDelta(), { minLength: paused.length, maxLength: paused.length })
+      .map((dts) => paused.map((isPaused, i): TravelFrame => ({ dtMs: dts[i]!, paused: isPaused })));
+  });
+}
+
+/** The chance per step, in percent, that the motion level changes (Req 8.6 test runs). */
+const LEVEL_CHANGE_PERCENT = 2;
+/** The shortest level run: long enough that a travel reaches its second half, so that level changes land in it. */
+const LEVEL_RUN_MIN = 1000;
+/** The levels of a burst: a fast run of changes, as steering section 8 tests them. */
+const BURST: readonly MotionLevel[] = ['full', 'gentle', 'full', 'gentle', 'reduced', 'gentle'];
+
+/**
+ * A run of travel steps with a motion level for each step: the level changes with a probability of about
+ * LEVEL_CHANGE_PERCENT per step, and in bursts (Full, Gentle, Full, Gentle, Reduced, Gentle). Each step has
+ * a delta and a pause value, as genDeltaRun.
+ */
+export function genLevelRun(): fc.Arbitrary<TravelInput[]> {
+  const step = fc.record({
+    dtMs: genDelta(),
+    paused: fc.boolean(),
+    change: fc.integer({ min: 0, max: 99 }),
+    level: genLevel(),
+    burst: fc.boolean(),
+  });
+  return fc
+    .tuple(fc.array(step, { minLength: LEVEL_RUN_MIN, maxLength: TRAVEL_STEPS_MAX }), genLevel())
+    .map(([steps, first]): TravelInput[] => {
+      let motion: MotionLevel = first;
+      let burstLeft: MotionLevel[] = [];
+      return steps.map((s): TravelInput => {
+        if (burstLeft.length === 0 && s.burst && s.change < LEVEL_CHANGE_PERCENT) burstLeft = [...BURST];
+        if (burstLeft.length > 0) {
+          motion = burstLeft.shift()!;
+        } else if (s.change < LEVEL_CHANGE_PERCENT) {
+          motion = s.level;
+        }
+        return { dtMs: s.dtMs, paused: s.paused, motion };
+      });
+    });
 }

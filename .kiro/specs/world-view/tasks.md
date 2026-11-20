@@ -53,7 +53,7 @@ Rules for every task:
   - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
   - _Requirements: 4.7, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 5.11, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.9, 8.1, 8.2, 8.7, 8.9, 8.10, 15.1, 15.6_
 
-- [ ] 4. Travel
+- [x] 4. Travel
   - Create `src/core/travel.ts` (design §4.3-4.4): `createTravel`, `startTravel(state, level, tuning = TUNING)`, `stepTravel(state, input, tuning = TUNING)`, and the types `TravelSegment`, `TravelState`, `TravelPart`, `TravelPhase`, `TravelStyle`, `TravelInput`, `TravelStep`, `TravelEvent`. The step follows the five numbered stages of §4.3 in that order: level change by travel level (a change applies only if it goes below the travel level), add time (unpaused, finite, positive), arrival with `arrivalToleranceMs`, move part, fade part. In the fade style `R = X = max(crossFadeMs * (1 - b), minFadeMs)`; the distance is assigned exactly as `to` at arrival and in the first step with `q >= 0.5`, where the cover is 1. A start request outside `idle` changes nothing.
   - Export these names from the entry.
   - Extend `testgen.ts`: `genSegment` (journey: `durationMs` in `[journeyMinMs, journeyMaxMs]`, whole and fractional; door: `doorMs` and fractions of it; `from < to`), `genDeltaRun` (up to 10000 steps; deltas from `{0, whole ms 1..maxClockStepMs, uniform (0, maxClockStepMs]}`, pauses in runs), `genLevelRun` (each step has `dt`, `paused` and a level; the level changes with probability about 0.02 per step and in bursts such as Full, Gentle, Full, Gentle, Reduced, Gentle), and `COVER_SLOPE_MAX`. `maxClockStepMs` is read from marrow's `TUNING`.
