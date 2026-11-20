@@ -159,6 +159,11 @@ async function started(s: Fixture): Promise<void> {
   s.fake.frames.fire(ZERO);
 }
 
+/** The number of path clears over every Graphics of the scene. A redraw clears each layer's and the cover's Graphics. */
+function totalClears(s: Fixture): number {
+  return s.fake.graphics.reduce((sum, graphics) => sum + graphics.clears, ZERO);
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -319,6 +324,96 @@ describe('scene manager', () => {
     expect(drawnRadius(scaled)).toBe(MARROW_TUNING.hitRadius * HALF);
     plain.manager.dispose();
     scaled.manager.dispose();
+  });
+
+  it('scene manager resizes when the pixel ratio changes between ticks', async () => {
+    const s = fixture(ONE);
+    await started(s);
+    const app = s.fake.applications[ZERO];
+    const resizesBefore = app?.resizes.length ?? NaN;
+
+    // A tick with the ratio unchanged does not resize.
+    s.fake.frames.fire(ONE);
+    expect(app?.resizes).toHaveLength(resizesBefore);
+
+    s.fake.devicePixelRatio = THREE;
+    s.fake.frames.fire(TWO);
+    expect(app?.resizes).toHaveLength(resizesBefore + ONE);
+    expect(app?.resizes[resizesBefore]?.resolution).toBe(Math.min(THREE, TUNING.maxPixelRatio));
+
+    // The ratio is unchanged on the next tick, so there is no second resize.
+    s.fake.frames.fire(THREE);
+    expect(app?.resizes).toHaveLength(resizesBefore + ONE);
+    s.manager.dispose();
+  });
+
+  it('scene manager reads the host size only when the size observer fired', async () => {
+    const s = fixture(ONE);
+    await started(s);
+    const readsBefore = s.host.sizeReads;
+
+    // Ticks without an observer callback read no size.
+    s.fake.frames.fire(ONE);
+    s.fake.frames.fire(TWO);
+    s.fake.frames.fire(THREE);
+    expect(s.host.sizeReads).toBe(readsBefore);
+
+    // The observer fires with the same size: both sides are read once, the frame object and the drawing stay.
+    const frameBefore = s.manager.projectionFrame();
+    const clearsBefore = totalClears(s);
+    s.fake.observers.callback?.();
+    s.fake.frames.fire(THREE + ONE);
+    expect(s.host.sizeReads - readsBefore).toBe(TWO);
+    expect(Object.is(s.manager.projectionFrame(), frameBefore)).toBe(true);
+    expect(totalClears(s)).toBe(clearsBefore);
+
+    // The size changes to aspect 1: a new frame object, and a redraw that uses it.
+    const readsAfterSame = s.host.sizeReads;
+    s.host.clientWidth = HOST_HEIGHT;
+    s.fake.observers.callback?.();
+    s.fake.frames.fire(THREE + TWO);
+    expect(s.host.sizeReads - readsAfterSame).toBe(TWO);
+    const frameAfter = s.manager.projectionFrame();
+    expect(Object.is(frameAfter, frameBefore)).toBe(false);
+    expect(frameAfter.aspect).toBe(s.host.clientWidth / s.host.clientHeight);
+    expect(totalClears(s)).toBeGreaterThan(clearsBefore);
+    const backdrop = layers()[ZERO];
+    if (backdrop === undefined) throw new Error('no backdrop layer');
+    const expected = backdropRect(backdrop, { from: ZERO, to: ONE }, frameAfter);
+    const rect = s.fake.graphics[ZERO]?.calls.find((call) => call.op === 'rect');
+    expect((rect?.args[TWO] ?? NaN) / DRAW_UNIT).toBeCloseTo(expected.x1 - expected.x0, 9);
+    s.manager.dispose();
+  });
+
+  it('scene manager skips the tick for a host of zero size', async () => {
+    // A zero width, then a zero height: each case gets its own manager.
+    const zeroCases: Array<{ width: number; height: number }> = [
+      { width: ZERO, height: HOST_HEIGHT },
+      { width: HOST_WIDTH, height: ZERO },
+    ];
+    for (const { width, height } of zeroCases) {
+      const s = fixture(ONE);
+      await started(s);
+      const app = s.fake.applications[ZERO];
+      const rendersBefore = app?.renders ?? NaN;
+      const dtsBefore = s.dts.length;
+
+      s.host.clientWidth = width;
+      s.host.clientHeight = height;
+      s.fake.observers.callback?.();
+      s.fake.frames.fire(ONE);
+      expect(s.dts).toHaveLength(dtsBefore);
+      expect(app?.renders).toBe(rendersBefore);
+
+      // The observer fires with a non-zero size: the next tick runs again.
+      s.host.clientWidth = HOST_WIDTH;
+      s.host.clientHeight = HOST_HEIGHT;
+      s.fake.observers.callback?.();
+      s.fake.frames.fire(TWO);
+      expect(s.dts).toHaveLength(dtsBefore + ONE);
+      expect(app?.renders).toBe(rendersBefore + ONE);
+      s.manager.dispose();
+    }
   });
 
   it('hit circles do not depend on the pixel ratio', async () => {

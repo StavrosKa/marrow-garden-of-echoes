@@ -42,7 +42,7 @@ export function drawShapes(graphics: GraphicsLike, shapes: readonly ShapeSpec[],
   }
 }
 
-/** A target's visible disc, centred on its own origin, at its hit radius in local units. */
+/** A target's visible disc, centred on its own origin, at `r` in local units. The caller passes `r * targetVisualRatio`, not the hit radius. */
 export function drawTarget(graphics: GraphicsLike, r: number, colour: number): void {
   graphics.clear();
   graphics.circle(0, 0, r * DRAW_UNIT);

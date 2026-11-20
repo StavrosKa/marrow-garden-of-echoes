@@ -463,13 +463,20 @@ Consequences: the stop-2 target is hidden until `startTravel`, then drawn (at `s
 ### 7.1 Types
 
 ```ts
+/** The play area element, as far as the Scene Manager uses it. An HTMLElement has all three members. */
+export interface HostLike {
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+  readonly style: { touchAction: string };
+}
 export interface SceneManagerOptions {
-  readonly host: HTMLElement;                 // the play area element
+  readonly host: HostLike;                 // the play area element
   readonly layers: readonly SceneLayerSpec[]; // in table order = draw order (Req 2.10)
   readonly targets: readonly SceneTarget[];   // {id, point: WorldPoint, r, colour}
   readonly sceneScale: number;
   readonly travelRange: TravelRange;          // for backdrop rectangles (Req 4.4)
   readonly coverColour: number;
+  readonly targetVisualRatio?: number;        // the visible disc as a fraction of the hit radius (default 1); the app sets it from constants.ts; the hit circle does not use it
   readonly getFrame: (dtMs: number) => FrameData;
   readonly onFrame?: (circles: readonly HitCircle[]) => void;
   readonly tuning?: Tuning;
@@ -545,6 +552,7 @@ interface PixiPorts {
   requestFrame(cb: (ts: number) => void): number;  cancelFrame(handle: number): void;
   devicePixelRatio(): number;
   observeSize(host: HTMLElement, cb: () => void): () => void;   // returns the disconnect function
+  attachView(host: HostLike, view: unknown): void;   // start() appends the canvas through the ports, so no test touches the DOM
   createApplication(): PixiApplicationLike;                      // init, canvas, renderer.resize, stage, render, destroy
   createContainer(): ContainerLike;  createGraphics(): GraphicsLike;
 }
@@ -793,3 +801,4 @@ Nothing else. `npm view` shows these direct dependencies of `pixi.js@8.22.0`, wh
 9. Section 6 and section 11 item 8: the stop-2 target is hidden until `startTravel`, then drawn; the previous stop's targets are hidden on arrival. This is carried by a `FrameData.shown` set, which is my addition to implement it.
 10. Parity tolerance (5.1, Requirement 5.8): changed from 0.08 to 0.4 per axis, on the measured worst case of 0.287 over 20000 jittered 7 Hz schedules.
 11. Cover rule (4.3, 4.4, 5.1, Requirements 8.4 and 8.12): the switch step lies on a plateau of full cover, `abs(q - 0.5) <= h`, instead of a forced cover of 1; `COVER_SLOPE_MAX` becomes 5.625. Found by seed 774323422: a paused step after the switch moved the cover under the forced value.
+12. Task 5 review: `SceneManagerOptions.targetVisualRatio` (7.1), the host type `HostLike` (7.1) and `PixiPorts.attachView` (7.4) were added to the design so that it matches the code.

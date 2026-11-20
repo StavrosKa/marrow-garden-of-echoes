@@ -63,8 +63,11 @@ export class FakeGraphics implements GraphicsLike {
   alpha = 1;
   /** The calls since the last clear, as a real Graphics object keeps its path until it is cleared. */
   calls: DrawCall[] = [];
+  /** How many times the path was cleared. A redraw clears every Graphics it draws. */
+  clears = 0;
   clear(): void {
     this.calls = [];
+    this.clears += 1;
   }
   rect(x: number, y: number, width: number, height: number): void {
     this.calls.push({ op: 'rect', args: [x, y, width, height] });
@@ -141,12 +144,28 @@ export class FakeFrames {
 }
 
 export class FakeHost implements HostLike {
-  clientWidth: number;
-  clientHeight: number;
+  /** How many reads of clientWidth or clientHeight the scene made. */
+  sizeReads = 0;
+  private width: number;
+  private height: number;
   readonly style = { touchAction: '' };
   constructor(width: number, height: number) {
-    this.clientWidth = width;
-    this.clientHeight = height;
+    this.width = width;
+    this.height = height;
+  }
+  get clientWidth(): number {
+    this.sizeReads += 1;
+    return this.width;
+  }
+  set clientWidth(value: number) {
+    this.width = value;
+  }
+  get clientHeight(): number {
+    this.sizeReads += 1;
+    return this.height;
+  }
+  set clientHeight(value: number) {
+    this.height = value;
   }
 }
 
@@ -156,7 +175,7 @@ export interface FakePorts {
   readonly applications: FakeApplication[];
   readonly graphics: FakeGraphics[];
   readonly attached: Array<{ host: HostLike; view: unknown }>;
-  readonly observers: { connected: number; disconnected: number };
+  readonly observers: { connected: number; disconnected: number; callback: (() => void) | undefined };
   /** The value the devicePixelRatio port returns. */
   devicePixelRatio: number;
   /** When true, each application created from now on holds its init until releaseInit. */
@@ -169,14 +188,19 @@ export function createFakePorts(devicePixelRatio: number): FakePorts {
   const applications: FakeApplication[] = [];
   const graphics: FakeGraphics[] = [];
   const attached: Array<{ host: HostLike; view: unknown }> = [];
-  const observers = { connected: 0, disconnected: 0 };
+  const observers: { connected: number; disconnected: number; callback: (() => void) | undefined } = {
+    connected: 0,
+    disconnected: 0,
+    callback: undefined,
+  };
   const state = { devicePixelRatio, holdInits: false };
   const ports: PixiPorts = {
     requestFrame: (callback) => frames.requestFrame(callback),
     cancelFrame: (handle) => frames.cancelFrame(handle),
     devicePixelRatio: () => state.devicePixelRatio,
-    observeSize: () => {
+    observeSize: (_host, callback) => {
       observers.connected += 1;
+      observers.callback = callback;
       return () => {
         observers.connected -= 1;
         observers.disconnected += 1;
