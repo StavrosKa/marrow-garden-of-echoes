@@ -8,6 +8,13 @@ import { describe, expect, it } from 'vitest';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const INDEX_HTML = 'apps/garden-of-echoes/index.html';
+const PIXI_PORTS = 'packages/world-view/src/pixi/pixiPorts.ts';
+
+/** The module specifier of the first import statement of a source file, comments removed. */
+function firstImportOf(source: string): string | undefined {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  return /^\s*import\s+(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/m.exec(code)?.[1];
+}
 
 /** The content of every `<meta http-equiv="Content-Security-Policy">` tag in an HTML text. */
 function cspMetaContents(html: string): string[] {
@@ -36,6 +43,23 @@ describe('content security policy of the app page', () => {
     const policies = cspMetaContents(html);
     expect(policies, `${INDEX_HTML} must have exactly one Content-Security-Policy meta tag`).toHaveLength(1);
     expect(directiveSources(policies[0] as string, 'connect-src')).toEqual(["'self'"]);
+  });
+
+  it('csp_allows_pixi_shaders', () => {
+    // PixiJS builds its shaders with new Function, which script-src (or default-src) restricts. If the
+    // page declares either, the first import of pixiPorts.ts must be pixi.js/unsafe-eval (Req 16.6).
+    const html = fs.readFileSync(path.join(repoRoot, INDEX_HTML), 'utf8');
+    const policies = cspMetaContents(html);
+    const restrictsScripts = policies.some(
+      (policy) => directiveSources(policy, 'default-src') !== undefined || directiveSources(policy, 'script-src') !== undefined,
+    );
+    const source = fs.readFileSync(path.join(repoRoot, PIXI_PORTS), 'utf8');
+    if (restrictsScripts) {
+      expect(firstImportOf(source), `${PIXI_PORTS} must import pixi.js/unsafe-eval first`).toBe('pixi.js/unsafe-eval');
+    } else {
+      // The page declares no script restriction, so the shaders need no import. The policy must still be read.
+      expect(policies).toHaveLength(1);
+    }
   });
 
   describe('the check itself', () => {

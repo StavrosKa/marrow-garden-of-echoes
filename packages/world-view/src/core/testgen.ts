@@ -662,3 +662,59 @@ export function genLevelRun(): fc.Arbitrary<TravelInput[]> {
       });
     });
 }
+
+// --- Targets of the Scene Manager (design 9.1, item 2) ---
+
+/** One target of a generated case: the fields of the Scene Manager's SceneTarget. */
+export interface TargetCase {
+  readonly id: string;
+  readonly point: WorldPoint;
+  readonly r: number;
+  readonly colour: number;
+}
+
+/** A generated set of targets with the flags that the frame gives them. */
+export interface TargetsCase {
+  readonly targets: readonly TargetCase[];
+  readonly shown: ReadonlySet<string>;
+  readonly active: ReadonlySet<string>;
+  readonly travelling: boolean;
+}
+
+/** The most targets of one scene. */
+const TARGETS_MAX = 4;
+/** The largest colour value (24-bit RGB). */
+const COLOUR_MAX = 0xffffff;
+
+/**
+ * 1 to 4 targets, each with its own random layer (depth, anchor, factor), a point, a hit radius in
+ * marrow's range and a colour; each target is shown or not and active or not, and the scene is
+ * travelling or not. Ids are `target-0`, `target-1`, ...
+ */
+export function genTargets(): fc.Arbitrary<TargetsCase> {
+  const target = genLayerRef().chain((layer) =>
+    fc.record({
+      point: genWorldPoint(layer),
+      r: genSpread(MARROW_TUNING.hitRadiusMin, MARROW_TUNING.hitRadiusMax),
+      colour: fc.integer({ min: 0, max: COLOUR_MAX }),
+      shown: fc.boolean(),
+      active: fc.boolean(),
+    }),
+  );
+  return fc
+    .record({
+      items: fc.array(target, { minLength: 1, maxLength: TARGETS_MAX }),
+      travelling: fc.boolean(),
+    })
+    .map(({ items, travelling }): TargetsCase => {
+      const targets = items.map((item, i): TargetCase => ({
+        id: `target-${i}`,
+        point: item.point,
+        r: item.r,
+        colour: item.colour,
+      }));
+      const shown = new Set(items.flatMap((item, i) => (item.shown ? [`target-${i}`] : [])));
+      const active = new Set(items.flatMap((item, i) => (item.active ? [`target-${i}`] : [])));
+      return { targets, shown, active, travelling };
+    });
+}

@@ -25,6 +25,7 @@ Every dependency added to this repository, with its exact version and licence. L
 | @testing-library/user-event | 14.6.12 | MIT | root (`devDependencies`) | User-interaction simulation in component tests |
 | @testing-library/jest-dom | 7.0.1 | MIT | root (`devDependencies`) | DOM matchers for Vitest |
 | jsdom | 31.0.1 | MIT | root (`devDependencies`) | DOM environment for component tests |
+| pixi.js | 8.22.0 | MIT | `packages/world-view` (`dependencies`) | Renderer for the world-view Scene Manager; imported only in `packages/world-view/src/pixi` |
 
 All versions are pinned exactly in `package.json`, and `package-lock.json` is committed. The six packages added on 2026-11-16 (`@mediapipe/tasks-vision` plus the component-test stack) were approved in chat and installed with exact pins for the marrow-input spec.
 
@@ -43,6 +44,24 @@ Rescan on 2026-11-16, after the six additions, counting every `node_modules` pac
 The two MPL-2.0 packages are `lightningcss` and its Windows binary `lightningcss-win32-x64-msvc` (1.33.0), pulled in by Vite as a build tool. They are not modified and their code is not part of the app bundles.
 
 `npm audit` reports 7 moderate findings, unchanged by the 2026-11-16 additions, all from `minimatch` inside `@typescript-eslint/typescript-estree`, a development-only linting dependency. The suggested fix is a downgrade of typescript-eslint, which is outside the approved versions, so it is not applied.
+
+On 2026-11-20, `pixi.js` 8.22.0 (MIT) was added to `packages/world-view` with `npm install pixi.js@8.22.0 --save-exact -w world-view`, as Requirement 16.1 approves. The lockfile gained 12 entries: `pixi.js` and 11 transitive packages, which are listed below. Their licences were read from each installed `package.json` under `node_modules`, not from the registry metadata. The install also rewrote the root lockfile entry's `engines` field to match the root `package.json` (`^22.22.2 || ^24.15.0 || >=26.0.0`); no other existing entry changed. The install output printed `found 0 vulnerabilities`, which differs from the 7 moderate findings in the note above; that difference is not investigated here.
+
+| Package | Version | Licence | Source URL (tarball in the lockfile) |
+|---|---|---|---|
+| `@pixi/colord` | 2.9.6 | MIT | https://registry.npmjs.org/@pixi/colord/-/colord-2.9.6.tgz |
+| `@types/earcut` | 3.0.0 | MIT | https://registry.npmjs.org/@types/earcut/-/earcut-3.0.0.tgz |
+| `@webgpu/types` | 0.1.74 | BSD-3-Clause | https://registry.npmjs.org/@webgpu/types/-/types-0.1.74.tgz |
+| `@xmldom/xmldom` | 0.8.15 | MIT | https://registry.npmjs.org/@xmldom/xmldom/-/xmldom-0.8.15.tgz |
+| `earcut` | 3.2.4 | ISC | https://registry.npmjs.org/earcut/-/earcut-3.2.4.tgz |
+| `eventemitter3` | 5.0.4 | MIT | https://registry.npmjs.org/eventemitter3/-/eventemitter3-5.0.4.tgz |
+| `gifuct-js` | 2.1.2 | MIT | https://registry.npmjs.org/gifuct-js/-/gifuct-js-2.1.2.tgz |
+| `ismobilejs` | 1.1.1 | MIT | https://registry.npmjs.org/ismobilejs/-/ismobilejs-1.1.1.tgz |
+| `js-binary-schema-parser` | 2.0.3 | MIT | https://registry.npmjs.org/js-binary-schema-parser/-/js-binary-schema-parser-2.0.3.tgz |
+| `parse-svg-path` | 0.2.0 | MIT | https://registry.npmjs.org/parse-svg-path/-/parse-svg-path-0.2.0.tgz |
+| `tiny-lru` | 11.4.7 | BSD-3-Clause | https://registry.npmjs.org/tiny-lru/-/tiny-lru-11.4.7.tgz |
+
+All eleven licences are permissive (MIT, BSD-3-Clause, ISC). `js-binary-schema-parser` is a dependency of `gifuct-js`, so it is not among the ten direct dependencies of `pixi.js` that design section 10 lists.
 
 ## Vendored runtime assets
 
