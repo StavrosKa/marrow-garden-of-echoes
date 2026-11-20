@@ -1,0 +1,80 @@
+/* The World Playground styles. The colours are variables that WorldPlayground.tsx sets from the theme
+   module, so this file holds no colour value (art-and-motion.md, "Palette and type"). */
+.world {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 16px;
+  background: var(--slice-ground);
+  color: var(--slice-text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.play-area {
+  position: relative;
+  width: 960px;
+  height: 540px;
+  overflow: hidden;
+  background: var(--slice-cover);
+  touch-action: none;
+}
+
+.play-area canvas {
+  display: block;
+}
+
+.camera-feed {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--slice-accent);
+  border-radius: 8px;
+  background: var(--slice-accent);
+  color: var(--slice-ground);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+/* The focus ring: 3 px of the glow outside a 2 px night gap (art-and-motion.md line 58). Never removed. */
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--slice-glow);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--slice-ground);
+}
+
+label {
+  margin-right: 16px;
+}
+
+fieldset {
+  margin: 12px 0;
+  border: 1px solid var(--slice-accent);
+  border-radius: 8px;
+}
+
+.controls button {
+  margin-right: 8px;
+}
+
+.debug dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+}
+
+.debug dd {
+  margin: 0;
+  word-break: break-word;
+}

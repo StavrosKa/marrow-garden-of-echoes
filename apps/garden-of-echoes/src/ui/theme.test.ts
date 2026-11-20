@@ -17,8 +17,11 @@ const SOURCE_LINE: Record<ThemeToken, number> = {
   grey7: 51,
   night: 41,
   lanternWarm: 43,
+  lanternGlow: 43,
 };
 
+/** The focus ring rule of art-and-motion.md: 3 px of the glow outside a 2 px night gap (1-based). */
+const FOCUS_RING_LINE = 58;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** From apps/garden-of-echoes/src/ui to the repository root. */
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..');
@@ -37,6 +40,11 @@ describe('theme tokens', () => {
     expect(SHAPE_TOKENS).toEqual([...GREY_TOKENS, 'lanternWarm']);
     const values = GREY_TOKENS.map((token) => colourNumber(token));
     expect(values).toEqual([...values].sort((a, b) => a - b));
+  });
+
+  it('the focus ring colour is the glow of art-and-motion.md (line 58)', () => {
+    const lines = readFileSync(path.join(REPO_ROOT, '.kiro', 'steering', 'art-and-motion.md'), 'utf8').split(/\r?\n/);
+    expect((lines[FOCUS_RING_LINE - 1] ?? '').toUpperCase()).toContain(theme.lanternGlow.toUpperCase());
   });
 
   it('colourNumber reads the hex value of a token', () => {

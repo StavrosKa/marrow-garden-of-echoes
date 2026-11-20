@@ -16,6 +16,8 @@ export const theme = Object.freeze({
   // Base colours (art-and-motion.md line 41 for night, line 43 for lanternWarm).
   night: '#0B1030',
   lanternWarm: '#F0A840',
+  // The glow of lanternWarm (art-and-motion.md line 43). The focus ring of the slice is drawn in it (line 58).
+  lanternGlow: '#FFE2A0',
 });
 
 export type ThemeToken = keyof typeof theme;
