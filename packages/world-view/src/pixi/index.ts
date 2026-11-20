@@ -8,6 +8,7 @@ export function createSceneManager(options: SceneManagerOptions): SceneManager {
 }
 
 export type {
+  DebugEntry,
   FrameData,
   HitCircle,
   SceneLayerSpec,

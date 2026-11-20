@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "sceneScale": 1,
+  "layers": [
+    {
+      "id": "layer-0",
+      "name": "sky",
+      "depth": 4000,
+      "anchor": 0,
+      "factor": 0,
+      "backdrop": true,
+      "fill": { "colour": "grey1" },
+      "shapes": []
+    },
+    {
+      "id": "layer-1",
+      "name": "far hills",
+      "depth": 600,
+      "anchor": 0,
+      "factor": 0.03,
+      "backdrop": true,
+      "fill": { "colour": "grey2" },
+      "shapes": [
+        { "kind": "ellipse", "cu": 0.5, "cv": 0.95, "ru": 0.75, "rv": 0.35, "colour": "grey3" }
+      ]
+    },
+    {
+      "id": "layer-2",
+      "name": "far trees",
+      "depth": 120,
+      "anchor": 0,
+      "factor": 0.1,
+      "backdrop": false,
+      "shapes": [
+        { "kind": "ellipse", "cu": 0.14, "cv": 0.46, "ru": 0.09, "rv": 0.16, "colour": "grey2" },
+        { "kind": "ellipse", "cu": 0.86, "cv": 0.46, "ru": 0.09, "rv": 0.16, "colour": "grey2" }
+      ]
+    },
+    {
+      "id": "layer-3",
+      "name": "main scene",
+      "depth": 24,
+      "anchor": 0,
+      "interaction": true,
+      "backdrop": false,
+      "shapes": [
+        { "kind": "rect", "u0": 0.44, "v0": 0.6, "u1": 0.56, "v1": 1.02, "colour": "grey4" }
+      ],
+      "accentShapes": [
+        { "kind": "ellipse", "cu": 0.36, "cv": 0.62, "ru": 0.012, "rv": 0.02, "colour": "lanternWarm" },
+        { "kind": "ellipse", "cu": 0.64, "cv": 0.62, "ru": 0.012, "rv": 0.02, "colour": "lanternWarm" }
+      ]
+    },
+    {
+      "id": "layer-4",
+      "name": "fog",
+      "depth": 18,
+      "anchor": 0,
+      "factor": 0.6,
+      "backdrop": false,
+      "shapes": [
+        { "kind": "rect", "u0": -0.1, "v0": 0.7, "u1": 1.1, "v1": 0.85, "colour": "grey4" }
+      ]
+    },
+    {
+      "id": "layer-5",
+      "name": "foreground foliage",
+      "depth": 14,
+      "anchor": 0,
+      "factor": 1,
+      "backdrop": false,
+      "shapes": [
+        { "kind": "rect", "u0": -0.06, "v0": -0.05, "u1": 0.1, "v1": 1.05, "colour": "grey1" },
+        { "kind": "rect", "u0": 0.9, "v0": -0.05, "u1": 1.06, "v1": 1.05, "colour": "grey1" }
+      ]
+    }
+  ],
+  "segments": [
+    { "id": "forest-journey", "kind": "journey", "from": 0, "to": 12, "durationMs": 6000 },
+    { "id": "forest-door", "kind": "door", "from": 0, "to": 4, "durationMs": 3000 }
+  ],
+  "stops": [
+    {
+      "id": "stop-1",
+      "travel": 0,
+      "depth": 24,
+      "targets": 2,
+      "slots": [
+        { "u": 0.3, "v": 0.42 },
+        { "u": 0.7, "v": 0.42 },
+        { "u": 0.5, "v": 0.36 },
+        { "u": 0.5, "v": 0.52 }
+      ]
+    },
+    {
+      "id": "stop-2",
+      "travel": "segmentEnd",
+      "depth": 36,
+      "targets": 1,
+      "slots": [
+        { "u": 0.5, "v": 0.4 },
+        { "u": 0.35, "v": 0.55 }
+      ]
+    }
+  ]
+}
