@@ -253,7 +253,7 @@ export interface MovePart extends PartBase {
 }
 export interface FadePart extends PartBase {
   readonly style: 'fade';        // R = X = max(crossFadeMs * (1 - b), minFadeMs)   (Req 7.3, 8.4)
-  readonly d0: number;           // the distance held until the cover is 1: segment.from, or the distance at the switch
+  readonly d0: number;           // the distance held while q < 0.5: segment.from, or the distance at the switch
   readonly switched: boolean;    // true after the first step with q >= 0.5 (distance is `to` from then on)
 }
 export type TravelPart = MovePart | FadePart;

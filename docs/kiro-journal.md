@@ -1077,3 +1077,15 @@ Entries are appended. Earlier entries are never rewritten.
 - Not changed: `requirements.md` 1.4 still lists only "minFadeMs below 600". The code and design 5.2 also reject minFadeMs at or below 2 * maxClockStepMs. The new rule is an addition, so I did not edit 1.4.
 - Mutation check of the new unit block (`.scratch/fix3-mutation.ps1`, run with `powershell -File`): the old rule (cover forced to 1 at the switch, the plain formula otherwise, no early return for a step without time) fails the block at `travel.test.ts` line 355, the paused step's cover: expected 1, received 0.99732543. Mutation runs use `.scratch/vitest.mutation.config.ts` with `endOnFailure` set in `.scratch/mutation.setup.ts`. `travel.ts` was restored from a copy, SHA-256 7F882FD83CEF55A22D32C93F3126B222AA9DAA0670173DF8FE825FE9084E054B before and after.
 - Evidence (real output): `npm run typecheck` exit 0; `npm run lint` exit 0; `npm test`: `Test Files  48 passed (48)`, `Tests  992 passed (992)`, duration 47.75 s.
+
+## 2026-11-20 - world-view: align spec text with the plateau cover
+- Kiro feature used: none; four edits you approved in advance, docs only (model: Claude Haiku 5.5, Medium). No code, no mutation check. Committed as "Align world-view spec text with the plateau cover" and pushed before task 5.
+- Changed, each as approved:
+  1. `requirements.md` 1.4: `minFadeMs` lower bound now reads "below 600, not above `2 * maxClockStepMs` of Marrow, or above `crossFadeMs`", matching design 5.2.
+  2. `requirements.md` 8.6.2: "The distance stays `d0` until the cover is 1 and then becomes `to`." now reads "...while `q < 0.5` and becomes `to` in the first step with `q >= 0.5`, which lies on the plateau of full cover (8.4)."
+  3. `design.md` 4.3, the `d0` comment of FadePart: "the distance held until the cover is 1" now reads "the distance held while q < 0.5".
+  4. Other sentences that tie the distance switch to the cover reaching 1, same wording as item 2:
+     - `requirements.md` Appendix D (the superseded "Motion change during travel" note, round 2): "held until the cover is 1;" now reads "held while `q < 0.5` and switched to `to` in the first step with `q >= 0.5`;". This is a historical note, changed because you asked for every such sentence; its meaning there is the same as item 2.
+     - No other sentence in `requirements.md` or `design.md` matched. The search covered "until the cover", "when the cover", "cover is 1", "cover = 1", "cover 1" and "switch when/at/until". The remaining "forced cover of 1" mentions (`requirements.md` 438, `design.md` 795) describe the old rule in history and were left as they are.
+- Not changed: `tasks.md` task 4 text and this journal's older entries still quote the old wording. They are records of past work.
+- Evidence (real output): `npm run typecheck` exit 0; `npm run lint` exit 0; `npm test`: `Test Files  48 passed (48)`, `Tests  992 passed (992)`, duration 63.46 s.
