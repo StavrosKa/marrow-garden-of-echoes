@@ -364,7 +364,7 @@ Not keys of this object, with the place of each Appendix A and B row:
 
 ### 5.2 Validation (Req 1.3-1.4)
 
-`validateTuning(t): ValidationIssue[]` returns every failure, in key order, with a message of the form `glideCapPerS = -1 is out of range (0, Infinity)`. Rules of 1.4 and what checks them:
+`validateTuning(t, marrow = marrow TUNING): ValidationIssue[]` (the second parameter gives the two marrow values the ranges read; callers pass nothing) returns every failure, in key order, with a message of the form `glideCapPerS = -1 is out of range (0, Infinity)`. Rules of 1.4 and what checks them:
 
 | Rule | Check |
 |---|---|
@@ -374,7 +374,7 @@ Not keys of this object, with the place of each Appendix A and B row:
 | interaction factor not below the largest factor | `validateLayerTable` (largest factor among the layers that carry one) |
 | `nearPlane <= 0`; `glideTauMs <= 0`; `glideCapPerS <= 0`; `crossFadeMs <= 0` | `validateTuning` |
 | a multiplier below 0 | `validateTuning`: the five multipliers and the two ambient pairs |
-| `minFadeMs` below 600 or above `crossFadeMs` | lower bound is `2 * marrow TUNING.uiMinLightEaseMs` (600), no literal; upper bound `crossFadeMs` |
+| `minFadeMs` below `2 * marrow TUNING.uiMinLightEaseMs` (600), or not above `2 * marrow TUNING.maxClockStepMs`, or above `crossFadeMs` | lower bound is the larger of the two, no literal: the first is closed, the second strict, because `h = maxClockStepMs / minFadeMs` must stay below 0.5 (the plateau of 4.3 divides by `1 - 2h`, and at 0.5 or more the cover would be undefined or negative); upper bound `crossFadeMs` |
 | `arrivalToleranceMs < 0` | `validateTuning` |
 | no rule names a layer | the validators take tables and never compare an id |
 

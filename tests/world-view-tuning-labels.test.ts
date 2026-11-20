@@ -216,6 +216,17 @@ describe('tuning rejects', () => {
     expect(validateTuning({ ...TUNING, minFadeMs: lower - ONE }).map((issue) => issue.path)).toEqual(['minFadeMs']);
     expect(TUNING.minFadeMs).toBe(lower);
   });
+  it('tuning rejects minFadeMs at 2 * maxClockStepMs and accepts a value just above it, when that bound binds', () => {
+    // With maxClockStepMs = 2 * uiMinLightEaseMs, the strict bound 2 * maxClockStepMs is above the closed floor.
+    const marrow = { ...MARROW_TUNING, maxClockStepMs: TWO * MARROW_TUNING.uiMinLightEaseMs };
+    const bound = TWO * marrow.maxClockStepMs;
+    expect(bound).toBeGreaterThan(TWO * MARROW_TUNING.uiMinLightEaseMs);
+    expect(validateTuning(TUNING, MARROW_TUNING)).toEqual([]);
+    const atBound = validateTuning({ ...TUNING, minFadeMs: bound }, marrow);
+    expect(atBound.map((issue) => issue.path)).toEqual(['minFadeMs']);
+    expect(atBound[0]?.message).toBe(`minFadeMs = ${bound} is out of range (${bound}, ${TUNING.crossFadeMs}]`);
+    expect(validateTuning({ ...TUNING, minFadeMs: bound + ONE }, marrow)).toEqual([]);
+  });
 
   it('formatIssues gives the title and one line per issue, and nothing for no issue', () => {
     const issues = validateTuning({ ...TUNING, glideCapPerS: -T.glideCapPerS, doorMs: ZERO });

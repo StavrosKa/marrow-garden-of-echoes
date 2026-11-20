@@ -368,7 +368,7 @@ All are `tune` values in `world-view/src/core/tuning.ts` unless marked.
 | `horizonMaxMove`, `foregroundMinGrowth` per segment | forest segment (`to` 12): 0.03, 3; door segment (`to` 4): 0.01, 1.3 | for 2.8. Hand check, aspect up to 2.4 (farthest viewport point from the vanishing point about 1.32): far hills move at most about 0.027 (forest) and 0.009 (door); foreground at depth 14 grows by 7 (forest) and 1.4 (door) |
 | `arrivalToleranceMs` | 1e-6 | float guard for arrival (7.5) |
 | `minFadeMs` | 600 | rule: derived from `accessibility-and-copy.md` (light changes of at least 300 ms; the cover rises and falls) |
-| cover slope bound | 3.75 | derived: steepest slope of smootherstep (1.875) times 2 for the triangle; test parameter for 8.12 |
+| `COVER_SLOPE_MAX` | 5.625 | derived as in 8.12: `2 * 15/8 / (1 - 2h)` with `h = maxClockStepMs / minFadeMs` (1/6 shipped: 3.75 / (2/3)); test parameter for 8.12 |
 | `glideTauMs` | 150 | user |
 | `glideCapPerS` | 4.0 | user, hard cap |
 | `glideEpsilon` | 0.001 | for 5.9 |

@@ -11,7 +11,7 @@
 //         (every other value from steering).
 // In the interface the label follows the starting value and comes before its
 // source. In TUNING the same label follows the current value.
-import { TUNING as MARROW_TUNING } from 'marrow/core';
+import { TUNING as MARROW_TUNING, type Tuning as MarrowTuning } from 'marrow/core';
 import type { ValidationIssue } from './issues';
 
 export interface Tuning {
@@ -116,7 +116,7 @@ const whole = (range: Range): Range => ({ ...range, int: true });
 // One range per key, in key order. Where a rule of Req 1.4 gives the bound, the range
 // is exactly that. The other bounds are the rules design 5.2 adds so that every
 // function stays defined; a bound that depends on another key reads that key.
-const RANGES: { readonly [K in keyof Tuning]: (t: Tuning) => Range } = {
+const RANGES: { readonly [K in keyof Tuning]: (t: Tuning, marrow: MarrowTuning) => Range } = {
   limitX: () => openClosed(ZERO, ONE),
   limitY: () => openClosed(ZERO, ONE),
   interactionFactor: () => closed(ZERO, ONE),
@@ -140,7 +140,13 @@ const RANGES: { readonly [K in keyof Tuning]: (t: Tuning) => Range } = {
   doorMs: () => open(ZERO),
   arrivalToleranceMs: () => closed(ZERO),
   crossFadeMs: () => open(ZERO),
-  minFadeMs: (t) => closed(TWO * MARROW_TUNING.uiMinLightEaseMs, t.crossFadeMs),
+  // The lower bound is the larger of two: 2 * uiMinLightEaseMs (closed), and 2 * maxClockStepMs, which is
+  // strict, because h = maxClockStepMs / minFadeMs must stay below 0.5 for the plateau of design 4.3.
+  minFadeMs: (t, marrow) => {
+    const lightEase = TWO * marrow.uiMinLightEaseMs;
+    const clockStep = TWO * marrow.maxClockStepMs;
+    return clockStep >= lightEase ? openClosed(clockStep, t.crossFadeMs) : closed(lightEase, t.crossFadeMs);
+  },
   gentleHeadMultiplier: () => closed(ZERO, ONE),
   gentleTravelMultiplier: () => open(ZERO),
   gentleAmbientAmplitude: () => closed(ZERO),
@@ -172,12 +178,13 @@ function inRange(value: number, range: Range): boolean {
  * Checks every key against its range (Req 1.3, 1.4; design 5.2) and returns one issue
  * per failing key, in key order, with a message such as
  * `glideCapPerS = -1 is out of range (0, Infinity)`. An empty array means valid.
- * The layer-table rules of Req 1.4 belong to `validateLayerTable`.
+ * The layer-table rules of Req 1.4 belong to `validateLayerTable`. The two marrow values that
+ * the ranges read (`uiMinLightEaseMs`, `maxClockStepMs`) come from `marrow`, the shipped marrow TUNING by default.
  */
-export function validateTuning(t: Tuning): ValidationIssue[] {
+export function validateTuning(t: Tuning, marrow: MarrowTuning = MARROW_TUNING): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   for (const key of KEYS) {
-    const range = RANGES[key](t);
+    const range = RANGES[key](t, marrow);
     const value = t[key];
     if (inRange(value, range)) continue;
     issues.push({ path: key, value, message: `${key} = ${value} is out of range ${formatRange(range)}` });

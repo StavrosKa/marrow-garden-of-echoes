@@ -3,7 +3,7 @@ import { TUNING as MARROW_TUNING } from 'marrow/core';
 import type { MotionLevel } from 'marrow/core';
 import { describe, expect, it } from 'vitest';
 import { smootherstep } from './ease';
-import { createTravel, startTravel, stepTravel, type TravelSegment, type TravelState } from './travel';
+import { createTravel, startTravel, stepTravel, type FadePart, type TravelSegment, type TravelState } from './travel';
 import {
   COVER_SLOPE_MAX,
   DISTANCE_FLOOR,
@@ -39,6 +39,18 @@ const NEAR_END = 0.9;
 
 function segmentOf(durationMs: number): TravelSegment {
   return { from: UNIT_FROM, to: UNIT_TO, durationMs };
+}
+
+/** The fade part of a state; throws if the travel is not in the fade style. */
+function fadePartOf(state: TravelState): FadePart {
+  if (state.part?.style !== 'fade') throw new Error('expected a fade part');
+  return state.part;
+}
+
+/** The fade position q = elapsed / R of a state in the fade style. */
+function fadePositionOf(state: TravelState): number {
+  const part = fadePartOf(state);
+  return part.elapsedMs / part.remainingMs;
 }
 
 /** The sum of the unpaused deltas, in the order the travel adds them. */
@@ -318,6 +330,34 @@ describe('travel unit rules', () => {
     }
   });
 
+  it('travel unit rules: after the fade switch, a paused step keeps the cover and the next step stays within the slope bound (8.4, 8.12; docs/bugs-found.md 774323422)', () => {
+    const segment = segmentOf(TUNING.journeyMinMs);
+    const delta = MARROW_TUNING.maxClockStepMs;
+    // Full, in steps of maxClockStepMs, to p = 0.5.
+    let state = startTravel(createTravel(segment), 'full');
+    for (let i = ZERO; i < TRAVEL_STEPS_MAX && state.p < HALF; i++) {
+      state = stepTravel(state, { dtMs: delta, paused: false, motion: 'full' }).state;
+    }
+    expect(state.p).toBeGreaterThanOrEqual(HALF);
+    // The change to Reduced, then steps of maxClockStepMs until the first step with q >= 0.5 (the switch step).
+    let step = stepTravel(state, { dtMs: delta, paused: false, motion: 'reduced' });
+    for (let i = ZERO; i < TRAVEL_STEPS_MAX && fadePositionOf(step.state) < HALF; i++) {
+      step = stepTravel(step.state, { dtMs: delta, paused: false, motion: 'reduced' });
+    }
+    expect(fadePositionOf(step.state)).toBeGreaterThanOrEqual(HALF);
+    expect(step.travel).toBe(segment.to);
+    expect(step.cover).toBe(ONE);
+    // One paused step after the switch: progress, distance and cover are unchanged.
+    const switched = step.state;
+    const paused = stepTravel(switched, { dtMs: delta, paused: true, motion: 'reduced' });
+    expect(paused.progress).toBe(switched.p);
+    expect(paused.travel).toBe(switched.distance);
+    expect(paused.cover).toBe(switched.cover);
+    // One step of maxClockStepMs: the cover moves by at most COVER_SLOPE_MAX * dt / X, X the fade length.
+    const next = stepTravel(paused.state, { dtMs: delta, paused: false, motion: 'reduced' });
+    const fadeLength = fadePartOf(paused.state).remainingMs;
+    expect(Math.abs(next.cover - paused.cover)).toBeLessThanOrEqual((COVER_SLOPE_MAX * delta) / fadeLength);
+  });
   it('travel unit rules: Full to Gentle at p keeps p and the distance, with remaining D * (1 - p) (8.6.1)', () => {
     const segment = segmentOf(TUNING.journeyMinMs);
     const moved = stepTravel(startTravel(createTravel(segment), 'full'), { dtMs: TUNING.journeyMinMs * QUARTER, paused: false, motion: 'full' }).state;
