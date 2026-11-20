@@ -551,7 +551,7 @@ The Scene Manager receives a `PixiPorts` object:
 interface PixiPorts {
   requestFrame(cb: (ts: number) => void): number;  cancelFrame(handle: number): void;
   devicePixelRatio(): number;
-  observeSize(host: HTMLElement, cb: () => void): () => void;   // returns the disconnect function
+  observeSize(host: HostLike, cb: () => void): () => void;   // returns the disconnect function
   attachView(host: HostLike, view: unknown): void;   // start() appends the canvas through the ports, so no test touches the DOM
   createApplication(): PixiApplicationLike;                      // init, canvas, renderer.resize, stage, render, destroy
   createContainer(): ContainerLike;  createGraphics(): GraphicsLike;
@@ -628,7 +628,7 @@ Placeholder shapes from the grey ramp and `lanternWarm` only, flat rectangles, e
 
 `frontClearanceIssues(content, aspect, sceneScale)`, for each stop, each segment (the stop-2 anchor differs), each candidate slot and `r = marrow TUNING.hitRadiusMax` (the largest hit radius, so the check is conservative):
 1. The shape images at the rest view of the stop (`travel = stop`, head 0): the four corners of each shape's bounding box (an ellipse by its bounding box, which only makes the check stricter) through `worldToScreen`; the image of an axis-aligned box under `p -> v + (p - v) * s + shift` is an axis-aligned box.
-2. The relative displacement of a front layer (fog or foreground) against the interaction layer over every head offset: the head square maps linearly to a rectangle `[-dx, dx] x [-dy, dy]`, where `dx, dy` are the differences of `parallaxShift` at head `(1, 1)` for the two factors. The box swept over all head offsets is the rest box grown by that rectangle (exact, since the shift is linear and the box is convex).
+2. The relative displacement of a front layer (fog or foreground) against the interaction layer over every head offset is bounded per axis by the sum of their largest shifts, `edgeOverscan` of each: the rectangle `[-(ex_front + ex_interaction), ex_front + ex_interaction] x [-(ey_front + ey_interaction), ey_front + ey_interaction]`. While the lock holds, the interaction layer uses the locked head and the front layer the live head, so the two shifts are independent and the worst case is their sum. The box swept over all such displacements is the rest box grown by that rectangle.
 3. The circle at the slot (radius `r`, scale 1 at the stop) must not intersect the swept box: the distance from the slot to the box is greater than `r`.
 Run at load for the current aspect, and in the content test for `ASPECT_MIN`, 16/9 and `maxAspect`.
 
@@ -802,3 +802,4 @@ Nothing else. `npm view` shows these direct dependencies of `pixi.js@8.22.0`, wh
 10. Parity tolerance (5.1, Requirement 5.8): changed from 0.08 to 0.4 per axis, on the measured worst case of 0.287 over 20000 jittered 7 Hz schedules.
 11. Cover rule (4.3, 4.4, 5.1, Requirements 8.4 and 8.12): the switch step lies on a plateau of full cover, `abs(q - 0.5) <= h`, instead of a forced cover of 1; `COVER_SLOPE_MAX` becomes 5.625. Found by seed 774323422: a paused step after the switch moved the cover under the forced value.
 12. Task 5 review: `SceneManagerOptions.targetVisualRatio` (7.1), the host type `HostLike` (7.1) and `PixiPorts.attachView` (7.4) were added to the design so that it matches the code.
+13. Task 6 review: 8.5 step 2 bounds the relative displacement of a front layer against the interaction layer by the sum of the two `edgeOverscan` values, not by the difference of the shifts at head (1, 1), because the lock lets the two layers use different heads (4.2). 7.4 gives `observeSize` the type `HostLike`, as 7.1 and the code do.

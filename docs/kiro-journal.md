@@ -1165,3 +1165,17 @@ Entries are appended. Earlier entries are never rewritten.
 - Timing: the full suite before this task (after the review commit): `Test Files 51 passed (51)`, `Tests 1009 passed (1009)`, `Duration 41.77s`, wall clock 45.9 s. After this task: `Test Files 60 passed (60)`, `Tests 1076 passed (1076)`, `Duration 45.60s`, wall clock 49.4 s. Slice tests in node: 67 tests, about 4 s.
 - Evidence (real output): `npm run typecheck` exit 0 (marrow, world-view, garden-of-echoes each `tsc --noEmit` with no output). `npm run lint` exit 0 (`eslint .`, no output). `npm test` exit 0: `Test Files  60 passed (60)`, `Tests  1076 passed (1076)`.
 - Not verified: the Playwright test, the real Pixi path, and the camera path (manual steps M1-M6 are task 7 and the user's list).
+
+## 2026-11-20 - world-view: align design with the lock clearance and HostLike
+- Kiro feature used: none; docs edits approved in advance (model: Claude Haiku 5.5, Medium). Committed as "Align world-view design with the lock clearance and HostLike" and pushed before task 7.
+- Preflight: working tree clean; main = origin/main = fa8cc0c.
+- Changed, as approved, in design.md only:
+  - 8.5 step 2: the relative displacement of a front layer against the interaction layer is bounded by the sum of the two edgeOverscan values, not by the difference of the shifts at head (1, 1). Reason: while the lock holds, the interaction layer uses the locked head and the front layer the live head.
+  - 7.4: observeSize(host: HostLike, cb) in the PixiPorts listing.
+  - Appendix D item 13 names both edits and says they come from the task 6 review.
+- Steps 1 and 3 of 8.5 and every other section are unchanged.
+- No code change. No mutation check (docs only).
+- Evidence (real output): 
+pm run typecheck exit 0 (marrow, world-view and garden-of-echoes each 	sc --noEmit with no output). 
+pm run lint exit 0 (eslint ., no output). 
+pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration  44.05s, wall clock 49 s.
