@@ -8,7 +8,7 @@ import { createSettingsStore, type SettingsStore } from 'marrow/react';
 import { describe, expect, it } from 'vitest';
 import { parallaxShift, TUNING, targetScreen, type ProjectionFrame, type View } from 'world-view';
 import type { FrameData, HitCircle } from 'world-view/pixi';
-import { DEFAULT_ASPECT, REWARD_DELAY_MS } from './constants';
+import { DEFAULT_ASPECT, REWARD_DELAY_MS, TARGET_SELECTED_TOKEN } from './constants';
 import { mouseComfort, placeStops, type PlacedStop } from './placementSetup';
 import { loadWorldContent, type ContentSegment } from './worldContent';
 import {
@@ -119,6 +119,7 @@ interface Played {
   readonly report: FrameReport;
   readonly circles: HitCircle[];
   readonly selectedNow: readonly string[];
+  readonly events: ReturnType<typeof afterRender>['events'];
 }
 
 /** One rendered frame: the step, the fake scene, then the dwell step with the pointers of this frame. */
@@ -132,6 +133,7 @@ function play(run: WorldRun, head: HeadInput, pointers: readonly PointerInput[] 
     report: step.report,
     circles: scene.circles,
     selectedNow: rendered.events.map((event) => event.targetId),
+    events: rendered.events,
   };
 }
 
@@ -467,5 +469,29 @@ describe('placement of the stops', () => {
     const played = warm(createWorldRun(config));
     expect(played.report.shown).toEqual(stopOneIds(config));
     expect(played.report.active).toEqual(stopOneIds(config));
+  });
+});
+
+describe('the colour of a selection and the length of the journey', () => {
+  it('12.7: a completed dwell reports the lanternWarm colour', () => {
+    const { config } = setup();
+    const [first] = stopOneIds(config);
+    if (first === undefined) throw new Error('stop 1 needs a target');
+    const selected = holdUntilSelected(warm(createWorldRun(config)), first);
+    expect(selected.events).toEqual([{ kind: 'selected', targetId: first, colour: TARGET_SELECTED_TOKEN }]);
+    expect(TARGET_SELECTED_TOKEN).toBe('lanternWarm');
+  });
+
+  it('13.4: a journey started in Gentle lasts 7800 ms', () => {
+    const { config } = setup('journey', 'gentle');
+    const [first, second] = stopOneIds(config);
+    if (first === undefined || second === undefined) throw new Error('stop 1 needs two targets');
+    let state = holdUntilSelected(warm(createWorldRun(config)), first);
+    state = holdUntilSelected(state, second);
+    const started = runUntil(state, (played) => played.report.travelPhase === 'travelling');
+    const part = started.run.travel.part;
+    if (part === null || part.style !== 'travel') throw new Error('the journey starts as a move');
+    expect(part.durationMs).toBe(config.segment.durationMs * TUNING.gentleTravelMultiplier);
+    expect(part.durationMs).toBe(7800);
   });
 });

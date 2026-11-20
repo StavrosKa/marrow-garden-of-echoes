@@ -8,8 +8,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PoseSource, StartOutcome } from 'marrow/input';
-import type { SceneManager } from 'world-view/pixi';
+import type { SceneManager, SceneManagerOptions } from 'world-view/pixi';
 import { copy } from '../../copy';
+import { colourNumber } from '../../ui/theme';
+import { DEFAULT_ASPECT } from './constants';
 import { WorldPlayground } from './WorldPlayground';
 import { loadWorldContent, type ContentResult, type WorldContent } from './worldContent';
 import type { SessionDeps } from './worldSession';
@@ -85,6 +87,52 @@ afterEach(() => {
   cleanup();
   window.history.replaceState({}, '', ROUTE_OFF);
 });
+
+/** The reduced-motion media query as WorldPlayground.tsx writes it, and a frame of the playground. */
+const REDUCED_MEDIA = '(prefers-reduced-motion:reduce)';
+const FRAME_MS = 16;
+
+/**
+ * Starts the playground with no stored settings and the given browser preference, runs one frame of the
+ * scene, and returns the motion level that the snapshot reports.
+ */
+async function motionOfFirstFrame(prefersReduced: boolean): Promise<string | undefined> {
+  window.localStorage.clear();
+  window.history.replaceState({}, '', ROUTE_ON);
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: prefersReduced && query.replace(/\s/g, '') === REDUCED_MEDIA,
+    media: query,
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+  try {
+    const options: SceneManagerOptions[] = [];
+    const scenes: ReturnType<typeof fakeScene>[] = [];
+    const h = harness('ready');
+    renderPlayground({
+      ...h.deps,
+      createScene: async (sceneOptions) => {
+        options.push(sceneOptions);
+        const scene = fakeScene();
+        scenes.push(scene);
+        return scene as unknown as SceneManager;
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: TEXT.startMouse }));
+    await waitFor(() => expect(scenes[0]?.start).toHaveBeenCalled());
+    options[0]?.getFrame(FRAME_MS);
+    return window.__worldPlayground?.snapshot().motion;
+  } finally {
+    if (original === undefined) delete (window as { matchMedia?: unknown }).matchMedia;
+    else window.matchMedia = original;
+    cleanup();
+  }
+}
 
 describe('World Playground screens', () => {
   it('start panel buttons by role and name and the focus ring', () => {
@@ -174,5 +222,51 @@ describe('World Playground screens', () => {
     window.history.replaceState({}, '', ROUTE_OFF);
     renderPlayground(harness('ready').deps);
     expect(window.__worldPlayground).toBeUndefined();
+  });
+
+  it('8.8: the slice starts at Reduced when the browser prefers reduced motion', async () => {
+    expect(await motionOfFirstFrame(true)).toBe('reduced');
+    expect(await motionOfFirstFrame(false)).toBe('full');
+  });
+
+  it('12.7: a selection recolours the target on the scene', async () => {
+    window.localStorage.clear();
+    window.history.replaceState({}, '', ROUTE_ON);
+    const options: SceneManagerOptions[] = [];
+    const scenes: ReturnType<typeof fakeScene>[] = [];
+    // The pointer rests at the centre of the play area: in camera coordinates (1 - centre x / A, centre y).
+    const centre = { x: DEFAULT_ASPECT * 0.5, y: 0.5 };
+    const pointer = {
+      start: vi.fn(async () => 'ready'),
+      latest: () => ({
+        landmarks: { rightWrist: { pos: { x: 1 - centre.x / DEFAULT_ASPECT, y: centre.y }, valid: true } },
+      }),
+      dispose: vi.fn(),
+    };
+    renderPlayground({
+      createScene: async (sceneOptions) => {
+        options.push(sceneOptions);
+        const scene = fakeScene();
+        scenes.push(scene);
+        return scene as unknown as SceneManager;
+      },
+      createCamera: () => fakeSource('ready') as unknown as PoseSource,
+      createPointer: () => pointer as unknown as PoseSource,
+      isHidden: () => false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: TEXT.startMouse }));
+    await waitFor(() => expect(scenes[0]?.start).toHaveBeenCalled());
+    const sceneOptions = options[0];
+    const target = sceneOptions?.targets[0];
+    if (sceneOptions === undefined || target === undefined) throw new Error('the scene has no target');
+    // Hold the pointer on the target's hit circle until the dwell completes (about 1.5 s of presence time).
+    const circle = { id: target.id, centre, radius: 0.1 };
+    const scene = scenes[0];
+    for (let frame = 0; frame < 100 && scene?.setTargetColour.mock.calls.length === 0; frame++) {
+      sceneOptions.getFrame(100);
+      sceneOptions.onFrame?.([circle]);
+    }
+    expect(scene?.setTargetColour).toHaveBeenCalledTimes(1);
+    expect(scene?.setTargetColour).toHaveBeenCalledWith(target.id, colourNumber('lanternWarm'));
   });
 });

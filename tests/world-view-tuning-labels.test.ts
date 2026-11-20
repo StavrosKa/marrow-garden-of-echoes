@@ -177,19 +177,21 @@ const REJECTIONS: Rejection[] = [
 ];
 
 describe('tuning rejects', () => {
-  for (const row of REJECTIONS) {
-    it(`tuning rejects ${row.rule}`, () => {
-      const bad: Tuning = { ...TUNING, ...row.overrides };
-      const issues = validateTuning(bad);
-      expect(issues.map((issue) => issue.path)).toEqual(row.paths);
-      const key = row.key ?? row.paths[0];
-      const issue = issues.find((candidate) => candidate.path === key);
-      expect(issue).toBeDefined();
-      // The message names the key, the value and the allowed range.
-      expect(issue?.value).toBe(bad[key as keyof Tuning]);
-      expect(issue?.message).toBe(`${key} = ${bad[key as keyof Tuning]} is out of range ${row.range}`);
-    });
-  }
+  describe('tuning rejects each rule of design 5.2 (Req 1.3, 1.4)', () => {
+    for (const row of REJECTIONS) {
+      it(`tuning rejects ${row.rule}`, () => {
+        const bad: Tuning = { ...TUNING, ...row.overrides };
+        const issues = validateTuning(bad);
+        expect(issues.map((issue) => issue.path)).toEqual(row.paths);
+        const key = row.key ?? row.paths[0];
+        const issue = issues.find((candidate) => candidate.path === key);
+        expect(issue).toBeDefined();
+        // The message names the key, the value and the allowed range.
+        expect(issue?.value).toBe(bad[key as keyof Tuning]);
+        expect(issue?.message).toBe(`${key} = ${bad[key as keyof Tuning]} is out of range ${row.range}`);
+      });
+    }
+  });
 
   it('tuning rejects a value that is not finite, for every key', () => {
     for (const key of Object.keys(TUNING) as (keyof Tuning)[]) {

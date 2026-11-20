@@ -235,4 +235,15 @@ describe('slice content clearance', () => {
     expect(content.layers.map((layer) => layer.depth)).toEqual([4000, 600, 120, 24, 18, 14]);
     expect(content.layers[INTERACTION]?.interaction).toBe(true);
   });
+
+  it('13.4: the forest journey is 6000 ms and the door 3000 ms', () => {
+    const result = loadWorldContent(FRAME);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const journey = result.content.segments.find((segment) => segment.kind === 'journey');
+    const door = result.content.segments.find((segment) => segment.kind === 'door');
+    expect(journey?.durationMs).toBe(6000);
+    expect(door?.durationMs).toBe(3000);
+    expect(door?.durationMs).toBe(TUNING.doorMs);
+  });
 });

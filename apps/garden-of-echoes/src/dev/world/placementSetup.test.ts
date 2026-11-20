@@ -1,5 +1,13 @@
 // Placement of the stops with marrow's placeTargets (Req 9.3, 9.6, 12.1, 12.2, 14.2; design 8.3, 9.2).
-import { createGrid, TUNING as MARROW_TUNING, type CalibrationResult } from 'marrow/core';
+import {
+  chooseWholeScreen,
+  createCalibration,
+  createGrid,
+  makeMapping,
+  TUNING as MARROW_TUNING,
+  type CalibrationResult,
+  type Vec2,
+} from 'marrow/core';
 import { describe, expect, it } from 'vitest';
 import { targetScreen, TUNING, worldToScreen, type ProjectionFrame, type View } from 'world-view';
 import { DEFAULT_ASPECT } from './constants';
@@ -130,5 +138,36 @@ describe('placement of the stops', () => {
     expect(centre.y).toBeCloseTo(HALF, PROJECTION_DIGITS);
     const placed = placeStops(content, segment, FRAME, comfort.grids, comfort.mapping, R, TUNING);
     expect(placed.ok).toBe(true);
+  });
+
+  it('12.4: mouse comfort comes from chooseWholeScreen', () => {
+    // The same simulated-input calibration state that mouseComfort builds (placementSetup.ts).
+    const created = createCalibration({
+      activeWrists: ['right'],
+      mode: 'simulated',
+      demand: { slots: [], n: ONE, r: R, m: ZERO },
+      frameAspect: DEFAULT_ASPECT,
+      playAspect: DEFAULT_ASPECT,
+      tuning: MARROW_TUNING,
+    });
+    const result = chooseWholeScreen(created).state.result;
+    if (result === null) throw new Error('chooseWholeScreen did not complete the calibration');
+    const comfort = mouseComfort(DEFAULT_ASPECT, R);
+    expect(comfort.grids).toEqual(result.grids);
+    const mapping = makeMapping({
+      playAspect: DEFAULT_ASPECT,
+      frameAspect: DEFAULT_ASPECT,
+      gain: result.transform.gain,
+      centre: result.transform.centre,
+    });
+    const fixedPoints: readonly Vec2[] = [
+      { x: ZERO, y: ZERO },
+      { x: HALF, y: HALF },
+      { x: 0.2, y: 0.3 },
+      { x: 0.9, y: 0.8 },
+    ];
+    for (const point of fixedPoints) {
+      expect(comfort.mapping.toScreen(point)).toEqual(mapping.toScreen(point));
+    }
   });
 });

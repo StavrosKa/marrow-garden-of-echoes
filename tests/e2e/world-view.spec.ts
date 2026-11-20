@@ -68,6 +68,17 @@ interface Sample {
   readonly travel: number;
 }
 
+/** One frame of the dwell, as the in-page recorder saw it while the target's dwell owner was set. */
+interface DwellFrame {
+  readonly interactionHead: Vec;
+  readonly interaction: Vec;
+  readonly circle: Vec | null;
+  readonly decorative: Vec;
+  readonly decorativeHead: Vec;
+  readonly lockRequested: boolean;
+  readonly lockMode: string;
+}
+
 interface Slice {
   readonly layers: readonly { readonly id: string; readonly interaction?: boolean; readonly factor?: number }[];
   readonly segments: readonly { readonly kind: string; readonly to: number }[];
@@ -263,53 +274,46 @@ test.describe('world playground', () => {
       expect(result.compared).toBeGreaterThan(0);
     });
 
+    // The dwell frames, recorded in the page. Steps 5 to 7 share them.
+    let samples: DwellFrame[] = [];
+    let d0: Vec | undefined;
     const first = await timed('5 hover the first target until its dwell starts', async () => {
       const snapshot = await read(page);
       const id = Object.keys(snapshot.targets).find((key) => key.startsWith('stop-1') && snapshot.targets[key]?.active === true);
       if (id === undefined) throw new Error('no active stop-1 target');
       const circle = snapshot.targets[id]?.circle;
       if (circle == null) throw new Error(`target ${id} has no hit circle`);
-      await pointAt(page, area, circle.centre, canvasHeight(snapshot));
-      await page.waitForFunction(
-        (targetId) => (window as unknown as Handle).__worldPlayground!.snapshot().targets[targetId]?.dwell.owner != null,
-        id,
-      );
-      return id;
-    });
-
-    await timed('6 lock held (locked, dwell owner set)', async () => {
-      await page.waitForFunction(
-        (targetId) => {
-          const s = (window as unknown as Handle).__worldPlayground!.snapshot();
-          return s.lock.requested && s.lock.mode === 'locked' && s.targets[targetId]?.dwell.owner != null;
-        },
-        first,
-      );
-    });
-
-    await timed('7 dwell completes during the head ramp; interaction layer and circle held', async () => {
-      const before = await read(page);
-      const h0 = before.interactionHead;
-      const d0 = before.layers.find((layer) => layer.id === DECORATIVE_ID);
-      const samples = await page.evaluate(
+      d0 = snapshot.layers.find((layer) => layer.id === DECORATIVE_ID);
+      // The recorder starts before the pointer enters the circle, so no round trip sits inside the dwell. In the
+      // page it waits for the target's dwell owner; from that very frame it ramps the head and records each frame
+      // while the owner is set, until the target is selected or the limit passes.
+      const recording = page.evaluate(
         async ([targetId, rampMs, rampTarget, limitMs, interactionId, decorativeId]: [string, number, number, number, string, string]) => {
           const handle = (window as unknown as Handle).__worldPlayground!;
-          handle.setHead({ x: 0, y: 0 });
           const out: {
             interactionHead: Vec;
             interaction: { x: number; y: number };
             circle: Vec | null;
             decorative: { x: number; y: number };
             decorativeHead: Vec;
+            lockRequested: boolean;
+            lockMode: string;
           }[] = [];
-          const started = performance.now();
+          const waitStarted = performance.now();
+          let started: number | undefined;
           let done = false;
           while (!done) {
             await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-            const elapsed = performance.now() - started;
-            handle.setHead({ x: rampTarget * Math.min(1, elapsed / rampMs), y: 0 });
+            const now = performance.now();
             const s = handle.snapshot();
             const target = s.targets[targetId];
+            if (started === undefined) {
+              if (target?.dwell.owner != null) started = now;
+              else if (now - waitStarted > limitMs) break;
+              else continue;
+            }
+            const elapsed = now - started;
+            handle.setHead({ x: rampTarget * Math.min(1, elapsed / rampMs), y: 0 });
             const interaction = s.layers.find((layer) => layer.id === interactionId);
             const decorative = s.layers.find((layer) => layer.id === decorativeId);
             if (target !== undefined && target.dwell.owner !== null && interaction !== undefined && decorative !== undefined) {
@@ -319,6 +323,8 @@ test.describe('world playground', () => {
                 circle: target.circle?.centre ?? null,
                 decorative: { x: decorative.x, y: decorative.y },
                 decorativeHead: s.decorativeHead,
+                lockRequested: s.lock.requested,
+                lockMode: s.lock.mode,
               });
             }
             done = (target?.selected === true && out.length > 0) || elapsed > limitMs;
@@ -326,21 +332,36 @@ test.describe('world playground', () => {
           handle.setHead(null);
           return out;
         },
-        [first, RAMP_MS, RAMP_TARGET, RAMP_LIMIT_MS, INTERACTION_ID, DECORATIVE_ID] as [string, number, number, number, string, string],
+        [id, RAMP_MS, RAMP_TARGET, RAMP_LIMIT_MS, INTERACTION_ID, DECORATIVE_ID] as [string, number, number, number, string, string],
       );
+      await pointAt(page, area, circle.centre, canvasHeight(snapshot));
+      samples = await recording;
       expect(samples.length).toBeGreaterThan(0);
-      const start = samples[0];
-      if (start === undefined) throw new Error('no dwell sample');
-      for (const sample of samples) {
+      return id;
+    });
+
+    await timed('6 lock held (locked, dwell owner set)', async () => {
+      expect(samples.some((sample) => sample.lockMode === 'locked' && sample.lockRequested)).toBe(true);
+    });
+
+    await timed('7 dwell completes during the head ramp; interaction layer and circle held', async () => {
+      // The lock holds from the first locked frame: h0 is the interaction head of that frame.
+      const locked = samples.filter((sample) => sample.lockMode === 'locked');
+      const start = locked[0];
+      if (start === undefined) throw new Error('no locked dwell frame');
+      const h0 = start.interactionHead;
+      for (const sample of locked) {
         expect(Object.is(sample.interactionHead.x, h0.x)).toBe(true);
         expect(Object.is(sample.interactionHead.y, h0.y)).toBe(true);
         expect(sample.interaction).toEqual(start.interaction);
         expect(sample.circle).toEqual(start.circle);
       }
       expect(samples.some((sample) => sample.decorative.x !== d0?.x || sample.decorative.y !== d0?.y)).toBe(true);
+      const dwellStart = samples[0];
+      if (dwellStart === undefined) throw new Error('no dwell sample');
       const headChange = Math.max(
         ...samples.map((sample) =>
-          Math.hypot(sample.decorativeHead.x - start.decorativeHead.x, sample.decorativeHead.y - start.decorativeHead.y),
+          Math.hypot(sample.decorativeHead.x - dwellStart.decorativeHead.x, sample.decorativeHead.y - dwellStart.decorativeHead.y),
         ),
       );
       expect(headChange).toBeGreaterThan(0.1);
