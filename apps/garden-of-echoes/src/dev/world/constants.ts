@@ -19,6 +19,9 @@ export const COVER_COLOUR: number = colourNumber(COVER_COLOUR_TOKEN);
 export const TARGET_TOKEN: ThemeToken = 'grey6';
 export const TARGET_SELECTED_TOKEN: ThemeToken = 'lanternWarm';
 
+/** The least frame time between two React updates while nothing a player sees changes (about 10 per second). */
+export const DEBUG_REFRESH_MS = 100;
+
 /** The aspect that the content test uses as the narrow end of the range (a test parameter, design 5.1). */
 export const ASPECT_MIN = 1;
 

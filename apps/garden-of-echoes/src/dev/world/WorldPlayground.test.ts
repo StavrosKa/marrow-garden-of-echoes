@@ -7,11 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TUNING as MARROW_TUNING } from 'marrow/core';
 import type { PoseSource, StartOutcome } from 'marrow/input';
 import type { SceneManager, SceneManagerOptions } from 'world-view/pixi';
 import { copy } from '../../copy';
 import { colourNumber } from '../../ui/theme';
 import { DEFAULT_ASPECT } from './constants';
+import { cameraComfort } from './placementSetup';
 import { WorldPlayground } from './WorldPlayground';
 import { loadWorldContent, type ContentResult, type WorldContent } from './worldContent';
 import type { SessionDeps } from './worldSession';
@@ -268,5 +270,115 @@ describe('World Playground screens', () => {
     }
     expect(scene?.setTargetColour).toHaveBeenCalledTimes(1);
     expect(scene?.setTargetColour).toHaveBeenCalledWith(target.id, colourNumber('lanternWarm'));
+  });
+});
+
+/** A camera source whose right wrist is the given point; the other landmarks are invalid. */
+function cameraWithRightWrist(wrist: { pos: { x: number; y: number }; valid: boolean }) {
+  const invalid = { pos: { x: 0, y: 0 }, valid: false };
+  return {
+    start: vi.fn(async (): Promise<StartOutcome> => 'ready'),
+    latest: () => ({
+      t: 0,
+      aspect: 4 / 3,
+      landmarks: { leftWrist: invalid, rightWrist: wrist, nose: invalid, leftShoulder: invalid, rightShoulder: invalid },
+    }),
+    dispose: vi.fn(),
+  };
+}
+
+/** The hand orb of the play area (Req 14.9). */
+function handOrb(): HTMLElement {
+  const orb = document.querySelector<HTMLElement>('.hand-orb');
+  if (orb === null) throw new Error('the hand orb is not rendered');
+  return orb;
+}
+
+/** The two numbers of the orb's translate, in CSS px. */
+function translateOf(orb: HTMLElement): number[] {
+  return (orb.style.transform.match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) ?? []).map(Number);
+}
+
+/** Starts the camera slice and returns the options of its scene, after the scene has started. */
+async function startCameraSlice(camera: ReturnType<typeof cameraWithRightWrist>) {
+  const options: SceneManagerOptions[] = [];
+  const scenes: ReturnType<typeof fakeScene>[] = [];
+  renderPlayground({
+    createScene: async (sceneOptions) => {
+      options.push(sceneOptions);
+      const scene = fakeScene();
+      scenes.push(scene);
+      return scene as unknown as SceneManager;
+    },
+    createCamera: () => camera as unknown as PoseSource,
+    createPointer: () => fakeSource('ready') as unknown as PoseSource,
+    isHidden: () => false,
+  });
+  fireEvent.click(screen.getByRole('button', { name: TEXT.startCamera }));
+  await waitFor(() => expect(scenes[0]?.start).toHaveBeenCalled());
+  const sceneOptions = options[0];
+  if (sceneOptions === undefined) throw new Error('the scene has no options');
+  return sceneOptions;
+}
+
+describe('the hand orb of the camera mode (Req 14.9)', () => {
+  it('14.9: with a valid right wrist the orb is shown at the position that the dwell step received, scaled to CSS px', async () => {
+    const wrist = { pos: { x: 0.3, y: 0.6 }, valid: true };
+    const height = 540;
+    const heightSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(height);
+    try {
+      const sceneOptions = await startCameraSlice(cameraWithRightWrist(wrist));
+      sceneOptions.getFrame(FRAME_MS);
+      sceneOptions.onFrame?.([]);
+      // The dwell step receives the wrist through the comfort mapping of the camera (placementSetup.ts).
+      const cameraAspect = MARROW_TUNING.cameraWidth / MARROW_TUNING.cameraHeight;
+      const received = cameraComfort(DEFAULT_ASPECT, cameraAspect).mapping.toScreen(wrist.pos);
+      const orb = handOrb();
+      expect(orb.hidden).toBe(false);
+      expect(orb.getAttribute('aria-hidden')).toBe('true');
+      const [x, y] = translateOf(orb);
+      expect(x).toBeCloseTo(received.x * height, 9);
+      expect(y).toBeCloseTo(received.y * height, 9);
+    } finally {
+      heightSpy.mockRestore();
+    }
+  });
+
+  it('14.9: with the right wrist invalid the orb is hidden', async () => {
+    const wrist = { pos: { x: 0.3, y: 0.6 }, valid: true };
+    const sceneOptions = await startCameraSlice(cameraWithRightWrist(wrist));
+    sceneOptions.getFrame(FRAME_MS);
+    sceneOptions.onFrame?.([]);
+    expect(handOrb().hidden).toBe(false);
+    wrist.valid = false;
+    sceneOptions.getFrame(FRAME_MS);
+    sceneOptions.onFrame?.([]);
+    expect(handOrb().hidden).toBe(true);
+  });
+
+  it('14.9: in mouse mode there is no shown orb', async () => {
+    const options: SceneManagerOptions[] = [];
+    const scenes: ReturnType<typeof fakeScene>[] = [];
+    const pointer = {
+      start: vi.fn(async () => 'ready' as const),
+      latest: () => ({ landmarks: { rightWrist: { pos: { x: 0.5, y: 0.5 }, valid: true } } }),
+      dispose: vi.fn(),
+    };
+    renderPlayground({
+      createScene: async (sceneOptions) => {
+        options.push(sceneOptions);
+        const scene = fakeScene();
+        scenes.push(scene);
+        return scene as unknown as SceneManager;
+      },
+      createCamera: () => fakeSource('ready') as unknown as PoseSource,
+      createPointer: () => pointer as unknown as PoseSource,
+      isHidden: () => false,
+    });
+    fireEvent.click(screen.getByRole('button', { name: TEXT.startMouse }));
+    await waitFor(() => expect(scenes[0]?.start).toHaveBeenCalled());
+    options[0]?.getFrame(FRAME_MS);
+    options[0]?.onFrame?.([]);
+    expect(handOrb().hidden).toBe(true);
   });
 });

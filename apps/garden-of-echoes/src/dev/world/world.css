@@ -24,6 +24,24 @@
   display: block;
 }
 
+/* The play area and the hand orb share this box; its top-left corner is the play area's. */
+.play-stack {
+  position: relative;
+}
+
+/* The camera hand (Req 14.9): a dev aid. The session sets its transform; its colour is the glow token. */
+.hand-orb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border-radius: 50%;
+  background: var(--slice-glow);
+  pointer-events: none;
+}
+
 .camera-feed {
   position: absolute;
   width: 1px;

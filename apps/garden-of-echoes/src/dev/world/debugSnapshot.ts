@@ -17,6 +17,13 @@ export interface SnapshotExtras {
   readonly rendered: readonly DebugEntry[];
   /** The hit circles of this frame. */
   readonly circles: readonly HitCircle[];
+  /** The hand of this frame: valid, and the position the dwell step received (Req 14.9). */
+  readonly pointer: HandSnapshot;
+}
+
+export interface HandSnapshot {
+  readonly valid: boolean;
+  readonly pos: Vec2 | null;
 }
 
 export interface TargetSnapshot {
@@ -64,6 +71,7 @@ export interface DebugSnapshot {
   readonly targets: Readonly<Record<string, TargetSnapshot>>;
   readonly layers: readonly DebugEntry[];
   readonly circles: readonly HitCircle[];
+  readonly pointer: HandSnapshot;
 }
 
 /** Freezes an object graph in place. Only plain values are passed in, so no function is frozen. */
@@ -148,5 +156,6 @@ export function buildSnapshot(run: WorldRun, report: FrameReport, extras: Snapsh
     targets,
     layers: extras.layers.map(copyEntry),
     circles: extras.circles.map((circle) => ({ id: circle.id, centre: copyVec(circle.centre), radius: circle.radius })),
+    pointer: { valid: extras.pointer.valid, pos: extras.pointer.pos === null ? null : copyVec(extras.pointer.pos) },
   });
 }

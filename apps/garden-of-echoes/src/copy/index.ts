@@ -59,6 +59,7 @@ export const copy = {
       targets: 'Targets',
       layers: 'Layers (applied)',
       circles: 'Hit circles',
+      hand: 'Hand pointer',
       none: 'none',
     },
   },

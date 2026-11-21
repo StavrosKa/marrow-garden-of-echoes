@@ -106,4 +106,63 @@ describe('the default landmarker of createCameraSource', () => {
     expect(urls.every((url) => url !== '')).toBe(true);
     source.dispose();
   });
+
+  /** The `delegate` that each call of the fake library was made with, in call order. */
+  function delegatesAsked(): unknown[] {
+    return fake.createFromOptions.mock.calls.map((call) => (call[1] as { baseOptions: { delegate?: unknown } }).baseOptions.delegate);
+  }
+
+  /** A video that is ready, and a stream of one track: the camera part of a start that succeeds. */
+  function readyVideoAndStream(): { video: HTMLVideoElement; stream: MediaStream } {
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
+    video.play = () => Promise.resolve();
+    const tracks = [{ stop: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() }];
+    const stream = { getTracks: () => tracks, getVideoTracks: () => tracks } as unknown as MediaStream;
+    return { video, stream };
+  }
+
+  it('creates the landmarker with the GPU delegate, once, when the GPU works (design 11)', async () => {
+    const { video, stream } = readyVideoAndStream();
+    const source = createCameraSource({
+      basePath: '/garden/',
+      video,
+      getUserMedia: () => Promise.resolve(stream),
+      scheduleFrame: () => () => undefined,
+    });
+    expect(await source.start()).toBe('ready');
+    expect(fake.createFromOptions).toHaveBeenCalledTimes(1);
+    expect(delegatesAsked()).toEqual(['GPU']);
+    source.dispose();
+  });
+
+  it('falls back to the CPU delegate when the GPU attempt rejects, and the source becomes ready (design 11)', async () => {
+    fake.createFromOptions.mockImplementationOnce(() => Promise.reject(new Error('no WebGL')));
+    const { video, stream } = readyVideoAndStream();
+    const source = createCameraSource({
+      basePath: '/garden/',
+      video,
+      getUserMedia: () => Promise.resolve(stream),
+      scheduleFrame: () => () => undefined,
+    });
+    expect(await source.start()).toBe('ready');
+    expect(delegatesAsked()).toEqual(['GPU', 'CPU']);
+    source.dispose();
+  });
+
+  it('reports a model failure, as today, when the CPU attempt rejects too (design 11)', async () => {
+    fake.createFromOptions.mockImplementationOnce(() => Promise.reject(new Error('no WebGL')));
+    fake.createFromOptions.mockImplementationOnce(() => Promise.reject(new Error('no CPU either')));
+    const { video, stream } = readyVideoAndStream();
+    const source = createCameraSource({
+      basePath: '/garden/',
+      video,
+      getUserMedia: () => Promise.resolve(stream),
+      scheduleFrame: () => () => undefined,
+    });
+    expect(await source.start()).toBe('model-failed');
+    expect(delegatesAsked()).toEqual(['GPU', 'CPU']);
+    expect(stream.getTracks()[0]?.stop).toHaveBeenCalled();
+    source.dispose();
+  });
 });

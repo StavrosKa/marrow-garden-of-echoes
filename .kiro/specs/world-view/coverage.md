@@ -168,6 +168,7 @@ Each row maps one criterion id of `requirements.md` to a test (`test`, the liter
 | 14.7 | test | camera denied continues in mouse mode |
 | 14.8 | test | slice works at 7 pose frames per second |
 | 14.8 | manual | M6 |
+| 14.9 | test | 14.9: with a valid right wrist the orb is shown at the position that the dwell step received, scaled to CSS px |
 | 15.1 | test | projection round trip |
 | 15.1 | test | hit circle equals rendered target position |
 | 15.1 | test | hit area inside reachable region for all head offsets |

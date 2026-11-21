@@ -284,6 +284,7 @@ This session writes requirements only. There is no design and no code. Appendix 
 6. IN camera mode, THE slice SHALL run Marrow's Tracking Lifecycle for the tracking hold and SHALL pass its flag to `stepClocks`. A tracking hold SHALL stop the session clock, so the travel stops, and dwell does not count because no active wrist is valid. It SHALL not stop the presence clock: the Head View eases to centre, and the Glide and the lock ease keep running on the presence clock (Appendix D, decision 6). It SHALL show a plain dev line for the hold, not the tracking-lost overlay (task 16.5 is out of scope).
 7. IF the camera is denied or missing, THEN THE slice SHALL show a plain notice and SHALL continue in mouse mode.
 8. THE slice SHALL continue to work with a pose-frame rate of 7 per second.
+9. IN camera mode, THE slice SHALL draw a small orb at the active wrist's screen pointer, the position given to the Dwell Engine, and SHALL hide it while that wrist is invalid. It is a dev aid of the slice; the game's orb is marrow-input Requirement 26.7.
 
 ### Requirement 15: Acceptance tests
 

@@ -149,7 +149,7 @@ export interface PoseSource {
 
 The three implementations in `marrow/input`:
 
-- `createCameraSource(opts): PoseSource` — MediaPipe Pose Landmarker, lite model, one pose, `VIDEO` running mode, main thread (Req 4.1). Keeps at most one frame in inference; drops video frames while one is running (Req 4.2). Starts an inference no more often than `TUNING.maxInferenceHz` (Req 4.3). Loads WASM and model from the app's own base path only (Req 4.4). Maps outcomes per Requirement 5.2–5.5; stops every track on `dispose` and closes the landmarker (Req 5.6).
+- `createCameraSource(opts): PoseSource` — MediaPipe Pose Landmarker, lite model, one pose, `VIDEO` running mode, main thread (Req 4.1). The landmarker is created with the GPU delegate and falls back to the CPU delegate if that fails (decided 2026-11-21, section 11). Keeps at most one frame in inference; drops video frames while one is running (Req 4.2). Starts an inference no more often than `TUNING.maxInferenceHz` (Req 4.3). Loads WASM and model from the app's own base path only (Req 4.4). Maps outcomes per Requirement 5.2–5.5; stops every track on `dispose` and closes the landmarker (Req 5.6).
 - `createPointerSource(opts): PoseSource` — one primary pointer drives the right wrist; left wrist always invalid (Req 6.1). Valid only while a mouse or pen is over the play area or a touch is in contact (Req 6.2). Sets the wrist position as the inverse base mapping of the pointer so the base mapping returns it exactly (Req 6.3). Nose and both shoulders are valid at fixed synthetic positions (Req 6.4). At most one frame per animation frame (Req 6.5).
 - `createTraceSource(trace): PoseSource & { advanceTo(tMs): void }` — plays an ordered list of frames; advanced only by elapsed milliseconds from the caller (Req 7.1–7.3); runs in Node with no DOM (Req 7.4); rejects a malformed trace with a readable message naming the first bad frame (Req 7.5). `advanceTo` is the only member outside `PoseSource`; it is called by tests only, so game consumers stay source-agnostic (keeps Req 3.4). `validateTrace(trace)` is exported for the loader.
 
@@ -389,7 +389,7 @@ Deliberately **not** exported: `oneEuro.ts` (the raw One Euro primitive), `geome
 
 ### `marrow/input`
 
-Exports: `PoseSource`, `StartOutcome` (types), `createCameraSource`, `createPointerSource`, `createTraceSource`, `validateTrace`, `Trace` (type). Re-exports `PoseFrame` from core for convenience.
+Exports: `PoseSource`, `StartOutcome` (types), `createCameraSource` (its landmarker is created with the GPU delegate and falls back to the CPU delegate if that fails, decided 2026-11-21 from the measurement in section 11), `createPointerSource`, `createTraceSource`, `validateTrace`, `Trace` (type). Re-exports `PoseFrame` from core for convenience.
 
 Deliberately **not** exported: the MediaPipe wrapper, the `FilesetResolver` base-path logic, the frame-dropping scheduler, and the synthetic-landmark constants of the pointer source. The outside world sees only the three factories and the interface.
 
@@ -741,6 +741,8 @@ Playwright, simulated input only (Req 28.10): paint with the mouse to end calibr
 ## 11. MediaPipe on the main thread, and the worker risk
 
 This spec runs Pose Landmarker on the main thread behind `PoseSource` (Req 4.1; `tech.md` rule 6; `performance-budget.md`). A Web Worker is explicitly Stretch item 6 in `product.md`, taken only if measured render falls below budget and only after asking the user.
+
+**Delegate, decided 2026-11-21.** The Camera Source creates the Pose Landmarker with the GPU delegate. Only a rejection of that attempt leads to a second attempt with the CPU delegate, and a CPU rejection is a model failure like any other (`cameraSource.ts`, `createMediapipeLandmarker`). Both attempts share the model-load budget of `start()`. The source does not report which delegate it got. This replaces the decision of the task 15.6 follow-up (keep the library default, which is CPU), because the measurement on Edge 158 on an Intel N100 showed the GPU delegate to be faster: median inference 29.7 ms on the GPU against 64.7 ms on the CPU with the debug panel shown (90th percentile 41.2 ms against 94.2 ms), and 83.0 against 27.2 frames per second in the same run. The table is in the journal entry of 2026-11-21. The camera path is not verified: the user's manual step M4 of world-view did not pass, and M5 and M6 still need the user's run after this commit.
 
 Known risks of moving MediaPipe into a worker, which is why it stays out of this spec:
 

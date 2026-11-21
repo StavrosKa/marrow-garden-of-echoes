@@ -105,12 +105,14 @@ function Slice(props: { readonly content: WorldContent; readonly deps?: Partial<
     createSettingsStore({ prefix: STORAGE_PREFIX, prefersReducedMotion: prefersReducedMotion() }),
   );
   const playRef = useRef<HTMLDivElement>(null);
+  const orbRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [session] = useState<WorldSession>(() =>
     createWorldSession({
       content: props.content,
       settings,
       playArea: () => playRef.current,
+      handOrb: () => orbRef.current,
       video: () => videoRef.current,
       deps: props.deps,
     }),
@@ -153,15 +155,19 @@ function Slice(props: { readonly content: WorldContent; readonly deps?: Partial<
           </button>
         </section>
       ) : null}
-      <div
-        ref={playRef}
-        data-testid="world-play-area"
-        role="region"
-        aria-label={text.playArea}
-        className="play-area"
-        style={{ touchAction: 'none' }}
-        hidden={screen !== 'running'}
-      />
+      <div className="play-stack">
+        <div
+          ref={playRef}
+          data-testid="world-play-area"
+          role="region"
+          aria-label={text.playArea}
+          className="play-area"
+          style={{ touchAction: 'none' }}
+          hidden={screen !== 'running'}
+        />
+        {/* A sibling of the Pixi host, on top of it. The session moves it at the frame rate (Req 14.9). */}
+        <div ref={orbRef} className="hand-orb" aria-hidden="true" hidden={screen !== 'running'} />
+      </div>
       {screen === 'running' ? <Running session={session} snap={snap} settings={settings} /> : null}
       <video ref={videoRef} className="camera-feed" muted playsInline autoPlay aria-hidden="true" />
     </main>

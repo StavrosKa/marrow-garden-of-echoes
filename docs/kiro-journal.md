@@ -1237,3 +1237,40 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e` after the fix, five background runs in a row (`.scratch/e2e-five.ps1`): all exit 0, `2 passed` each. Step 5 and step 7 times in ms, and wall time in seconds: run 1 step 5 4640, step 7 633, wall 95.2; run 2 4746, 808, 88.8; run 3 4667, 631, 89.4; run 4 4784, 1497, 86.3; run 5 4640, 1215, 93.0. The Playwright totals were 1.5m, 1.4m, 1.4m, 1.4m and 1.5m.
 - No new bugs: no property test failed, so `docs/bugs-found.md` is unchanged.
 
+## 2026-11-21 - world-view: camera speed, hand orb, and the GPU delegate
+
+- Kiro feature used: direct fix, asked for by the user after their manual camera run of world-view steps M1 to M6 (model: Claude Haiku 5.5, Medium). Committed as "Speed up the camera path and show the hand in the world slice" and pushed. Nothing else was committed. This entry replaces the delegate decision of the task 15.6 follow-up entry (see below); that entry is not rewritten.
+- Preflight: working tree clean; `main` = `origin/main` = `2c5fdcb`.
+- The user's camera run (Edge 158 on an Intel N100, webcam at 640 by 480 delivering 7.5 to 10 frames per second), as the user reported it:
+  - M1 passed: camera ready in 4.1 s, whole-frame comfort, reach gain 1.
+  - M2 passed: the waiting line showed with the lens covered and went when the user stepped into view. Set centre took the head offset from 0.93 to 0.
+  - M3 passed: near layers moved opposite to the head and more than far layers, with no zoom. Gentle was about half of Full; Reduced was none.
+  - M4 not passed: the lock was held for 0.3 s and no selection came in 60 s, at 4 to 7 frames per second and with no visible hand.
+  - M5 not run: no selection, so no travel.
+  - M6 inconclusive.
+- Measurement (Edge 158 on the user's Intel N100, camera 640x480 delivering 7.5-10 frames per s, 12 s per phase):
+
+| phase | inference median / p90 | frames per s | frame p90 | long tasks |
+|---|---|---|---|---|
+| CPU, debug shown | 64.7 / 94.2 ms | 27.2 | 91.7 ms | 113 |
+| CPU, debug hidden | 59.5 / 75.0 ms | 64.5 | 50.0 ms | 87 |
+| GPU, debug shown | 29.7 / 41.2 ms | 83.0 | 16.8 ms | 2 |
+
+- Change 1, GPU delegate first (marrow). `createMediapipeLandmarker` in `packages/marrow/src/input/cameraSource.ts` calls `createPoseLandmarker(basePath, { delegate: 'GPU' })`. Only a rejection or throw of that call leads to `createPoseLandmarker(basePath, { delegate: 'CPU' })`. A CPU rejection is reported as a model failure, as before. The model-load timeout covers both attempts; no second timer. `createPoseLandmarker` is unchanged. Three tests in `poseLandmarker.test.ts`, through `createCameraSource` with the default loader: GPU works (one call, delegate GPU, ready); GPU rejects (a second call with delegate CPU, ready); both reject (`model-failed`).
+- Decision: the GPU delegate, with CPU as the fallback, replaces the 15.6 follow-up decision to keep the library default delegate (CPU). That entry chose CPU because the CPU delegate gave the higher inference rate in the user's probe. The measurement above reverses that: on the same machine the GPU delegate has the lower median inference (29.7 ms against 64.7 ms with the debug panel shown) and the higher frame rate (83.0 against 27.2 frames per second). The fallback keeps the camera working on a machine where the GPU attempt fails. The source does not report which delegate it got. `marrow-input/design.md` says this in section 2.2 and in the export line of section 6 (`createCameraSource`), and in section 11.
+- Change 2, React update at most about 10 times a second (world slice). `DEBUG_REFRESH_MS = 100` in `apps/garden-of-echoes/src/dev/world/constants.ts`. `afterFrame` in `worldSession.ts` notifies at once when the frame has a selection or changes the hold, the waiting line, the restart button or the travel phase. Otherwise it notifies when at least 100 ms of raw frame delta has passed since the last frame notify. Every other notify is unchanged, and `snapshot()` and `window.__worldPlayground` are not throttled. `docs/architecture.md`, "Differences from the design", item 3 says the new rule. Five tests in the new `worldSession.test.ts`.
+- Change 3, hand orb in camera mode (world slice). A 24 px orb with the `--slice-glow` variable (the `lanternGlow` token) sits over the play area. It is a sibling of the Pixi host inside a new `.play-stack` wrapper, with `aria-hidden` and `pointer-events: none`. `afterFrame` sets its `hidden` attribute and its transform from `pointers[0].pos`, scaled by the play area's `offsetHeight` in CSS px. It is hidden while the right wrist is invalid and in mouse mode. The debug snapshot has `pointer: { valid, pos }` and the panel has a "Hand pointer" row (copy key `debug.hand`). Requirement 14.9 is added to `.kiro/specs/world-view/requirements.md`, to the task 7 `_Requirements` line in `tasks.md`, and as a `test` row in `coverage.md`. Three `14.9:` tests in `WorldPlayground.test.ts`.
+- Mutation proof (`.scratch/mutate-proof.ps1`). Each target file was copied to `.scratch/orig` first. One mutation was applied, the related test files were run, and the file was restored from the copy. The SHA-256 of each file matched before and after. Results:
+  - (a) no CPU fallback (the CPU call replaced by a throw): 2 of 13 failed in `poseLandmarker.test.ts`: "falls back to the CPU delegate when the GPU attempt rejects, and the source becomes ready" and "reports a model failure, as today, when the CPU attempt rejects too".
+  - (b) notify on every frame: 1 of 18 failed: "at most one update per DEBUG_REFRESH_MS of frame time while nothing a player sees changes".
+  - (c) notify only on the timer: 3 of 18 failed: "a selection notifies in the frame that makes it", "a hold change notifies in the frame that makes it", "a change of the waiting line notifies in the frame that makes it".
+  - (d) orb shown while the wrist is invalid: 1 of 18 failed: "14.9: with the right wrist invalid the orb is hidden".
+  - (e) orb at the raw wrist position: 1 of 18 failed: "14.9: with a valid right wrist the orb is shown at the position that the dwell step received, scaled to CSS px".
+- Files changed: `packages/marrow/src/input/cameraSource.ts`, `poseLandmarker.test.ts`; `apps/garden-of-echoes/src/copy/index.ts`, `src/dev/world/constants.ts`, `DebugPanel.tsx`, `WorldPlayground.tsx`, `WorldPlayground.test.ts`, `debugSnapshot.ts`, `debugSnapshot.test.ts`, `world.css`, `worldSession.ts`, new `worldSession.test.ts`; `docs/architecture.md`; `.kiro/specs/world-view/requirements.md`, `tasks.md`, `coverage.md`; `.kiro/specs/marrow-input/design.md`; `docs/kiro-journal.md`.
+- Evidence (real output, final tree):
+  - `npm run typecheck`: exit 0. The four workspace lines and `tsc --noEmit` for marrow, world-view and garden-of-echoes; no errors.
+  - `npm run lint`: exit 0. `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  66 passed (66)`, `Tests  1116 passed (1116)`, `Duration  53.83s`; wall time 56.2 s. Before this commit the suite had 65 files and 1105 tests.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1 › loads the page with the app name`, `ok 2 tests\e2e\world-view.spec.ts:220:3 › world playground › world playground in simulated-input mode (1.2m)`, `2 passed (1.2m)`; wall time 75.5 s.
+- Not verified: the camera path. M4 did not pass in the user's run, and this commit does not change the lock logic that M4 tests. M5 and M6 still need the user's run after this commit. Nothing here says that the camera path was verified.
+

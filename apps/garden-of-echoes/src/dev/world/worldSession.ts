@@ -14,11 +14,11 @@ import {
   type Vec2,
 } from 'marrow/core';
 import type { SettingsStore } from 'marrow/react';
-import { TUNING, type ProjectionFrame } from 'world-view';
+import { TUNING, type ProjectionFrame, type TravelPhase } from 'world-view';
 import type { FrameData, HitCircle, SceneManager, SceneManagerOptions } from 'world-view/pixi';
 import { browserFrames } from '../../ui/frames';
 import { colourNumber } from '../../ui/theme';
-import { COVER_COLOUR, DEFAULT_ASPECT, TARGET_VISUAL_RATIO } from './constants';
+import { COVER_COLOUR, DEBUG_REFRESH_MS, DEFAULT_ASPECT, TARGET_VISUAL_RATIO } from './constants';
 import { buildSnapshot, deepFreeze, type DebugSnapshot } from './debugSnapshot';
 import { cameraComfort, mouseComfort, placeStops, type ComfortSetup, type PlacementNotice, type PlacedStop } from './placementSetup';
 import { sceneLayers, sceneTargets } from './sceneSpec';
@@ -89,8 +89,28 @@ export interface SessionOptions {
   readonly content: WorldContent;
   readonly settings: SettingsStore;
   readonly playArea: () => HTMLElement | null;
+  /** The orb over the play area that shows the camera hand (Req 14.9). The session sets its position and visibility. */
+  readonly handOrb: () => HTMLElement | null;
   readonly video: () => HTMLVideoElement | null;
   readonly deps?: Partial<SessionDeps>;
+}
+
+/** The screen state that a player sees and that a frame can change; the React update waits for a change of it. */
+interface VisibleState {
+  readonly hold: boolean;
+  readonly waitingForHead: boolean;
+  readonly restartAvailable: boolean;
+  readonly travelPhase: TravelPhase;
+}
+
+function sameVisible(a: VisibleState, b: VisibleState | null): boolean {
+  return (
+    b !== null &&
+    a.hold === b.hold &&
+    a.waitingForHead === b.waitingForHead &&
+    a.restartAvailable === b.restartAvailable &&
+    a.travelPhase === b.travelPhase
+  );
 }
 
 /** What the screens and the Playwright test read: the screen, and the debug snapshot once a frame has run. */
@@ -150,9 +170,55 @@ export function createWorldSession(options: SessionOptions): WorldSession {
   let camera: PoseSource | null = null;
   let pointers: PointerInput[] = [];
   let circles: readonly HitCircle[] = [];
+  /** The frame time, from the raw deltas, since the last frame notify (the React update of afterFrame). */
+  let sinceFrameNotifyMs = ZERO;
+  /** The visible state of the frame before this one; null until the first frame of a run. */
+  let lastVisible: VisibleState | null = null;
 
   function notify(): void {
     for (const listener of [...listeners]) listener();
+  }
+
+  function waitingForHead(): boolean {
+    return mode === 'camera' && run !== null && run.neutral.neutral === null;
+  }
+
+  function restartAvailable(): boolean {
+    const current = run;
+    return current !== null && stopTargetIds(current.config, SECOND_STOP_INDEX).some((id) => current.selected.includes(id));
+  }
+
+  function visibleState(current: FrameReport): VisibleState {
+    return {
+      hold: current.hold,
+      waitingForHead: waitingForHead(),
+      restartAvailable: restartAvailable(),
+      travelPhase: current.travelPhase,
+    };
+  }
+
+  /** This frame's hand for the debug snapshot (Req 14.9): the valid flag, and the position the dwell step received. */
+  function handOf(): { valid: boolean; pos: Vec2 | null } {
+    const [first] = pointers;
+    if (first === undefined || !first.valid) return { valid: false, pos: null };
+    return { valid: true, pos: { x: first.pos.x, y: first.pos.y } };
+  }
+
+  /**
+   * Moves the hand orb to the active wrist (Req 14.9). It is shown only in camera mode, while the wrist is
+   * valid, and it is placed at the pointer of this frame, scaled by the play area's height in CSS px. The
+   * style is set here, not by React, so the orb moves at the frame rate.
+   */
+  function moveHand(): void {
+    const orb = options.handOrb();
+    if (orb === null) return;
+    const [first] = pointers;
+    const shown = mode === 'camera' && first !== undefined && first.valid;
+    orb.hidden = !shown;
+    const playArea = options.playArea();
+    if (!shown || first === undefined || !first.valid || playArea === null) return;
+    const height = playArea.offsetHeight;
+    orb.style.transform = `translate(${first.pos.x * height}px,${first.pos.y * height}px)`;
   }
 
   function segmentFor(wanted: SegmentKind): ContentSegment {
@@ -172,6 +238,10 @@ export function createWorldSession(options: SessionOptions): WorldSession {
     report = null;
     circles = [];
     pointers = [];
+    lastVisible = null;
+    sinceFrameNotifyMs = ZERO;
+    const orb = options.handOrb();
+    if (orb !== null) orb.hidden = true;
   }
 
   function showNotice(kindOfNotice: NoticeKind): void {
@@ -224,16 +294,28 @@ export function createWorldSession(options: SessionOptions): WorldSession {
     run = step.run;
     report = step.report;
     pointers = input.pointers;
+    sinceFrameNotifyMs += rawDt;
     return step.frame;
   }
 
-  /** Scene Manager callback after the render: the dwell step over this frame's circles (Req 12.3). */
+  /**
+   * Scene Manager callback after the render: the dwell step over this frame's circles (Req 12.3), the hand orb
+   * (Req 14.9), and the React update. The update runs at once when this frame changes what a player sees (a
+   * selection, or a change of hold, waiting line, restart button or travel phase), and otherwise at most once
+   * per DEBUG_REFRESH_MS of frame time. Every other notify is immediate.
+   */
   function afterFrame(hit: readonly HitCircle[]): void {
     circles = hit;
-    if (run === null) return;
+    if (run === null || report === null) return;
     const step = afterRender(run, hit, pointers);
     run = step.run;
     for (const event of step.events) scene?.setTargetColour(event.targetId, colourNumber(event.colour));
+    moveHand();
+    const visible = visibleState(report);
+    const changed = step.events.length > ZERO || !sameVisible(visible, lastVisible);
+    lastVisible = visible;
+    if (!changed && sinceFrameNotifyMs < DEBUG_REFRESH_MS) return;
+    sinceFrameNotifyMs = ZERO;
     notify();
   }
 
@@ -261,6 +343,8 @@ export function createWorldSession(options: SessionOptions): WorldSession {
     run = createWorldRun(config);
     report = null;
     circles = [];
+    lastVisible = null;
+    sinceFrameNotifyMs = ZERO;
     if (mode === 'mouse') {
       pointer = deps.createPointer(playArea);
       void pointer.start();
@@ -337,6 +421,7 @@ export function createWorldSession(options: SessionOptions): WorldSession {
               layers: scene.debugLayers(),
               rendered: scene.debugTargets(),
               circles,
+              pointer: handOf(),
             })
           : undefined;
       return deepFreeze({
@@ -345,9 +430,8 @@ export function createWorldSession(options: SessionOptions): WorldSession {
         notice,
         cameraNotice,
         segment: kind,
-        waitingForHead: mode === 'camera' && run !== null && run.neutral.neutral === null,
-        restartAvailable:
-          run !== null && stopTargetIds(run.config, SECOND_STOP_INDEX).some((id) => run?.selected.includes(id) === true),
+        waitingForHead: waitingForHead(),
+        restartAvailable: restartAvailable(),
       });
     },
     subscribe(listener: () => void): () => void {

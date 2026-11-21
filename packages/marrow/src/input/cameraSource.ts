@@ -151,9 +151,18 @@ function scheduleVideoFrame(video: HTMLVideoElement, callback: () => void): () =
   return () => cancelAnimationFrame(handle);
 }
 
-/** The default `createLandmarker`: MediaPipe, loaded only now, in a chunk of its own. */
-function createMediapipeLandmarker(basePath: string): Promise<LandmarkerLike> {
-  return import('./poseLandmarker').then((module) => module.createPoseLandmarker(basePath));
+/**
+ * The default `createLandmarker`: MediaPipe, loaded only now, in a chunk of its own. The GPU delegate
+ * is tried first; only its failure leads to the CPU delegate (design 11, decided 2026-11-21). A CPU
+ * failure rejects like any model failure. Both attempts share the model-load budget of `start()`.
+ */
+async function createMediapipeLandmarker(basePath: string): Promise<LandmarkerLike> {
+  const { createPoseLandmarker } = await import('./poseLandmarker');
+  try {
+    return await createPoseLandmarker(basePath, { delegate: 'GPU' });
+  } catch {
+    return createPoseLandmarker(basePath, { delegate: 'CPU' });
+  }
 }
 
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {

@@ -38,6 +38,7 @@ export function DebugPanel(props: { readonly snapshot: WorldSnapshot }): ReactEl
       },circle=${t.circle === null ? text.none : `${vec(t.circle.centre)}r=${num(t.circle.radius)}`}`,
   );
   const circleLines = (s.circles ?? []).map((circle) => `${circle.id}${vec(circle.centre)}r=${num(circle.radius)}`);
+  const handPos = s.pointer?.pos ?? null;
   return (
     <section aria-label={copy.worldPlayground.debugHeading} className="debug">
       <h2>{copy.worldPlayground.debugHeading}</h2>
@@ -83,6 +84,7 @@ export function DebugPanel(props: { readonly snapshot: WorldSnapshot }): ReactEl
         <Row label={text.targets} value={targetLines.join(';')} />
         <Row label={text.layers} value={(s.layers ?? []).map((layer) => `${layer.id}${vec(layer)}s=${num(layer.scale)}`).join(';')} />
         <Row label={text.circles} value={circleLines.join(';') || text.none} />
+        <Row label={text.hand} value={`${s.pointer?.valid === true},${handPos === null ? text.none : vec(handPos)}`} />
       </dl>
     </section>
   );
