@@ -52,7 +52,7 @@ function setup(): { run: WorldRun; report: FrameReport; extras: SnapshotExtras }
     layers: [{ id: 'layer-0', x: ONE, y: ONE, scale: ONE, visible: true }],
     rendered: [],
     circles: [],
-    pointer: { valid: true, pos: { x: HALF * FRAME.aspect, y: HALF } },
+    pointers: [{ wrist: 'right', valid: true, pos: { x: HALF * FRAME.aspect, y: HALF } }],
   };
   return { run, report: step.report, extras };
 }

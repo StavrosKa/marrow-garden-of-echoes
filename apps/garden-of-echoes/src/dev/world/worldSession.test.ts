@@ -4,11 +4,12 @@
 // the restart button or the travel phase. The browser objects are fakes, so no test loads Pixi or a camera. A
 // frame is the Scene Manager's two callbacks: getFrame with the raw frame delta, then onFrame with the circles.
 import { describe, expect, it, vi, type Mock } from 'vitest';
-import type { Vec2 } from 'marrow/core';
+import { TUNING as MARROW_TUNING, type Vec2 } from 'marrow/core';
 import type { PoseSource } from 'marrow/input';
 import { createSettingsStore } from 'marrow/react';
 import type { HitCircle, SceneManager, SceneManagerOptions } from 'world-view/pixi';
 import { DEBUG_REFRESH_MS, DEFAULT_ASPECT } from './constants';
+import { cameraComfort } from './placementSetup';
 import { loadWorldContent, type WorldContent } from './worldContent';
 import { createWorldSession, type SessionDeps, type WorldSession } from './worldSession';
 
@@ -209,5 +210,64 @@ describe('the React update of the session (design 8.2; Req 11.7)', () => {
     expect(rig.listener.mock.calls.length).toBe(before + 1);
     rig.session.setCentre();
     expect(rig.listener.mock.calls.length).toBe(before + 2);
+  });
+});
+
+/** The screen position of a camera point, through the comfort mapping of camera mode (the one the slice uses). */
+function cameraScreen(point: Vec2): Vec2 {
+  return cameraComfort(DEFAULT_ASPECT, MARROW_TUNING.cameraWidth / MARROW_TUNING.cameraHeight).mapping.toScreen(point);
+}
+
+describe('the two hands of the camera mode (Req 14.2, 14.6, 14.9)', () => {
+  it('14.2: a target is selected with only the left wrist on it', async () => {
+    const pose = allInvalidPose();
+    pose.leftWrist = { pos: { x: 0.3, y: 0.4 }, valid: true };
+    const rig = await startRig('camera', pose, NO_HAND);
+    const target = rig.options[0]?.targets[0];
+    if (target === undefined) throw new Error('the scene has no target');
+    const circle: HitCircle = { id: target.id, centre: cameraScreen(pose.leftWrist.pos), radius: 0.1 };
+    for (let i = 0; i < 300 && rig.scene.setTargetColour.mock.calls.length === 0; i++) {
+      frame(rig, FRAME_MS, [circle]);
+    }
+    expect(rig.scene.setTargetColour).toHaveBeenCalledWith(target.id, expect.any(Number));
+  });
+
+  it('14.6: the hold does not begin while the left wrist alone is valid, and begins once both are invalid for the hold time', async () => {
+    const pose = allInvalidPose();
+    pose.leftWrist = { pos: { x: 0.5, y: 0.5 }, valid: true };
+    const rig = await startRig('camera', pose, NO_HAND);
+    for (let i = 0; i < 100; i++) frame(rig, FRAME_MS);
+    expect(rig.session.snapshot().hold).toBe(false);
+    pose.leftWrist = { pos: { x: 0.5, y: 0.5 }, valid: false };
+    let elapsedMs = 0;
+    let held = false;
+    for (let i = 0; i < 100 && !held; i++) {
+      frame(rig, FRAME_MS);
+      elapsedMs += FRAME_MS;
+      held = rig.session.snapshot().hold === true;
+    }
+    expect(held).toBe(true);
+    expect(elapsedMs).toBeGreaterThan(MARROW_TUNING.trackingHoldAfterMs);
+    expect(elapsedMs).toBeLessThanOrEqual(MARROW_TUNING.trackingHoldAfterMs + 2 * FRAME_MS);
+  });
+
+  it('14.9: in camera mode the snapshot lists both pointers, right first, each at its own position', async () => {
+    const pose = allInvalidPose();
+    pose.rightWrist = { pos: { x: 0.2, y: 0.3 }, valid: true };
+    pose.leftWrist = { pos: { x: 0.6, y: 0.5 }, valid: true };
+    const rig = await startRig('camera', pose, NO_HAND);
+    frame(rig, FRAME_MS);
+    expect(rig.session.snapshot().pointers).toEqual([
+      { wrist: 'right', valid: true, pos: cameraScreen(pose.rightWrist.pos) },
+      { wrist: 'left', valid: true, pos: cameraScreen(pose.leftWrist.pos) },
+    ]);
+  });
+
+  it('14.9: in mouse mode there is one pointer, for the right wrist', async () => {
+    const rig = await startRig('mouse', allInvalidPose(), CENTRE_HAND);
+    frame(rig, FRAME_MS);
+    const pointers = rig.session.snapshot().pointers;
+    expect(pointers?.map((hand) => hand.wrist)).toEqual(['right']);
+    expect(pointers?.[0]?.valid).toBe(true);
   });
 });

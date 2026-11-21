@@ -596,7 +596,7 @@ stateDiagram-v2
 - **Notice**: a plain line from `copy/` and a Back button, for a placement that is not `simultaneous` at stop 1 or is `none` at stop 2 (Req 12.2). The whole-screen grid is not enlarged (Req 14.2 is the only grid shortcut).
 - Camera denied or missing: a plain notice line and the slice continues in mouse mode (Req 14.7). Exit and unmount stop the camera tracks (Req 14.5); no frame is stored.
 
-Comfort grid and mapping: mouse mode uses `chooseWholeScreen` on a simulated-mode calibration state, as Req 12.4 says. Camera mode uses `markAllValid` on a grid per active wrist, `makeMapping` with reach gain 1 and the comfort centre at the screen centre, and the debug panel says so (Req 14.2).
+Comfort grid and mapping: mouse mode uses `chooseWholeScreen` on a simulated-mode calibration state, as Req 12.4 says. Camera mode uses `markAllValid` on a grid per active wrist, `makeMapping` with reach gain 1 and the comfort centre at the screen centre, and the debug panel says so (Req 14.2). Dated 2026-11-22: in camera mode the active wrists are both wrists (Marrow's "both"), and in mouse mode the right wrist.
 
 ### 8.2 Debug panel and the read-only snapshot
 

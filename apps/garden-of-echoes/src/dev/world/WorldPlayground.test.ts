@@ -287,10 +287,32 @@ function cameraWithRightWrist(wrist: { pos: { x: number; y: number }; valid: boo
   };
 }
 
-/** The hand orb of the play area (Req 14.9). */
+/** A camera source whose right and left wrists are the given points; the other landmarks are invalid. */
+function cameraWithWrists(
+  right: { pos: { x: number; y: number }; valid: boolean },
+  left: { pos: { x: number; y: number }; valid: boolean },
+) {
+  const invalid = { pos: { x: 0, y: 0 }, valid: false };
+  return {
+    start: vi.fn(async (): Promise<StartOutcome> => 'ready'),
+    latest: () => ({
+      t: 0,
+      aspect: 4 / 3,
+      landmarks: { leftWrist: left, rightWrist: right, nose: invalid, leftShoulder: invalid, rightShoulder: invalid },
+    }),
+    dispose: vi.fn(),
+  };
+}
+
+/** The hand orb of the play area (Req 14.9): the right one, which is the first in the page. */
 function handOrb(): HTMLElement {
-  const orb = document.querySelector<HTMLElement>('.hand-orb');
-  if (orb === null) throw new Error('the hand orb is not rendered');
+  return handOrbOf('right');
+}
+
+/** The hand orb of one wrist (Req 14.9). */
+function handOrbOf(wrist: 'left' | 'right'): HTMLElement {
+  const orb = document.querySelector<HTMLElement>(`.hand-orb[data-wrist="${wrist}"]`);
+  if (orb === null) throw new Error(`the ${wrist} hand orb is not rendered`);
   return orb;
 }
 
@@ -354,6 +376,33 @@ describe('the hand orb of the camera mode (Req 14.9)', () => {
     sceneOptions.getFrame(FRAME_MS);
     sceneOptions.onFrame?.([]);
     expect(handOrb().hidden).toBe(true);
+  });
+
+  it('14.9: the left orb is shown at the left pointer and hidden while the left wrist is invalid, independently of the right orb', async () => {
+    const right = { pos: { x: 0.3, y: 0.6 }, valid: true };
+    const left = { pos: { x: 0.7, y: 0.4 }, valid: true };
+    const height = 540;
+    const heightSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(height);
+    try {
+      const sceneOptions = await startCameraSlice(cameraWithWrists(right, left));
+      sceneOptions.getFrame(FRAME_MS);
+      sceneOptions.onFrame?.([]);
+      const cameraAspect = MARROW_TUNING.cameraWidth / MARROW_TUNING.cameraHeight;
+      const received = cameraComfort(DEFAULT_ASPECT, cameraAspect).mapping.toScreen(left.pos);
+      const [x, y] = translateOf(handOrbOf('left'));
+      expect(handOrbOf('left').hidden).toBe(false);
+      expect(x).toBeCloseTo(received.x * height, 9);
+      expect(y).toBeCloseTo(received.y * height, 9);
+      expect(handOrbOf('right').hidden).toBe(false);
+
+      left.valid = false;
+      sceneOptions.getFrame(FRAME_MS);
+      sceneOptions.onFrame?.([]);
+      expect(handOrbOf('left').hidden).toBe(true);
+      expect(handOrbOf('right').hidden).toBe(false);
+    } finally {
+      heightSpy.mockRestore();
+    }
   });
 
   it('14.9: in mouse mode there is no shown orb', async () => {

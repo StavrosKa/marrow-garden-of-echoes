@@ -1274,3 +1274,43 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1 › loads the page with the app name`, `ok 2 tests\e2e\world-view.spec.ts:220:3 › world playground › world playground in simulated-input mode (1.2m)`, `2 passed (1.2m)`; wall time 75.5 s.
 - Not verified: the camera path. M4 did not pass in the user's run, and this commit does not change the lock logic that M4 tests. M5 and M6 still need the user's run after this commit. Nothing here says that the camera path was verified.
 
+## 2026-11-22 - world-view: both hands in the camera mode
+
+- Kiro feature used: direct fix, asked for by the user after the second manual camera run of world-view (model: Claude Haiku 5.5, Medium). Committed as "Use both hands in the camera mode of the world slice" and pushed. Nothing else was committed.
+- Preflight: working tree clean; `main` = `origin/main` = `8c00685`.
+- The user's runs, as the user reported them. Machine: Edge 158 on an Intel N100, webcam set to 640x480 at 30 frames per s, delivering 6 to 7.5 frames per s.
+  - Performance after `8c00685`, 12 s per phase, seated in view:
+
+| phase | inference median / p90 | frames per s | frame p90 | long tasks |
+|---|---|---|---|---|
+| default delegate (GPU), debug shown | 40.3 / 62.3 ms | 69.6 | 33.2 ms | 21 |
+| default delegate (GPU), debug hidden | 41.1 / 47.8 ms | 73.0 | 33.2 ms | 10 |
+| GPU rejected on purpose, CPU fallback, debug shown | 155.3 / 163.6 ms | 5.4 | 191.7 ms | 76 |
+
+  - The debug panel no longer changes the frame rate much: 69.6 frames per s with it shown against 73.0 hidden (before, 27.2 against 64.5). The CPU fallback started and ran. Its inference time, 155 ms, is much higher than the 65 ms CPU median of 2026-11-21, for a reason not known. This is an open observation, not a fix.
+  - First guided run: M1 passed (camera ready in 2.9 s, whole-frame comfort, gain 1, driver off). M3 passed (near layers moved opposite to the head and much more than far layers, layer-5 slope -0.053 against layer-1 -0.0016 per unit of head x; no zoom; Gentle about 0.47 of the head, Reduced none). M4 passed (target stop-1-1 selected; lock held 1.46 s; interaction head spread 0 and target circle spread 0 during the lock while the decorative head moved, spread 0.124; 77 frames per s). M6 passed by the user's judgement (the view moved smoothly at 7.5 camera frames per s). M2 and M5 were marked failed by the user's recorder script in this run because of the script's own measurement (M2: the user moved after Set centre; M5: the script averaged frames after the lens was uncovered). The script was corrected; no product code changed.
+  - Second run of M2 and M5 with the corrected script. M2 passed: the waiting line showed with the user out of view and the head offset stayed at 0; the line went 6.9 s after the user stepped into view; Set centre took the head offset from (1.0, -0.22) to (0, 0) within 0.8 s. M5 passed: the hold began during a travel at progress 0.83; the progress did not change during the hold (spread 0); the decorative head eased from 1.03 to 0 while the lens was covered; the hold ended on return and the travel arrived.
+  - With the right wrist as the only active wrist (before this commit), all six manual steps M1 to M6 of Req 15.5 passed in the user's run with a real camera on this one machine. The two-hand camera mode of this commit is not yet checked by the user.
+- Reason for this commit: the user found the left target of stop 1 hard to reach with the right hand. Only the right wrist was active, and the whole frame was marked comfortable for it (Req 14.2), so a slot on the far left needed the right arm across the body. The game spec will still place camera targets from Marrow's reach calibration per wrist; this commit does not change that plan.
+- The change:
+  - One source for the active wrists: `activeWristsOf(mode)` in `placementSetup.ts`, camera `['right', 'left']` (right first), mouse `['right']`. The three `ACTIVE_WRIST = 'right'` constants (`placementSetup.ts`, `worldRun.ts`, `worldSession.ts`) are removed.
+  - Comfort: camera mode gives each wrist its own `markAllValid` grid, and one mapping (reach gain 1, centre at the screen centre) serves both (marrow-input Req 10.4). Placement gets both grids; its rules are unchanged.
+  - Tracking: `createTracking` takes both wrists in camera mode, so the hold begins only when no active wrist has been valid for 300 ms, and ends when either wrist is valid again (marrow `stepTracking`, unchanged).
+  - Pointers: camera mode gives the dwell step one pointer per wrist, each from its own landmark through the same mapping. The dwell and the lock are unchanged; the lock follows the owner whichever wrist it is. Marrow's dwell, lock ownership and Tracking Lifecycle take two wrists as they are; no change inside `packages/marrow`.
+  - Hand orbs: one per active wrist in camera mode (`data-wrist` right and left, the same look), each shown only while its own wrist is valid and placed at its own pointer from `afterFrame`. No orb in mouse mode.
+  - Debug snapshot: `pointer` is replaced by `pointers: { wrist, valid, pos }[]`, one per active wrist of the mode, right first. The "Hand pointer" row lists them.
+  - Spec: world-view requirements 14.2 and 14.9 say "each active wrist" and name the two modes; 14.6 is unchanged. The comfort-grid paragraph of `world-view/design.md` has the sentence on the two modes, dated 2026-11-22. The 14.9 test title is unchanged, so its coverage row is unchanged. M1 to M6 in `tasks.md` are unchanged.
+- Tests: new in `worldSession.test.ts` (titles start with 14.2, 14.6 and 14.9): a target selected with only the left wrist on it; the hold does not begin while the left wrist alone is valid and begins after 300 ms with both invalid; the snapshot lists both pointers in camera mode; mouse mode has one pointer, for the right wrist. New in `WorldPlayground.test.ts`: the left orb at the left pointer, hidden while the left wrist is invalid, independent of the right orb. Changed existing test: `debugSnapshot.test.ts` fixture, `pointer` became `pointers` (the old single-pointer shape). No other existing test changed.
+- Mutation proof (`.scratch/mutate-hands.ps1`). Each target file was copied to `.scratch/orig` first. One mutation was applied, the two related test files were run, and the file was restored from the copy with a SHA-256 check that matched before and after. Results:
+  - (a) left pointer not passed to the dwell step (camera pointers built from the mouse list): 3 of 23 failed: "14.2: a target is selected with only the left wrist on it", "14.9: in camera mode the snapshot lists both pointers, right first, each at its own position", and "14.9: the left orb is shown at the left pointer and hidden while the left wrist is invalid, independently of the right orb".
+  - (b) tracking hold starts when the right wrist alone is invalid (tracking given the mouse list): 1 of 23 failed: "14.6: the hold does not begin while the left wrist alone is valid, and begins once both are invalid for the hold time".
+  - (c) left orb shown while the left wrist is invalid: 2 of 23 failed: "14.9: the left orb is shown at the left pointer and hidden while the left wrist is invalid, independently of the right orb" and "14.9: with the right wrist invalid the orb is hidden".
+  - (d) left orb placed at the right pointer: 1 of 23 failed: "14.9: the left orb is shown at the left pointer and hidden while the left wrist is invalid, independently of the right orb".
+  - (e) mouse mode given both wrists (mouse pointers built from the camera list): 1 of 23 failed: "14.9: in mouse mode there is one pointer, for the right wrist".
+- Evidence (real output, final tree):
+  - `npm run typecheck`: exit 0. The four workspace lines and `tsc --noEmit` for marrow, world-view and garden-of-echoes; no errors.
+  - `npm run lint`: exit 0. `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  66 passed (66)`, `Tests  1121 passed (1121)`, `Duration  52.37s`; wall time 56.3 s. The previous commit had 66 files and 1116 tests; the 5 added tests are the new ones above.
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1 › loads the page with the app name (2.0s)`, `ok 1 tests\e2e\world-view.spec.ts:220:3 › world playground › world playground in simulated-input mode (1.2m)`, `2 passed (1.3m)`; wall time 81.3 s.
+- Not verified: the two-hand camera mode is not checked by the user. The camera path is not verified as a whole. The open observation about the CPU fallback inference time (155 ms) is not explained.
+

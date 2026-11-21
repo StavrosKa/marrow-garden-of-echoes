@@ -12,6 +12,7 @@ import {
   type PointerInput,
   type PoseLandmarks,
   type Vec2,
+  type WristId,
 } from 'marrow/core';
 import type { SettingsStore } from 'marrow/react';
 import { TUNING, type ProjectionFrame, type TravelPhase } from 'world-view';
@@ -19,8 +20,16 @@ import type { FrameData, HitCircle, SceneManager, SceneManagerOptions } from 'wo
 import { browserFrames } from '../../ui/frames';
 import { colourNumber } from '../../ui/theme';
 import { COVER_COLOUR, DEBUG_REFRESH_MS, DEFAULT_ASPECT, TARGET_VISUAL_RATIO } from './constants';
-import { buildSnapshot, deepFreeze, type DebugSnapshot } from './debugSnapshot';
-import { cameraComfort, mouseComfort, placeStops, type ComfortSetup, type PlacementNotice, type PlacedStop } from './placementSetup';
+import { buildSnapshot, deepFreeze, type DebugSnapshot, type HandSnapshot } from './debugSnapshot';
+import {
+  activeWristsOf,
+  cameraComfort,
+  mouseComfort,
+  placeStops,
+  type ComfortSetup,
+  type PlacementNotice,
+  type PlacedStop,
+} from './placementSetup';
 import { sceneLayers, sceneTargets } from './sceneSpec';
 import {
   afterRender,
@@ -41,8 +50,9 @@ import type { ContentSegment, WorldContent } from './worldContent';
 const ZERO = 0;
 const HALF = 0.5;
 const ONE = 1;
-const ACTIVE_WRIST = 'right';
 const SECOND_STOP_INDEX = 1;
+/** The wrists in the order of the hand orbs and of the pointers: right first (Req 14.9). */
+const WRISTS: readonly WristId[] = ['right', 'left'];
 /** The play area is 16:9 by CSS (960 by 540 CSS px), so the scene's aspect is exactly this value. */
 const PLAY_ASPECT = DEFAULT_ASPECT;
 const RADIUS = MARROW_TUNING.hitRadius;
@@ -89,8 +99,8 @@ export interface SessionOptions {
   readonly content: WorldContent;
   readonly settings: SettingsStore;
   readonly playArea: () => HTMLElement | null;
-  /** The orb over the play area that shows the camera hand (Req 14.9). The session sets its position and visibility. */
-  readonly handOrb: () => HTMLElement | null;
+  /** The orb over the play area of each active wrist (Req 14.9). The session sets its position and visibility. */
+  readonly handOrb: (wrist: WristId) => HTMLElement | null;
   readonly video: () => HTMLVideoElement | null;
   readonly deps?: Partial<SessionDeps>;
 }
@@ -137,8 +147,13 @@ export interface WorldSession {
   dispose(): void;
 }
 
-function pointerOf(valid: boolean, pos: Vec2): PointerInput {
-  return valid ? { wrist: ACTIVE_WRIST, valid: true, pos } : { wrist: ACTIVE_WRIST, valid: false };
+function pointerOf(wrist: WristId, valid: boolean, pos: Vec2): PointerInput {
+  return valid ? { wrist, valid: true, pos } : { wrist, valid: false };
+}
+
+/** The landmark of one wrist of a pose (Req 14.9: each active wrist has its own). */
+function wristLandmark(landmarks: PoseLandmarks, wrist: WristId): Landmark {
+  return wrist === 'left' ? landmarks.leftWrist : landmarks.rightWrist;
 }
 
 function videoAspect(video: HTMLVideoElement | null): number {
@@ -197,28 +212,33 @@ export function createWorldSession(options: SessionOptions): WorldSession {
     };
   }
 
-  /** This frame's hand for the debug snapshot (Req 14.9): the valid flag, and the position the dwell step received. */
-  function handOf(): { valid: boolean; pos: Vec2 | null } {
-    const [first] = pointers;
-    if (first === undefined || !first.valid) return { valid: false, pos: null };
-    return { valid: true, pos: { x: first.pos.x, y: first.pos.y } };
+  /** This frame's pointers for the debug snapshot (Req 14.9): one per active wrist, right first. */
+  function handsOf(): HandSnapshot[] {
+    return pointers.map((hand) =>
+      hand.valid
+        ? { wrist: hand.wrist, valid: true, pos: { x: hand.pos.x, y: hand.pos.y } }
+        : { wrist: hand.wrist, valid: false, pos: null },
+    );
   }
 
   /**
-   * Moves the hand orb to the active wrist (Req 14.9). It is shown only in camera mode, while the wrist is
-   * valid, and it is placed at the pointer of this frame, scaled by the play area's height in CSS px. The
-   * style is set here, not by React, so the orb moves at the frame rate.
+   * Moves the hand orb of each wrist (Req 14.9). An orb is shown only for an active wrist of the mode, in camera
+   * mode, while that wrist is valid, and it is placed at that wrist's pointer of this frame, scaled by the play
+   * area's height in CSS px. The style is set here, not by React, so the orbs move at the frame rate.
    */
-  function moveHand(): void {
-    const orb = options.handOrb();
-    if (orb === null) return;
-    const [first] = pointers;
-    const shown = mode === 'camera' && first !== undefined && first.valid;
-    orb.hidden = !shown;
+  function moveHands(): void {
     const playArea = options.playArea();
-    if (!shown || first === undefined || !first.valid || playArea === null) return;
-    const height = playArea.offsetHeight;
-    orb.style.transform = `translate(${first.pos.x * height}px,${first.pos.y * height}px)`;
+    const active = activeWristsOf(mode);
+    for (const wrist of WRISTS) {
+      const orb = options.handOrb(wrist);
+      if (orb === null) continue;
+      const hand = pointers.find((pointer) => pointer.wrist === wrist);
+      const shown = mode === 'camera' && active.includes(wrist) && hand?.valid === true;
+      orb.hidden = !shown;
+      if (!shown || hand === undefined || !hand.valid || playArea === null) continue;
+      const height = playArea.offsetHeight;
+      orb.style.transform = `translate(${hand.pos.x * height}px,${hand.pos.y * height}px)`;
+    }
   }
 
   function segmentFor(wanted: SegmentKind): ContentSegment {
@@ -240,8 +260,10 @@ export function createWorldSession(options: SessionOptions): WorldSession {
     pointers = [];
     lastVisible = null;
     sinceFrameNotifyMs = ZERO;
-    const orb = options.handOrb();
-    if (orb !== null) orb.hidden = true;
+    for (const wrist of WRISTS) {
+      const orb = options.handOrb(wrist);
+      if (orb !== null) orb.hidden = true;
+    }
   }
 
   function showNotice(kindOfNotice: NoticeKind): void {
@@ -259,25 +281,27 @@ export function createWorldSession(options: SessionOptions): WorldSession {
     const headPointer: HeadViewPointer = { valid: wrist.valid, pos };
     return {
       head: { kind: 'pointer', pointer: headPointer, playAspect: PLAY_ASPECT },
-      pointers: [pointerOf(wrist.valid, pos)],
+      pointers: activeWristsOf('mouse').map((hand) => pointerOf(hand, wrist.valid, pos)),
     };
   }
 
-  /** The head input and the dwell pointers of one frame, in camera mode. */
+  /** The head input and the dwell pointers of one frame, in camera mode: one pointer per active wrist (Req 14.2, 14.6). */
   function cameraFrame(): { head: HeadInput; pointers: PointerInput[] } {
     const latest = camera?.latest();
     const landmarks = latest?.landmarks ?? EMPTY_LANDMARKS;
     const frameAspect = latest?.aspect ?? cameraAspect;
-    const wrist = landmarks.rightWrist;
-    const pos = (comfort?.mapping ?? POINTER_MAPPING).toScreen(wrist.pos);
+    const mapping = comfort?.mapping ?? POINTER_MAPPING;
     return {
       head: {
         kind: 'camera',
         landmarks,
-        wristValid: { left: landmarks.leftWrist.valid, right: wrist.valid },
+        wristValid: { left: landmarks.leftWrist.valid, right: landmarks.rightWrist.valid },
         cameraAspect: frameAspect,
       },
-      pointers: [pointerOf(wrist.valid, pos)],
+      pointers: activeWristsOf('camera').map((hand) => {
+        const landmark = wristLandmark(landmarks, hand);
+        return pointerOf(hand, landmark.valid, mapping.toScreen(landmark.pos));
+      }),
     };
   }
 
@@ -310,7 +334,7 @@ export function createWorldSession(options: SessionOptions): WorldSession {
     const step = afterRender(run, hit, pointers);
     run = step.run;
     for (const event of step.events) scene?.setTargetColour(event.targetId, colourNumber(event.colour));
-    moveHand();
+    moveHands();
     const visible = visibleState(report);
     const changed = step.events.length > ZERO || !sameVisible(visible, lastVisible);
     lastVisible = visible;
@@ -421,7 +445,7 @@ export function createWorldSession(options: SessionOptions): WorldSession {
               layers: scene.debugLayers(),
               rendered: scene.debugTargets(),
               circles,
-              pointer: handOf(),
+              pointers: handsOf(),
             })
           : undefined;
       return deepFreeze({

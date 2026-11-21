@@ -1,6 +1,6 @@
 // The read-only snapshot of the slice (Req 11.7; design 8.2). It is a copy: plain values only, no
 // function and no reference to live state, deep-frozen. Taking it does not change the run.
-import { dwellView, type MotionLevel, type Vec2 } from 'marrow/core';
+import { dwellView, type MotionLevel, type Vec2, type WristId } from 'marrow/core';
 import type { DebugEntry, HitCircle } from 'world-view/pixi';
 import type { LockMode, TravelPhase, TravelStyle } from 'world-view';
 import type { FrameReport, InputMode, WorldRun } from './worldRun';
@@ -17,11 +17,13 @@ export interface SnapshotExtras {
   readonly rendered: readonly DebugEntry[];
   /** The hit circles of this frame. */
   readonly circles: readonly HitCircle[];
-  /** The hand of this frame: valid, and the position the dwell step received (Req 14.9). */
-  readonly pointer: HandSnapshot;
+  /** The pointers of this frame, one per active wrist of the mode, right first (Req 14.9). */
+  readonly pointers: readonly HandSnapshot[];
 }
 
+/** One active wrist's pointer of this frame: its validity, and the position the dwell step received. */
 export interface HandSnapshot {
+  readonly wrist: WristId;
   readonly valid: boolean;
   readonly pos: Vec2 | null;
 }
@@ -71,7 +73,7 @@ export interface DebugSnapshot {
   readonly targets: Readonly<Record<string, TargetSnapshot>>;
   readonly layers: readonly DebugEntry[];
   readonly circles: readonly HitCircle[];
-  readonly pointer: HandSnapshot;
+  readonly pointers: readonly HandSnapshot[];
 }
 
 /** Freezes an object graph in place. Only plain values are passed in, so no function is frozen. */
@@ -156,6 +158,10 @@ export function buildSnapshot(run: WorldRun, report: FrameReport, extras: Snapsh
     targets,
     layers: extras.layers.map(copyEntry),
     circles: extras.circles.map((circle) => ({ id: circle.id, centre: copyVec(circle.centre), radius: circle.radius })),
-    pointer: { valid: extras.pointer.valid, pos: extras.pointer.pos === null ? null : copyVec(extras.pointer.pos) },
+    pointers: extras.pointers.map((hand) => ({
+      wrist: hand.wrist,
+      valid: hand.valid,
+      pos: hand.pos === null ? null : copyVec(hand.pos),
+    })),
   });
 }

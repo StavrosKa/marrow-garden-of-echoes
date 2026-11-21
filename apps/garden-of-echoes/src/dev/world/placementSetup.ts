@@ -12,6 +12,7 @@ import {
   type CalibrationResult,
   type Mapping,
   type Vec2,
+  type WristId,
 } from 'marrow/core';
 import { parallaxMargin, screenToWorld, TUNING, type ProjectionFrame, type Tuning, type WorldPoint } from 'world-view';
 import { stopTravel, type ContentSegment, type WorldContent } from './worldContent';
@@ -19,7 +20,18 @@ import { stopTravel, type ContentSegment, type WorldContent } from './worldConte
 const ZERO = 0;
 const ONE = 1;
 const HALF = 0.5;
-const ACTIVE_WRIST = 'right';
+
+/** The input modes of the slice. Kept here so that every file reads the active wrists from one place. */
+export type ComfortMode = 'mouse' | 'camera';
+
+/**
+ * The active wrists of each mode (marrow-input glossary, "Active wrist"): camera mode uses both wrists, the
+ * right one first; simulated input (mouse) uses the right wrist only. Tracking, comfort and the dwell pointers
+ * all read this list.
+ */
+export function activeWristsOf(mode: ComfortMode): readonly WristId[] {
+  return mode === 'camera' ? ['right', 'left'] : ['right'];
+}
 
 /** The comfort grids (keyed by wrist) and the mapping that goes with them. */
 export interface ComfortSetup {
@@ -61,7 +73,7 @@ export type PlacementOutcome =
  */
 export function mouseComfort(playAspect: number, r: number): ComfortSetup {
   const created = createCalibration({
-    activeWrists: [ACTIVE_WRIST],
+    activeWrists: activeWristsOf('mouse'),
     mode: 'simulated',
     demand: { slots: [], n: ONE, r, m: ZERO },
     frameAspect: playAspect,
@@ -81,18 +93,21 @@ export function mouseComfort(playAspect: number, r: number): ComfortSetup {
 }
 
 /**
- * Camera mode (Req 14.2): the whole camera frame is comfortable for the active wrist (markAllValid), the
- * reach gain is 1 and the comfort centre is the centre of the play area. No calibration screen runs.
+ * Camera mode (Req 14.2): the whole camera frame is comfortable for each active wrist (markAllValid, one grid
+ * per wrist of activeWristsOf('camera')). The one mapping has reach gain 1 and the comfort centre at the centre
+ * of the play area, and it is the same for every wrist (marrow-input Req 10.4). No calibration screen runs.
  */
 export function cameraComfort(playAspect: number, frameAspect: number): ComfortSetup {
-  const grid = markAllValid(createGrid(MARROW_TUNING));
+  const grids = Object.fromEntries(
+    activeWristsOf('camera').map((wrist) => [wrist, markAllValid(createGrid(MARROW_TUNING))]),
+  ) as CalibrationResult['grids'];
   const mapping = makeMapping({
     playAspect,
     frameAspect,
     gain: ONE,
     centre: { x: playAspect * HALF, y: HALF },
   });
-  return { grids: { [ACTIVE_WRIST]: grid }, mapping };
+  return { grids, mapping };
 }
 
 /**

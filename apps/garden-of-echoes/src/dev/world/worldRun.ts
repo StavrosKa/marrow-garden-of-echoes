@@ -55,12 +55,11 @@ import { REWARD_DELAY_MS, TARGET_SELECTED_TOKEN } from './constants';
 import { createHeadDriver, setHeadDriver, type HeadDriver } from './headDriver';
 import { createNeutral, recordNeutral, requestSetCentre, type NeutralState } from './cameraNeutral';
 import type { ThemeToken } from '../../ui/theme';
-import type { PlacedStop } from './placementSetup';
+import { activeWristsOf, type PlacedStop } from './placementSetup';
 import type { ContentSegment, WorldContent } from './worldContent';
 
 const ZERO = 0;
 const ONE = 1;
-const ACTIVE_WRIST = 'right';
 const UNSELECTED_STOP = 0;
 const ARRIVED_STOP = 1;
 
@@ -224,7 +223,7 @@ function freshRun(config: RunConfig, generation: number, driver: HeadDriver, neu
 export function createWorldRun(config: RunConfig): WorldRun {
   const tracking =
     config.mode === 'camera'
-      ? createTracking({ activeWrists: [ACTIVE_WRIST], mode: 'camera', tuning: MARROW_TUNING })
+      ? createTracking({ activeWrists: activeWristsOf('camera'), mode: 'camera', tuning: MARROW_TUNING })
       : null;
   return freshRun(config, ZERO, createHeadDriver(), createNeutral(), tracking);
 }

@@ -3,7 +3,7 @@
 // The route is `?playground=world` (main.tsx loads this file only then). The global
 // `window.__worldPlayground` exists only on that route (design 8.2, Req 15.4).
 import { useEffect, useReducer, useRef, useState, type CSSProperties, type ReactElement } from 'react';
-import type { MotionLevel, Vec2 } from 'marrow/core';
+import type { MotionLevel, Vec2, WristId } from 'marrow/core';
 import { createSettingsStore, type SettingsStore } from 'marrow/react';
 import { formatIssues, TUNING, validateTuning, type ValidationIssue } from 'world-view';
 import { copy } from '../../copy';
@@ -105,14 +105,15 @@ function Slice(props: { readonly content: WorldContent; readonly deps?: Partial<
     createSettingsStore({ prefix: STORAGE_PREFIX, prefersReducedMotion: prefersReducedMotion() }),
   );
   const playRef = useRef<HTMLDivElement>(null);
-  const orbRef = useRef<HTMLDivElement>(null);
+  const rightOrbRef = useRef<HTMLDivElement>(null);
+  const leftOrbRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [session] = useState<WorldSession>(() =>
     createWorldSession({
       content: props.content,
       settings,
       playArea: () => playRef.current,
-      handOrb: () => orbRef.current,
+      handOrb: (wrist: WristId) => (wrist === 'left' ? leftOrbRef.current : rightOrbRef.current),
       video: () => videoRef.current,
       deps: props.deps,
     }),
@@ -165,8 +166,9 @@ function Slice(props: { readonly content: WorldContent; readonly deps?: Partial<
           style={{ touchAction: 'none' }}
           hidden={screen !== 'running'}
         />
-        {/* A sibling of the Pixi host, on top of it. The session moves it at the frame rate (Req 14.9). */}
-        <div ref={orbRef} className="hand-orb" aria-hidden="true" hidden={screen !== 'running'} />
+        {/* Siblings of the Pixi host, on top of it, one per active wrist. The session moves them at the frame rate (Req 14.9). */}
+        <div ref={rightOrbRef} className="hand-orb" data-wrist="right" aria-hidden="true" hidden={screen !== 'running'} />
+        <div ref={leftOrbRef} className="hand-orb" data-wrist="left" aria-hidden="true" hidden={screen !== 'running'} />
       </div>
       {screen === 'running' ? <Running session={session} snap={snap} settings={settings} /> : null}
       <video ref={videoRef} className="camera-feed" muted playsInline autoPlay aria-hidden="true" />

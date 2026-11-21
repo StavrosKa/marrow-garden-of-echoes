@@ -277,14 +277,14 @@ This session writes requirements only. There is no design and no code. Appendix 
 #### Acceptance Criteria
 
 1. THE start panel SHALL exist only under `?playground=world`, SHALL offer "Use mouse" and "Use camera" and SHALL be a DOM element with real buttons, a visible focus ring and an accessible name.
-2. IN camera mode, THE slice SHALL mark the whole camera frame comfortable for the active wrist with Marrow's `markAllValid` (a dev shortcut like "Use the whole screen"), SHALL use `makeMapping` with reach gain 1 and no calibration screen, and SHALL say so in the debug panel. This does not change Marrow's placement rules.
+2. IN camera mode, THE slice SHALL mark the whole camera frame comfortable for each active wrist with Marrow's `markAllValid` (a dev shortcut like "Use the whole screen"), SHALL use `makeMapping` with reach gain 1 and no calibration screen, and SHALL say so in the debug panel. The active wrists are both wrists in camera mode (Marrow's "both") and the right wrist in mouse mode. This does not change Marrow's placement rules.
 3. IN camera mode, THE slice SHALL record the neutral head only from a frame in which the nose and both shoulders are valid, because the shoulder width is needed. WHILE no such frame has arrived, THE slice SHALL show a plain waiting line from `copy/` and the head offset SHALL stay at (0, 0).
 4. THE slice SHALL offer a "Set centre" button that records the neutral head again from the next frame that qualifies.
 5. THE slice SHALL stop the camera tracks on exit and on unmount (`tech.md` rule 10), and SHALL not store or send any frame.
 6. IN camera mode, THE slice SHALL run Marrow's Tracking Lifecycle for the tracking hold and SHALL pass its flag to `stepClocks`. A tracking hold SHALL stop the session clock, so the travel stops, and dwell does not count because no active wrist is valid. It SHALL not stop the presence clock: the Head View eases to centre, and the Glide and the lock ease keep running on the presence clock (Appendix D, decision 6). It SHALL show a plain dev line for the hold, not the tracking-lost overlay (task 16.5 is out of scope).
 7. IF the camera is denied or missing, THEN THE slice SHALL show a plain notice and SHALL continue in mouse mode.
 8. THE slice SHALL continue to work with a pose-frame rate of 7 per second.
-9. IN camera mode, THE slice SHALL draw a small orb at the active wrist's screen pointer, the position given to the Dwell Engine, and SHALL hide it while that wrist is invalid. It is a dev aid of the slice; the game's orb is marrow-input Requirement 26.7.
+9. IN camera mode, THE slice SHALL draw a small orb at each active wrist's screen pointer, the position given to the Dwell Engine, and SHALL hide each orb while its wrist is invalid. The active wrists are both wrists in camera mode (Marrow's "both") and the right wrist in mouse mode. It is a dev aid of the slice; the game's orb is marrow-input Requirement 26.7.
 
 ### Requirement 15: Acceptance tests
 
