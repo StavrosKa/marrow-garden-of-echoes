@@ -287,7 +287,7 @@ Rules for every task:
     - _Requirements: 2.7, 25.2, 25.3, 25.4, 25.5, 28.9_
 
 - [ ] 17. Playground, audio and end-to-end tests
-  - [ ] 17.1 App copy and theme
+  - [x] 17.1 App copy and theme
     - In `apps/garden-of-echoes/src/copy/index.ts`, add `marrow: MarrowCopy` with every entry of Req 21.3, the steering texts exactly as written, the one-sentence camera explanation, and calm present-tense instructions; add the playground's own strings beside it.
     - In `src/ui`, add `theme.css` with the `--marrow-*` values from the grey ramp, `lanternWarm` as the only accent, and the fallback font stacks, plus the small provider that applies it (design §14.5).
     - Tests: `copy_banned_words_and_length` (21.7: every banned word of `accessibility-and-copy.md`, whole word, any case, over every string in `src/copy`, and at most 8 words in each instruction entry); `ui_contrast_pairs` (24.6: a small pure WCAG helper checks every text and background pair used by the Setup UI and the playground, read from `theme.css`, at 4.5:1 or more).

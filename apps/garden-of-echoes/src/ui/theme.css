@@ -1,0 +1,32 @@
+/*
+ * The app's values of the --marrow-* properties (design section 8, Req 24.5). Every colour is a token of
+ * theme.ts, and themeCss.test.ts checks each value against that token. Only the grey ramp and lanternWarm
+ * are used, as the placeholder rule of art-and-motion.md asks; the fonts are the fallback stacks.
+ *
+ * The values sit on .garden-theme, the playground's root (ThemeProvider), not on :root. The :root defaults of
+ * marrow.css are set on the html element, and a value set on this element wins over the inherited one. So the
+ * result does not depend on the order in which the stylesheets load. Sizes, radii and spacing are not repeated
+ * here: marrow.css holds them, tied to TUNING.
+ */
+.garden-theme {
+  --marrow-color-bg: #0A0C14;
+  --marrow-color-surface: #1D2130;
+  --marrow-color-surface-2: #2E3344;
+  --marrow-color-border: #474D61;
+  --marrow-color-text: #C9CDD8;
+  --marrow-color-text-muted: #9AA0B2;
+  --marrow-color-accent: #F0A840;
+  --marrow-color-accent-text: #0A0C14;
+  --marrow-color-focus: #FFE2A0;
+  --marrow-color-aura: #6B7186;
+  --marrow-color-progress: #F0A840;
+  --marrow-color-progress-track: #474D61;
+  --marrow-color-scrim: rgba(10, 12, 20, 0.6);
+  --marrow-font-title: Georgia, 'Times New Roman', serif;
+  --marrow-font-ui: 'Segoe UI', system-ui, sans-serif;
+
+  background: var(--marrow-color-bg);
+  color: var(--marrow-color-text);
+  font-family: var(--marrow-font-ui);
+  min-height: 100vh;
+}

@@ -1,5 +1,79 @@
+import type { MarrowCopy } from 'marrow/react';
+
+// The strings of marrow/react (design section 7, Req 21.2). Only a type import: the normal page
+// never loads marrow/react. copy.test.ts checks the banned words and the 8-word limit.
+const marrowCopy: MarrowCopy = {
+  start: { title: 'Input playground', start: 'Start' },
+  camera: {
+    explanation:
+      'The camera follows your hands and head, and video stays on this device and is never recorded or sent anywhere.',
+    useCamera: 'Use the camera',
+    tryWithout: 'Try without camera',
+    deniedMessage: 'Allow camera access, then press Retry.',
+    noCameraMessage: 'Connect a camera, then press Retry.',
+    modelFailedMessage: 'Hand tracking did not load. Press Retry.',
+    retry: 'Retry',
+    previewLabel: 'Camera preview, mirrored',
+  },
+  hands: {
+    question: 'Which hand do you want to use?',
+    right: 'Right',
+    left: 'Left',
+    both: 'Both',
+    continue: 'Continue',
+  },
+  calibration: {
+    wholeScreen: 'Use the whole screen',
+    handHint: 'Show your hand to the camera.',
+    noUsableSlot: 'No targets fit in this space yet.',
+    retryCalibration: 'Retry calibration',
+  },
+  headView: { keepInView: 'Keep your face and shoulders in view', skip: 'Skip head view' },
+  tracking: {
+    stepBackIn: 'Step back into view',
+    recover: 'Recover',
+    oneWristHint: 'Show your other hand to the camera.',
+    pictureLabel: 'Person stepping back into view',
+  },
+  pause: { pause: 'Pause', resume: 'Resume', recalibrate: 'Recalibrate', exit: 'Exit' },
+  settings: {
+    motion: 'Motion',
+    full: 'Full',
+    gentle: 'Gentle',
+    reduced: 'Reduced',
+    sound: 'Sound',
+    mute: 'Mute',
+    volume: 'Volume',
+  },
+  simulatedInputLabel: 'Simulated input',
+  debug: {
+    fps: 'Render frames per second',
+    inferenceHz: 'Inference results per second',
+    pointerHz: 'Pointer frames per second',
+    validity: 'Validity',
+    leftWrist: 'Left wrist',
+    rightWrist: 'Right wrist',
+    nose: 'Nose',
+    valid: 'valid',
+    invalid: 'invalid',
+    headOffset: 'Head offset',
+    latency: 'Pipeline latency, excluding camera and display latency',
+  },
+  instructions: {
+    painting: 'Paint the area you can reach comfortably.',
+    calmHold: 'Hold still for a moment.',
+  },
+};
+
 export const copy = {
   appName: 'Garden of Echoes',
+  marrow: marrowCopy,
+  playground: {
+    title: 'Input playground',
+    tuningInvalid: 'The tuning needs a fix before the playground can run.',
+    contentInvalid: 'The playground content needs a fix before it can run.',
+    detailHeading: 'Developer detail',
+  },
   worldPlayground: {
     title: 'World playground',
     contentInvalid: 'The slice content needs a fix before it can run.',

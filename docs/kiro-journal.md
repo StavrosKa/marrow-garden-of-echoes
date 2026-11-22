@@ -1533,3 +1533,37 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Check: `npm run typecheck` exit 0; `npm run lint` exit 0 with no output; `npm test` exit 0, `Test Files  77 passed (77)`, `Tests  1239 passed (1239)`, `Duration  69.95s`, wall time 72 s. One earlier `npm test` run had failed on a 5 s timeout in `apps/garden-of-echoes/src/dev/world/scan.test.ts` (the "no player-facing string" scan), during a run that took 277 s. The machine was under load: two `npm run dev` servers that were already running, and a vite process, were still alive. That run was not repeated in the same state. The test passed when the suite ran alone. `npm run test:e2e` exit 0, `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.1m)`, wall time 69 s.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.1, app copy and theme
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.1 only. The plan was agreed in chat, with the answers and additions the user gave. I read task 17.1, Req 21.2 to 21.7, 24.2, 24.5, 24.6, design sections 7, 8, 10.4 and 14.5, and the steering lines for the fixed texts.
+- What was built:
+  - `apps/garden-of-echoes/src/copy/index.ts`: `copy.marrow: MarrowCopy` with every entry of design section 7 (the five debug keys of 16.6 included), the approved draft texts, `copy.playground` (title, tuningInvalid, contentInvalid, detailHeading). The `worldPlayground` block is unchanged. The import is `import type`, so the normal page does not load `marrow/react`.
+  - `src/ui/theme.css`: the `--marrow-*` colour and font values, on `.garden-theme`.
+  - `src/ui/themeProvider.tsx`: `ThemeProvider`, one div with that class.
+  - `src/ui/contrast.ts`: `relativeLuminance`, `contrastRatio` and `WCAG_TEXT_MIN_RATIO = 4.5`.
+  - Tests: `src/copy/copy.test.ts` (changed), `src/ui/themeCss.test.ts`, `src/ui/theme.contrast.test.ts`, `src/ui/themeProvider.test.tsx`.
+- Decisions made by Kiro (the task left these open, or the plan left them to me):
+  - The banned-word test is renamed `copy_banned_words_and_length` and keeps its assertion. It also checks the 8-word limit for every MarrowCopy string except `camera.explanation`, which must have one sentence. Its limit is a named constant (`MAX_INSTRUCTION_WORDS`), not a TUNING value.
+  - `theme.css` sets colours and fonts only. Sizes, radii and spacing stay in `marrow.css`, which the marrow-styles test ties to TUNING.
+  - The accent text is `grey0` (`#0A0C14`), not `night`, because the placeholder rule allows only the grey ramp and lanternWarm. The focus ring is `lanternGlow`, which the steering names as the focus colour.
+  - The scrim is grey0 at 0.6 opacity, written as `rgba(10, 12, 20, 0.6)`.
+  - `theme.css` declares on `.garden-theme`, not `:root`. A value set on an element beats an inherited value, so the import order does not matter.
+  - Root `tsconfig.json` gained `packages/marrow/src/react/css.d.ts` in its `include`. Reason: `tests/e2e/world-view.spec.ts` imports `copy/index.ts`, which now imports the type `MarrowCopy` from `marrow/react`. The root program then reached `primitives.tsx`, whose `./marrow.css` import has no declaration there. This is a config change, not a lint or dependency exception.
+  - The contrast threshold is named in the helper, not in TUNING. No new TUNING value was added.
+- Contrast pairs (WCAG ratio, values read from `theme.css`):
+  - panel text on panel fill: 10.06
+  - muted text on panel fill: 6.13
+  - accent text on accent: 9.65
+  - text on secondary fill: 7.89
+  - disabled text on secondary fill (commit 1ebd50d): 4.81
+  - text on screen background: 12.28
+  - muted text on screen background: 7.48
+  - No pair is below 4.5:1. The focus ring is not text and is not tested (12.68 on the panel fill).
+- Tests: `copy_banned_words_and_length`, `ui_contrast_pairs`, and the helper check (black on white is 21). Also the theme value checks (`theme_css_matches_tokens` in `themeCss.test.ts`), the focus-ring check, the `:root` check, and the provider test.
+- Evidence (final tree, from the runs before this commit):
+  - `npm run typecheck`: exit 0. The first run failed on `toHaveClass` in the new provider test (the app tsconfig does not load the jest-dom types), which was fixed with plain assertions. A second run then failed at the root project (the cause is in the list above), and that was fixed. The final run printed no errors, exit 0.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  80 passed (80)`, `Tests  1248 passed (1248)`, `Duration  141.15s`, wall time 144 s. Before this task: 77 files and 1239 tests. The task adds 3 files and 9 tests.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.8m)`, wall time 110 s.
+- Process note: two check outputs (typecheck and lint) were written to `.scratch` with a `>` redirect. This broke the rule against redirects, though no project file was touched. Those two files are removed at the end of task 17.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
