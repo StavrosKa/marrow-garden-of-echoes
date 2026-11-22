@@ -246,7 +246,7 @@ Rules for every task:
     - Tests: the provider supplies strings; the primitives render real button, radio and range elements with the accessible names they are given; the stylesheet defaults are at least `uiMinTextPx` and `uiMinButtonTextPx`; no colour value appears outside the custom-property defaults.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 21.1, 24.2, 24.3, 24.4, 28.4, 28.6_
-  - [ ] 16.2 Settings provider and settings controls
+  - [x] 16.2 Settings provider and settings controls
     - Add `SettingsProvider` and `useSettings` over `createSettingsStore`, and the controls `MotionSetting` (radio group Full, Gentle, Reduced), `AudioSettings` (mute checkbox and volume range) and `SimulatedInputLabel`, with every string from MarrowCopy.
     - The motion choice is stored and has no visible effect in this spec.
     - Export the provider, the hook and the three controls from `marrow/react`.

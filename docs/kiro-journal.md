@@ -1343,4 +1343,29 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts` and `ok 1 tests\e2e\world-view.spec.ts ... (1.4m)`, `2 passed (1.6m)`; wall time 102.4 s.
   - Task 16.1 is ticked. Task 16 is not.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
+## 2026-11-22 - marrow-input task 16.2, settings provider and settings controls
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 16.2 only, in the same session as 16.1. Commit 498fb34 ("Add marrow copy provider and UI primitives") was pushed before this part began. I read Req 6.10, 20.8, 20.10, 22.9, 24.1 and 28.9 first, and design sections 5, 6, 7 and 10.4, and the rules of task 16.2.
+- What was built:
+  - `react/settingsProvider.tsx`: `SettingsProvider({ store, children })`, which puts a store made by `createSettingsStore` into context, and `useSettings()`, which returns `{ settings, update }`. `settings` comes from `useSyncExternalStore` on the store's `subscribe` and `get`, so the components re-render only when a setting changes. `useSettings` throws a developer message when there is no provider.
+  - `react/settingsControls.tsx`: `MotionSetting` (a radio group, Full, Gentle and Reduced, that stores the choice), `AudioSettings` (a fieldset with a mute checkbox and a volume range) and `SimulatedInputLabel` (a paragraph with the simulated input text). None takes a prop, and all text comes from `useMarrowCopy`.
+  - `react/primitives.tsx`: a `CheckBox` primitive, used by `AudioSettings`.
+  - `react/marrow.css`: a `.marrow-label` class for `SimulatedInputLabel`, with the muted text colour and the UI size.
+  - `react/index.ts` exports `SettingsProvider`, `useSettings`, the types `SettingsProviderProps` and `SettingsView`, `MotionSetting`, `AudioSettings` and `SimulatedInputLabel`.
+  - Tests: `react/settingsProvider.test.tsx` (4 tests) and `react/settingsControls.test.tsx` (14 tests). The provider tests cover the change reaching the subscribers during the click, renders only on a real change, the error without a provider, and the barrel. The control tests cover names from the copy, the stored choice, the browser preference, pointer and keyboard use, and that each control's text is the copy only.
+- Decisions made by Kiro:
+  - The provider takes a ready store (`store` prop), and does not take a prefix and storage. The app owns the storage key, so the app makes the store.
+  - `MotionSetting`, `AudioSettings` and `SimulatedInputLabel` take no props. They read the copy and the settings from context, so the app places them without wiring.
+  - The radio group's `name` comes from `useId()`, so two groups on one page do not share a name.
+  - The volume range has bounds 0 and 1, and `step="any"`. A numeric step would be a value that the spec does not give, and `tuning.ts` takes no new value. With `step="any"` the browser decides how far an arrow key moves the range.
+  - user-event does not step a range with the arrow keys. The keyboard test for the volume reaches the range with Tab, and sends the change event that a browser sends after an arrow key. A real arrow key on the range is not checked by a unit test in this task. The Playwright tests (task 17) are the place for that check, and the gap is noted here.
+  - The stored choice is checked in the fake storage's JSON (`version` and `motion: 'reduced'`), not only in the store, so the test covers the write that Req 20.2 asks for.
+  - The motion setting has no visible effect, as Req 20.10 requires, and no test checks an effect.
+- Check that the tests can fail: not applied. The UI tasks do not run the mutation check.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0 after one fix: an unused `vi` import in `settingsControls.test.tsx` was an error and is removed. The last run printed `> eslint .` with no output.
+  - `npm test`: exit 0. `Test Files  71 passed (71)`, `Tests  1166 passed (1166)`, `Duration  74.64s`; wall time 77.2 s. Task 16.1 ended at 69 files and 1148 tests, so this task adds 2 files and 18 tests: 4 + 14 = 18. `marrow.css` gained one class and `primitives.tsx` gained `CheckBox`. No test from 16.1 was changed.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\world-view.spec.ts:220:3 › world playground › world playground in simulated-input mode (1.5m)`, `2 passed (1.6m)`; wall time 98.3 s.
+  - Task 16.2 is ticked. Task 16 is not.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
 

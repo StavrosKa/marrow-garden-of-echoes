@@ -124,6 +124,27 @@ export function Slider({ label, min, max, step, value, onChange }: SliderProps) 
   );
 }
 
+export interface CheckBoxProps {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+
+export function CheckBox({ label, checked, onChange }: CheckBoxProps) {
+  const id = useId();
+  return (
+    <div className="marrow-choice">
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
+      <label htmlFor={id}>{label}</label>
+    </div>
+  );
+}
+
 export interface InstructionLineProps {
   text: string;
 }

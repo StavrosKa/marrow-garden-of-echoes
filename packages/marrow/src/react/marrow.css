@@ -113,3 +113,10 @@
   font-size: var(--marrow-font-size-instruction);
   color: var(--marrow-color-text);
 }
+
+.marrow-label {
+  margin: 0;
+  font-family: var(--marrow-font-ui);
+  font-size: var(--marrow-font-size-ui);
+  color: var(--marrow-color-text-muted);
+}
