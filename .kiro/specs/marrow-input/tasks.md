@@ -286,7 +286,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 2.7, 25.2, 25.3, 25.4, 25.5, 28.9_
 
-- [ ] 17. Playground, audio and end-to-end tests
+- [x] 17. Playground, audio and end-to-end tests
   - [x] 17.1 App copy and theme
     - In `apps/garden-of-echoes/src/copy/index.ts`, add `marrow: MarrowCopy` with every entry of Req 21.3, the steering texts exactly as written, the one-sentence camera explanation, and calm present-tense instructions; add the playground's own strings beside it.
     - In `src/ui`, add `theme.css` with the `--marrow-*` values from the grey ramp, `lanternWarm` as the only accent, and the fallback font stacks, plus the small provider that applies it (design §14.5).
@@ -342,7 +342,7 @@ Rules for every task:
     - Tests: rendered only with `debug=1`.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 25.1, 25.5_
-  - [ ] 17.10 End-to-end tests in simulated-input mode
+  - [x] 17.10 End-to-end tests in simulated-input mode
     - Playwright only, simulated input only: (a) choose "Try without camera", paint with the mouse until calibration ends, see three targets, hold the mouse on each until it completes, and see a new round; (b) the same through "Use the whole screen"; (c) Escape opens Pause and Resume closes it; (d) an init script records `getUserMedia` calls and none happens on the simulated path; (e) the page without `playground=1` is unchanged.
     - Also: a focused control shows a visible focus ring; a production build with `BASE_PATH`, served by `vite preview` on its own port, loads `?playground=1` and serves the vendored MediaPipe files under the base path.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).

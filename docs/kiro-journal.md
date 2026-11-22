@@ -1928,3 +1928,32 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Encoding: none of the three files has a BOM or contains `Â` or `â€`.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.10, end-to-end tests in simulated-input mode
+
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.10 only, on top of 26fe921. Before the code I read the task, the rules, Req 4.4, 6.10, 24.2, 26.1, 26.2 and 28.10, the e2e specs and config, the playground controller and page, the play area, the Pointer Source and `settingsControls.tsx`.
+- What was built:
+  - `tests/e2e/playground-simulated.spec.ts` (7 tests, simulated input only). (a) Start, "Try without camera", a mouse sweep over the field until calibration ends, three targets, the mouse on each target's centre until it completes, then a new round with new ids. (b) The same through "Use the whole screen". (c) Escape opens Pause and Resume closes it. (d) An init script replaces `getUserMedia` with a recorder that rejects, and the count stays 0. (e) Without `playground=1` there is no playground root and no "Simulated input" text. Tab reaches Start, which shows a solid 3 px outline. ArrowRight in Pause raises Volume.
+  - `tests/e2e/playground-production.spec.ts` (2 tests). The production build under `/garden/` loads `?playground=1`, and the vendored WASM, JS and model answer 200 with a non-HTML type and more than 1000 bytes. The type check matters because `vite preview` answers an unknown path with `index.html` and status 200.
+  - `tests/e2e/serve-production.mjs`: builds with `BASE_PATH=/garden/` through Vite's JS API, then runs `vite preview` on port 4173 with `strictPort`.
+  - `playwright.config.ts`: a second web server runs the script. Reuse is off for 4173, so a port that is already taken fails the run instead of being tested by mistake. Playwright stops the server at the end.
+  - `apps/garden-of-echoes/src/dev/playArea.tsx`: `data-target` on each target group. This is the only app change.
+- Decisions made by Kiro:
+  - Painting: the pointer rests four animation frames on the centre of each of the 192 comfort cells, row by row, and repeats the pass until the targets appear. One pass was enough in the run.
+  - Dwell: the target centre comes from the circle's `cx` and `cy`, and the pointer goes to the point the Pointer Source reads (the field's height is one unit).
+  - Volume: with `step="any"`, Chromium's ArrowRight moved the value from 0.6 to 0.61. No browser jump happened, so `settingsControls.tsx` is unchanged and the 0.05 fallback was not needed.
+  - The chrome has a second Volume range, so the test reads the range inside the Pause dialog.
+  - Every playground test in the simulated spec installs the recorder. (d) checks it after the whole-screen path.
+  - A Vite dev server from an earlier session was already on port 5173 (pid 4704, started at 19:04). It serves this repo, and it does not block 5173 or 4173 for the tests, because Playwright reuses it as before. I left it running.
+- Camera check of 17.8 (Edge 158, Intel N100 mini PC, USB webcam, `?playground=1&debug=1`), as measured:
+  - Run 1, at ba88741, guided script that read the Debug Overlay every 250 ms. Camera to hand choice 1.4 s. Calibration render 80 fps on average (34 to 103), inference 8.1 per second (3 to 16), latency -26.9 ms. Calibration ended on the no-usable-slot screen because every slot sat in the left 47% of the play area. Fixed in bac7e60.
+  - Run 2, at bac7e60. Latency 0.1 ms on average (max 2), preview box 320 px, calibration render 90.5 fps (30 to 115), inference 7.1 per second (3 to 15), and after Recover render 76 fps and inference 13. Calibration still ended on the no-usable-slot screen, with good light. At about 7 inferences a second, a few cells of the 32 x 24 grid reached 4 samples. Fixed by the 16 x 12 grid in e7f93ba.
+  - Run 3, at 26fe921, by hand. Calibration completed, targets appeared, a round completed, "Step back into view" showed on leaving the frame, Recover worked and play went on, Exit worked, and the preview sat beside the play field. The user reports the whole check as fine. No rates were recorded in this run.
+  - Earlier user feedback, before the fixes: the first runs were a poor experience. There were no targets, the reach stopped at the edge of the camera image, and it was unclear what painting did. The camera delivers about 7.5 frames a second in this room, which limits the inference rate.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0.
+  - `npm run lint`: exit 0, no output.
+  - `npm test`: exit 0. `Test Files  96 passed (96)`, `Tests  1393 passed (1393)`, `Duration  72.82s`, wall time 77 s. The unit count is unchanged, because the new tests are Playwright tests.
+  - `npm run test:e2e`: exit 0. `13 passed (1.8m)`, wall time 109 s, with the production build in the web server step. The build alone takes 1.4 s in Vite. Before this commit the same suite reported `4 passed (1.8m)` at 26fe921. The Playwright totals are close, but earlier runs ranged from 1.6 to 2.1 minutes on this machine, so the comparison is rough.
+  - No glide or headView test timed out.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

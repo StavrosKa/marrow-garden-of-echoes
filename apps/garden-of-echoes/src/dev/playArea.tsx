@@ -30,7 +30,10 @@ function partsOf(parts: PlayAreaParts, id: string): TargetParts {
 
 function TargetShapes({ id, completed, parts }: { id: string; completed: boolean; parts: PlayAreaParts }): ReactElement {
   return (
-    <g className={completed ? 'playground-target playground-target--completed' : 'playground-target'}>
+    <g
+      className={completed ? 'playground-target playground-target--completed' : 'playground-target'}
+      data-target={id}
+    >
       <circle
         className="playground-target-shape"
         r={TUNING.hitRadius - TARGET_STROKE / 2}
