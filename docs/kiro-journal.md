@@ -1912,3 +1912,19 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\playground-layout.spec.ts:9:1`, `ok 4 tests\e2e\playground-layout.spec.ts:32:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `4 passed (1.7m)`.
 - No property failed, and the seed 29 regression passes on the 32 x 24 copy, so no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input, Move the camera preview beside the play field
+- Kiro feature used: a layout change after the user's second camera check (model: Claude Haiku 5.5, Medium). The camera numbers are not in this entry. They go in the 17.10 entry.
+- What changed: the preview was a child of the play field, absolutely positioned in its top-right corner, so it covered the play area. It is now a sibling of the field in a row (`.playground-row`: flex, wrap, gap 1rem). The field keeps its width, `min(100%, 960px, calc((100vh - 200px) * 1.6))`. On a narrow window the row wraps and the preview goes under the field. The preview keeps its 320 px cap (`PREVIEW_MAX_PX`) and takes no pointer input. It still shows on hand choice, calibration and the no-usable-slot screen.
+- Files: `playground.tsx` (field and preview wrapped in the row), `playground.css` (`.playground-row` added, `.playground-preview` no longer absolute), `playground-preview-layout.test.tsx` (new).
+- New tests (4):
+  - Component, jsdom (1): in camera mode with a fake camera, on hand choice, the preview and the field both have the row as parent, the field does not contain the preview, the preview follows the field in document order, and it holds the `video` element. No camera is opened. The Playwright suite stays simulated-input only (Req 28.10).
+  - Stylesheet (3): `.playground-row` is a flex row that wraps. `.playground-preview` is not `absolute` or `fixed` and sets no offsets. The field's width rule is unchanged.
+- Not checked in a browser: jsdom does not lay the page out, and the e2e suite runs simulated input only. The user's next camera check is the first look at where the preview lands.
+- Evidence (real output):
+  - `npm run typecheck`: exit 0, no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`, first run: two property tests timed out at the 5000 ms default during the parallel run. `glide.test.ts` ("glide per-frame limits at 7 pose frames per second") and `headView.test.ts` ("headview_ramp_never_increases_and_ends_exactly_at_zero"). Neither file changed in this commit. Run alone, glide passed (`Tests 8 passed (8)`, 4.51 s), and headView passed in a two-file run. The machine had Chrome processes running that I did not start, and I left them alone. The full run then gave `Test Files  96 passed (96)`, `Tests  1393 passed (1393)`, `Duration  142.92s`. The previous commit had 95 files and 1389 tests. The difference is the new file and its four tests.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\playground-layout.spec.ts:9:1`, `ok 4 tests\e2e\playground-layout.spec.ts:32:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `4 passed (1.8m)`.
+- Encoding: none of the three files has a BOM or contains `Â` or `â€`.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

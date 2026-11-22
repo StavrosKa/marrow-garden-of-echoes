@@ -107,12 +107,18 @@
   margin: 0;
 }
 
-/* The camera preview sits in the top corner of the field, and takes no pointer input. */
+/*
+ * The field and the camera preview share a row, so the preview sits beside the play area and does not cover it.
+ * On a narrow window the row wraps, and the preview goes under the field. The preview takes no pointer input.
+ */
+.playground-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+}
 .playground-preview {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  z-index: 1;
+  flex: 0 0 auto;
   pointer-events: none;
 }
 

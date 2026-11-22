@@ -238,26 +238,28 @@ function Run({ content, parts, debug }: RunProps): ReactElement {
           <AudioSettings />
           {simulated ? <SimulatedInputLabel /> : null}
         </div>
-        <div
-          className={view.dimmed ? 'playground-field playground-field--held' : 'playground-field'}
-          ref={(element) => controller.attachPlayArea(element)}
-        >
-          {screen === 'play' ? (
-            <PlayArea
-              label={text.playArea}
-              targets={view.shown}
-              completedIds={view.completedIds}
-              wrists={['left', 'right']}
-              parts={controller.playAreaParts}
-            />
-          ) : null}
+        <div className="playground-row">
+          <div
+            className={view.dimmed ? 'playground-field playground-field--held' : 'playground-field'}
+            ref={(element) => controller.attachPlayArea(element)}
+          >
+            {screen === 'play' ? (
+              <PlayArea
+                label={text.playArea}
+                targets={view.shown}
+                completedIds={view.completedIds}
+                wrists={['left', 'right']}
+                parts={controller.playAreaParts}
+              />
+            ) : null}
+            <div className="playground-screen">{screenContent()}</div>
+            {overlay}
+          </div>
           {showPreview && view.previewStream !== null ? (
             <div className="playground-preview">
               <CameraPreview stream={view.previewStream} maxWidth={PREVIEW_MAX_PX} />
             </div>
           ) : null}
-          <div className="playground-screen">{screenContent()}</div>
-          {overlay}
         </div>
         {setup.paused ? (
           <PauseOverlay
