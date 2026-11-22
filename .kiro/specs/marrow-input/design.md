@@ -434,7 +434,7 @@ export interface MarrowCopy {
     sound: string; mute: string; volume: string;
   };
   simulatedInputLabel: string;      // "Simulated input"
-  debug: { fps: string; inferenceHz: string; pointerHz: string; validity: string; headOffset: string; latency: string };
+  debug: { fps: string; inferenceHz: string; pointerHz: string; validity: string; leftWrist: string; rightWrist: string; nose: string; valid: string; invalid: string; headOffset: string; latency: string };
   instructions: {
     painting: string;               // <= 8 words
     calmHold: string;               // <= 8 words

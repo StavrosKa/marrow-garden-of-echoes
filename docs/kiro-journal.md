@@ -1490,3 +1490,37 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - Task 16.5 is ticked. Task 16 is not.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 16.6, debug overlay, and the debug labels in design section 7
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 16.6, and the design edit that the user approved for this commit. Commit 144cd10 (task 16.5) was pushed before this part began. I read task 16.6, Req 2.7, 21.3, 25.1 to 25.5 and 28.9, design sections 7 and 10.4, and the debug snapshot of the world-view slice (`debugSnapshot.ts`), which is the nearest existing pattern.
+- Design edit (`.kiro/specs/marrow-input/design.md`, section 7, the `MarrowCopy` block): the `debug` entry gains `leftWrist`, `rightWrist`, `nose`, `valid` and `invalid`. `requirements.md` is unchanged, because Req 21.3 already asks for the debug overlay labels. The user approved this change before the commit. Task 17.1 fills the app's copy with these keys.
+- Copy type (`react/marrowCopy.tsx`) and the test fixture (`react/copyFixture.ts`) take the same five keys. The `latency` entry carries a comment that the text must say it excludes camera and display latency, which the app copy must do in 17.1.
+- What was built:
+  - `react/debugRates.ts`: `ratePerSecond(timesMs, nowMs, windowMs)`. A time counts when it lies in (nowMs - windowMs, nowMs], so a time exactly one window old is outside, and a time after nowMs is not counted. The count is scaled to one second. A window of zero or less gives 0.
+  - `react/debugOverlay.tsx`: `DebugOverlay({ snapshot })`, and the types `DebugSnapshot`, `DebugMode` and `DebugOverlayProps`. The overlay has no state, no effects, no refs and no handlers. Each render is a function of the snapshot.
+  - The snapshot carries what the frame driver records: `nowMs`, `renderTimesMs`, `newFrameTimesMs` and `latencyMs`. Also `frame` (for validity), `playAspect`, `activeWrists`, `mapping`, `grids`, `hitAreas` and `headOffset`.
+  - The overlay computes the render rate and the frame rate over `TUNING.debugRateWindowMs`. In camera mode the second figure is labelled as the inference rate; in simulated input it is the pointer rate. It shows `latencyMs` as given, or no row when it is null.
+  - Grids: each cell that holds a sample, or is valid, is a `rect` placed through `mapping.toScreen`, in class `marrow-debug-cell--valid` or `--invalid`. Hit areas are `circle`s. The SVG uses the viewBox `0 0 A 1`, so no style attribute is needed.
+  - `react/marrow.css`: `.marrow-debug` (fixed, `pointer-events: none`), `.marrow-debug-view` (`pointer-events: none`), the text wrapper, the figure grid and the cell and hit classes. Colours come from `--marrow-*` properties.
+  - `react/index.ts` exports `DebugOverlay`, `DebugMode`, `DebugOverlayProps` and `DebugSnapshot`. `ratePerSecond` is not exported: the frame driver records the times, and the overlay counts them.
+- Decisions made by Kiro (the task left these open):
+  - Numbers are shown in `<dl>` cells, so the labels come from the copy and the source has no separator text. The head offset has two `<dd>` cells, one for x and one for y.
+  - Rates are rounded to whole numbers. The head offset is shown to two decimals, and the latency to whole milliseconds.
+  - The validity rows appear only when a frame exists. The nose row is always shown in that case.
+  - The text sits in a positioned wrapper above the SVG, so that the SVG does not paint over it.
+  - Latency is measured by the frame driver, not by the overlay, as the user specified, so the overlay holds no timing state. The driver reads `PoseFrame.t` for this. Req 2.7 allows that read in `marrow/input` and the Debug Overlay, and the driver is outside both. The driver is not in this commit (task 17 builds it), so the question is for task 17 to settle, not this commit.
+- Tests:
+  - `react/debugRates.test.ts` (6 tests): the window count and scaling; a window of one second; the exact window edge (one window old is outside, one millisecond inside is in); the time at now is counted and a later time is not; no events and a window of zero give 0; the window is read from the tuning value.
+  - `react/debugOverlay.test.tsx` (15 tests): the render and inference rates over the window; the pointer rate in simulated input; the latency row, and no row for null; the head offset; the validity rows for the active wrists and the nose; a left wrist row only when the left wrist is active; the grids drawn through the mapping (a valid cell's position is checked against `mapping.toScreen`); an invalid cell; the hit areas as circles; nothing focusable; the root class; a frozen snapshot that renders and stays unchanged; every label from the copy; the barrel.
+  - `tests/marrow-styles.test.ts` (1 new test): `.marrow-debug` and `.marrow-debug-view` have `pointer-events: none`. jsdom does not apply CSS, so this test reads the rule the package ships. It does not prove the computed style.
+  - Fixture geometry (the playback aspects, the frame aspect and the snapshot times) is not from `tuning.ts`. Rates, the window, the hit radius, the grid and the threshold are read from `TUNING`.
+- Check that the tests can fail: not applied. This is a UI task, and the rules of this task skip the mutation check.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  77 passed (77)`, `Tests  1239 passed (1239)`, `Duration  63.79s`, wall time 66 s. Task 16.5 ended at 75 files and 1217 tests, so this task adds 2 files and 22 tests: 6 + 15 + 1 stylesheet test.
+  - `npm run test:e2e`, first run: exit 1. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, then `x 2 tests\e2e\world-view.spec.ts:220:3`, `1 failed`, `1 passed (1.1m)`. The failing step is `13 travel in reduced`, at `page.getByRole('radio', { name: 'Reduced' }).check()` in `tests/e2e/world-view.spec.ts:387`. The error is "Clicking the checkbox did not change its state". That radio is the world playground's own `<input>` (`apps/garden-of-echoes/src/dev/world/WorldPlayground.tsx:222`). It does not use `marrow/react`, and this commit does not change it. The first run's step timings were normal until that step.
+  - `npm run test:e2e`, second run, on the same tree: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\world-view.spec.ts:220:3`, `2 passed (2.3m)`, wall time 142 s. The step timings were much longer than in earlier runs (for example step 7 took 8059 ms, against about 490 ms before), so the machine was under load during this run.
+  - I did not change the e2e test. The first failure did not reproduce in the second run. I have not established its cause, and the journal records it so it can be watched in later tasks.
+  - Task 16.6 is ticked, and task 16 is ticked with it.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

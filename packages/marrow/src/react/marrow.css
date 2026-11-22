@@ -148,6 +148,52 @@
   height: 8rem;
   color: var(--marrow-color-text-muted);
 }
+/* The debug overlay takes no pointer input: its root and its drawing ignore the pointer, so
+   the play area under it gets every event. */
+.marrow-debug {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--marrow-font-ui);
+  font-size: var(--marrow-font-size-ui);
+  color: var(--marrow-color-text);
+}
+.marrow-debug-view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.marrow-debug-text {
+  position: relative;
+  padding: var(--marrow-space-sm);
+}
+.marrow-debug-figures {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: var(--marrow-space-xs) var(--marrow-space-md);
+  margin: 0;
+}
+.marrow-debug-figures > div {
+  display: contents;
+}
+.marrow-debug-figures dd {
+  margin: 0;
+}
+.marrow-debug-cell--valid {
+  fill: var(--marrow-color-progress);
+  fill-opacity: 0.5;
+}
+.marrow-debug-cell--invalid {
+  fill: var(--marrow-color-progress-track);
+  fill-opacity: 0.4;
+}
+.marrow-debug-hit {
+  fill: none;
+  stroke: var(--marrow-color-focus);
+  stroke-width: 0.004;
+}
 /* Keeps an element for screen readers only. */
 .marrow-visually-hidden {
   position: absolute;

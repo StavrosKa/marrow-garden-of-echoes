@@ -132,6 +132,15 @@ describe('no colour outside the custom-property defaults (Req 24.4)', () => {
     }
   });
 });
+describe('the debug overlay takes no pointer input (Req 25.4)', () => {
+  // jsdom does not apply stylesheets, so this checks the rule the package ships, not the computed style.
+  it('gives the overlay root and its drawing pointer-events: none', () => {
+    const root = /\.marrow-debug\s*\{([^}]*)\}/.exec(RULES)?.[1] ?? '';
+    const view = /\.marrow-debug-view\s*\{([^}]*)\}/.exec(RULES)?.[1] ?? '';
+    expect(root).toMatch(/pointer-events:\s*none/);
+    expect(view).toMatch(/pointer-events:\s*none/);
+  });
+});
 describe('the camera preview and hidden text (Req 22.5)', () => {
   it('mirrors the preview and lets its width shrink below the attribute cap', () => {
     const preview = /\.marrow-camera-preview\s*\{([^}]*)\}/.exec(RULES)?.[1] ?? '';

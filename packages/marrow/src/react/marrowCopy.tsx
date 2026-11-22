@@ -48,7 +48,15 @@ export interface MarrowCopy {
     inferenceHz: string;
     pointerHz: string;
     validity: string;
+    /** The names of the validity rows: the two wrists and the nose. */
+    leftWrist: string;
+    rightWrist: string;
+    nose: string;
+    /** What a valid and an invalid landmark read as. */
+    valid: string;
+    invalid: string;
     headOffset: string;
+    /** Must say that the figure excludes camera and display latency (Req 25.2). */
     latency: string;
   };
   instructions: {

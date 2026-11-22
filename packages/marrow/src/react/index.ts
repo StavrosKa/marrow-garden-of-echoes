@@ -22,3 +22,4 @@ export {
 } from './calibrationScreen';
 export { PauseOverlay, type PauseOverlayProps } from './pauseOverlay';
 export { TrackingLostOverlay, type TrackingLostOverlayProps } from './trackingLostOverlay';
+export { DebugOverlay, type DebugMode, type DebugOverlayProps, type DebugSnapshot } from './debugOverlay';

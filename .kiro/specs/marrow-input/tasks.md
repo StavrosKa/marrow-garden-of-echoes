@@ -237,7 +237,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 2.3, 2.6, 4.1, 4.2, 4.3, 4.4, 4.8, 4.9, 28.3, 28.5_
 
-- [ ] 16. Shared setup UI (`marrow/react`)
+- [x] 16. Shared setup UI (`marrow/react`)
   - [x] 16.1 Component-test setup, MarrowCopy and UI primitives
     - Vitest also picks up `*.test.tsx`; a setup file registers the jest-dom matchers; component tests choose jsdom with a `// @vitest-environment jsdom` docblock, and the default environment stays `node` (design Â§12.2). Only the installed, approved test packages are used.
     - Add the `MarrowCopy` type, `MarrowCopyProvider` and `useMarrowCopy` (design Â§7).
@@ -278,7 +278,7 @@ Rules for every task:
     - Tests: every control and accessible name comes from the copy; each callback fires by click and by keyboard.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 21.1, 23.4, 23.7, 24.1, 28.9_
-  - [ ] 16.6 Debug Overlay
+  - [x] 16.6 Debug Overlay
     - `DebugOverlay`: render frames per second and inference results per second over `debugRateWindowMs`, with the pointer frame rate in their place in simulated-input mode; the validity of each active wrist and of the nose; each comfort grid drawn through the current Mapping; every hit area of the current frame; the head offset; and the pipeline latency from a PoseFrame's timestamp to the first render that draws it, labelled as excluding camera and display latency.
     - It takes no pointer input, contains no focusable element, changes no logic state, and draws only from the snapshot passed in for the current frame.
     - Export `DebugOverlay` from `marrow/react`.
