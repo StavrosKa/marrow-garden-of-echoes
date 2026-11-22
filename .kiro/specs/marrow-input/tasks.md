@@ -317,7 +317,7 @@ Rules for every task:
     - Tests: `driver_ignores_frame_timestamps` (added by this plan: the same frame objects with scrambled `t` give identical outputs); the filter resets after a pause; the simulated pointer equals the pointer position; the session delta is 0 in the step a hold begins; changing the head offset leaves pointers and dwell unchanged.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 2.7, 3.4, 6.6, 8.2, 8.4, 9.11, 10.4, 10.5, 16.7_
-  - [ ] 17.6 Tone player
+  - [x] 17.6 Tone player
     - Add `src/audio/tonePlayer.ts`: the AudioContext is created or resumed only from the Start handler; Web Audio oscillators only, no audio files; C5, E5 and G5 sine tones of about 400 ms with a soft attack and release, one per target of a round; master gain = volume x 0.5, every change ramped over 100 ms, never a jump; 0 while muted. These app values live beside this code (Appendix B).
     - Tests with a fake AudioContext: nothing is created before the Start call; gain targets and ramp times; mute.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.

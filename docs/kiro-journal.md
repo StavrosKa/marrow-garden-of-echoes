@@ -1680,3 +1680,40 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.3m)`.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.6, tone player
+
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.6 only. Commit 65f9da5 (task 17.5) was pushed before this part began. Before the code I read task 17.6, Req 27.1 to 27.5, design section 14.5 and Appendix B.
+- What was built: `src/audio/tonePlayer.ts` and `src/audio/tonePlayer.test.ts` (11 tests).
+  - API: `createTonePlayer(createContext)` returns `start()`, `playTarget(index)`, `setVolume(volume)`, `setMuted(muted)` and `dispose()`. The argument is a factory that returns a small `ToneContext` interface, so the tests pass a fake. The real `AudioContext` is adapted in 17.7.
+  - `start()` is the only call that creates the context and calls `resume()`. A later `start()` only resumes. Before `start()`, `playTarget` does nothing.
+  - Master gain: the target is `volume × 0.5`, or 0 while muted. Each change runs `cancelScheduledValues(now)`, `setValueAtTime(level, now)` and `linearRampToValueAtTime(target, now + 0.1)`, starting from the level the master already holds. The code never writes `gain.value`. The first ramp runs from 0 at `start()`.
+  - Each tone is an oscillator of type `sine` at C5, E5 or G5 (523.25, 659.25, 783.99 Hz), chosen by target index modulo 3. Its envelope is its own gain node: 0 to 1 over the attack, a hold, then 1 to 0 over the release, ending at 400 ms.
+  - `dispose()` closes the context once. Later calls do nothing.
+- App values, beside the code, as the 17.5 plan approved. All are exported from the file so the tests read them:
+  - `TONES_HZ`, `TONE_MS = 400`, `MASTER_FACTOR = 0.5` and `RAMP_MS = 100` are listed in Appendix B.
+  - `ATTACK_MS = 40` and `RELEASE_MS = 120` are not in Appendix B. They are chosen for this spec, and I did not edit requirements.md.
+  - The default volume is `TUNING.defaultVolume`, which is 0.6 and is read from the engine tuning. The app does not set its own default.
+- Decisions made by Kiro (the task left these open):
+  - `setVolume` clamps its argument to 0..1. The settings store already limits the value, so the clamp is a second guard.
+  - A tone plays even while muted, into a master held at 0. This keeps `playTarget` free of a mute check. A muted tone is silent.
+  - `start()` after `dispose()` does nothing, so a disposed player cannot make a new context.
+  - The Web Audio members are declared as method signatures, so the real `AudioContext` can be passed with a small adapter.
+- Tests, against the fake context:
+  - Nothing is created before `start()`, even when volume, mute and tones are called first.
+  - One context is created and resumed on `start()`. A second `start()` resumes only.
+  - The start ramp targets `TUNING.defaultVolume × 0.5` and ends at 100 ms.
+  - A volume change ramps to `0.8 × 0.5` and ends at 100 ms, starting from the held level.
+  - Mute ramps to 0 and unmute ramps back to 0.3.
+  - The master's direct `value` stays 0 through every operation.
+  - Frequencies, sine type, start at now and stop at 400 ms, with index 3 wrapping to C5.
+  - The envelope attack and release.
+  - Silence while muted.
+  - Dispose closes once, and later calls do nothing.
+  - The source has no audio file or buffer use (Req 27.2).
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  87 passed (87)`, `Tests  1323 passed (1323)`, `Duration  73.23s`. Before 17.6: 86 files and 1312 tests. This sub-task adds `tonePlayer.test.ts` (11 tests).
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.4m)`.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
