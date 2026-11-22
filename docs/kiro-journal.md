@@ -1641,7 +1641,7 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Evidence. The checks ran once on the working tree, which held the 17.3 and 17.4 files. The 17.4 commit contains only the 17.4 files and the journal and tick for 17.4.
   - `npm run typecheck`: exit 0, no errors.
   - `npm run lint`: exit 0, `> eslint .`, no output.
-  - `npm test`: exit 0. `Test Files  85 passed (85)`, `Tests  1304 passed (1304)`, `Duration  85.89s`, wall time 88 s. The 17.4 part is 2 files and 13 tests: `roundController.test.ts` and its 13 tests (44 tests across the two files, of which 31 are in `setupFlow.test.ts`).
+  - `npm test`: exit 0. `Test Files  85 passed (85)`, `Tests  1304 passed (1304)`, `Duration  85.89s`, wall time 88 s. Of the 85 files and 1304 tests, 17.3 added `setupFlow.test.ts` (31 tests) and 17.4 adds `roundController.test.ts` (13 tests), which is 1 file and 13 tests of this task.
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.5m)`, wall time 93 s.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
