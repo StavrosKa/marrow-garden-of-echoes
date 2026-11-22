@@ -238,7 +238,7 @@ Rules for every task:
     - _Requirements: 2.3, 2.6, 4.1, 4.2, 4.3, 4.4, 4.8, 4.9, 28.3, 28.5_
 
 - [ ] 16. Shared setup UI (`marrow/react`)
-  - [ ] 16.1 Component-test setup, MarrowCopy and UI primitives
+  - [x] 16.1 Component-test setup, MarrowCopy and UI primitives
     - Vitest also picks up `*.test.tsx`; a setup file registers the jest-dom matchers; component tests choose jsdom with a `// @vitest-environment jsdom` docblock, and the default environment stays `node` (design §12.2). Only the installed, approved test packages are used.
     - Add the `MarrowCopy` type, `MarrowCopyProvider` and `useMarrowCopy` (design §7).
     - Add a stylesheet with the `--marrow-*` properties and their neutral grey defaults (design §8), and the internal primitives (panel, button, radio, slider, and an `aria-live="polite"` instruction line) that read only those properties: no palette values, text at least 16 px, button text at least 18 px, and a visible focus ring that no style removes.

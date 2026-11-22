@@ -1313,4 +1313,34 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm test`: exit 0. `Test Files  66 passed (66)`, `Tests  1121 passed (1121)`, `Duration  52.37s`; wall time 56.3 s. The previous commit had 66 files and 1116 tests; the 5 added tests are the new ones above.
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1 › loads the page with the app name (2.0s)`, `ok 1 tests\e2e\world-view.spec.ts:220:3 › world playground › world playground in simulated-input mode (1.2m)`, `2 passed (1.3m)`; wall time 81.3 s.
 - Not verified: the two-hand camera mode is not checked by the user. The camera path is not verified as a whole. The open observation about the CPU fallback inference time (155 ms) is not explained.
+## 2026-11-22 - marrow-input task 16.1, component-test setup, MarrowCopy and UI primitives
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 16.1 only. The working tree was clean, `main` equalled `origin/main`, and the last commit was d9994e2, as the instructions required. I read task 16 and the rules at the top of tasks.md, Req 6.10, 20.8, 20.10, 21.1, 22.9, 24.1 to 24.4, 28.4, 28.6 and 28.9, design sections 6, 7, 8, 10.4 and 12.2, the settings store and its tests, `vitest.config.ts`, and the journal entry of task 14.
+- What was built:
+  - `vitest.config.ts`: `include` now matches `*.test.tsx` in `packages/*` and `apps/*`, and `setupFiles` loads `tests/setup/testing-library.ts`. The default environment stays `node`.
+  - `tests/setup/testing-library.ts`: imports the jest-dom matchers and calls `cleanup()` after each test, so no test sees another's DOM. Under `node` it does nothing.
+  - `react/marrowCopy.tsx`: the `MarrowCopy` type exactly as design section 7 gives it, `MarrowCopyProvider` and `useMarrowCopy`. The hook throws a developer message when there is no provider.
+  - `react/marrow.css`: the 25 custom properties of design section 8 in `:root` with their neutral grey defaults, and the classes of the primitives. Every size comes from a custom property. The focus ring is `:where(button, input, select, textarea, [tabindex]):focus-visible`, and no rule removes an outline.
+  - `react/primitives.tsx` (not exported from the barrel): `Panel` (a named region), `Button` (primary or secondary, optional `disabled`), `RadioGroup` (a fieldset with a legend and one radio per option, `null` selects none), `Slider` (a range input) and `InstructionLine` (a `<p aria-live="polite">`). Every label comes in as a prop.
+  - `react/copyFixture.ts`: a complete `MarrowCopy` whose strings are all different, for the tests. Not exported.
+  - `react/index.ts` exports `MarrowCopyProvider`, `useMarrowCopy` and the type `MarrowCopy`.
+  - Tests: `react/marrowCopy.test.tsx` (4 tests), `react/primitives.test.tsx` (12 tests) and `tests/marrow-styles.test.ts` (11 tests). The stylesheet test checks the 25 properties, the minimum sizes from `TUNING.uiMinTextPx` and `TUNING.uiMinButtonTextPx`, the focus ring, and that no colour appears outside the `--marrow-color-*` defaults in the stylesheet or in any component source.
+- Decisions made by Kiro:
+  - The stylesheet test is in `tests/`, not in `packages/marrow`. The package's tsconfig has `types: []`, so `node:fs` cannot be typed there, and `tests/` already reads source text (`tuning-labels.test.ts`). The test reads the package files by path.
+  - `react/css.d.ts` declares `*.css` so that the package typechecks its side-effect import of `marrow.css`. The app gets the same declaration from Vite.
+  - The component test files import `@testing-library/jest-dom/vitest` themselves. The setup file runs at test time, but the package's tsconfig does not load it, so the matcher types would be missing from `tsc`.
+  - The vitest include adds `*.test.tsx` to `apps/*` as well as `packages/*`, so the pattern is the same for both. No app test file is a `.tsx` yet, so nothing changes there.
+  - Labels use `htmlFor` and not a wrapping `<label>`. A wrapping label around a range input would add the slider's value to its accessible name.
+  - The group of radio buttons is a `RadioGroup`, not a single `Radio`, because the design and the requirements always use a radio group.
+  - The instruction line uses `--marrow-font-size-instruction` (28 px). Other text uses `--marrow-font-size-ui`.
+  - The default sizes are `16px` (`TUNING.uiMinTextPx`), `18px` (`TUNING.uiMinButtonTextPx`) and `28px` (the instruction size, as design section 8 gives it). The 28 px value is in the stylesheet only, not in `tuning.ts`.
+  - The tests for the primitives write strings as `{'...'}` expressions, because `packages/` may contain no JSX text, tests included (`tests/dependency-graph.test.ts` and the `JSXText` rule).
+  - `marrow/react` imports `react`, which is installed for the app and hoisted to the root `node_modules`. `packages/marrow/package.json` does not declare it. I did not add it as a peer dependency, because that would change the lockfile. This is a gap to settle with the user.
+- Check that the tests can fail: not applied. The UI tasks do not run the mutation check.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs (marrow, world-view, garden-of-echoes and the root) printed no errors.
+  - `npm run lint`: exit 0. `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  69 passed (69)`, `Tests  1148 passed (1148)`, `Duration  89.22s`; wall time 94.4 s. The baseline before the change was 66 files and 1121 tests, so the 27 new tests are the three files above.
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts` and `ok 1 tests\e2e\world-view.spec.ts ... (1.4m)`, `2 passed (1.6m)`; wall time 102.4 s.
+  - Task 16.1 is ticked. Task 16 is not.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
 

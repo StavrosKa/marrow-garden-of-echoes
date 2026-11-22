@@ -1,0 +1,115 @@
+/*
+ * The shared look of marrow/react (design section 8). Components read every colour, font, radius
+ * and spacing from the custom properties below, so the app can set its own theme on :root. The
+ * values here are neutral grey defaults; no component file holds a colour or a font.
+ *
+ * Minimum sizes: --marrow-font-size-ui is TUNING.uiMinTextPx and --marrow-font-size-button is
+ * TUNING.uiMinButtonTextPx (Req 24.3). The focus ring is never removed (Req 24.2).
+ */
+
+:root {
+  --marrow-color-bg: #0A0C14;
+  --marrow-color-surface: #1D2130;
+  --marrow-color-surface-2: #2E3344;
+  --marrow-color-border: #474D61;
+  --marrow-color-text: #C9CDD8;
+  --marrow-color-text-muted: #9AA0B2;
+  --marrow-color-accent: #9AA0B2;
+  --marrow-color-accent-text: #0A0C14;
+  --marrow-color-focus: #C9CDD8;
+  --marrow-color-aura: #6B7186;
+  --marrow-color-progress: #C9CDD8;
+  --marrow-color-progress-track: #474D61;
+  --marrow-color-scrim: rgba(10, 12, 20, 0.6);
+
+  --marrow-font-title: Georgia, 'Times New Roman', serif;
+  --marrow-font-ui: 'Segoe UI', system-ui, sans-serif;
+  --marrow-font-size-ui: 16px;
+  --marrow-font-size-button: 18px;
+  --marrow-font-size-instruction: 28px;
+
+  --marrow-radius-panel: 16px;
+  --marrow-radius-control: 8px;
+
+  --marrow-space-xs: 4px;
+  --marrow-space-sm: 8px;
+  --marrow-space-md: 16px;
+  --marrow-space-lg: 24px;
+  --marrow-space-xl: 32px;
+}
+
+:where(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--marrow-color-focus);
+  outline-offset: 2px;
+}
+
+.marrow-panel {
+  display: grid;
+  gap: var(--marrow-space-md);
+  padding: var(--marrow-space-lg);
+  background: var(--marrow-color-surface);
+  color: var(--marrow-color-text);
+  border: 1px solid var(--marrow-color-border);
+  border-radius: var(--marrow-radius-panel);
+  font-family: var(--marrow-font-ui);
+  font-size: var(--marrow-font-size-ui);
+}
+
+.marrow-button {
+  padding: var(--marrow-space-sm) var(--marrow-space-lg);
+  background: var(--marrow-color-surface-2);
+  color: var(--marrow-color-text);
+  border: 1px solid var(--marrow-color-border);
+  border-radius: var(--marrow-radius-control);
+  font-family: var(--marrow-font-ui);
+  font-size: var(--marrow-font-size-button);
+  cursor: pointer;
+}
+
+.marrow-button--primary {
+  background: var(--marrow-color-accent);
+  color: var(--marrow-color-accent-text);
+  border-color: var(--marrow-color-accent);
+}
+
+.marrow-button:disabled {
+  color: var(--marrow-color-text-muted);
+  cursor: default;
+}
+
+.marrow-choices {
+  display: grid;
+  gap: var(--marrow-space-sm);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--marrow-font-ui);
+  font-size: var(--marrow-font-size-ui);
+  color: var(--marrow-color-text);
+}
+
+.marrow-choices legend {
+  padding: 0;
+  margin-bottom: var(--marrow-space-xs);
+  color: var(--marrow-color-text-muted);
+}
+
+.marrow-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--marrow-space-sm);
+  font-size: var(--marrow-font-size-ui);
+  color: var(--marrow-color-text);
+}
+
+.marrow-slider {
+  accent-color: var(--marrow-color-accent);
+  min-width: 12rem;
+}
+
+.marrow-instruction {
+  margin: 0;
+  font-family: var(--marrow-font-ui);
+  font-size: var(--marrow-font-size-instruction);
+  color: var(--marrow-color-text);
+}
