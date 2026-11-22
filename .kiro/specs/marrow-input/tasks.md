@@ -306,7 +306,7 @@ Rules for every task:
     - Tests: one per transition; the flags never change the state or the round.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 6.10, 12.9, 18.11, 22.2, 22.3, 22.4, 22.8, 23.5, 23.6, 23.8, 23.9_
-  - [ ] 17.4 Round controller and play-area slot filter
+  - [x] 17.4 Round controller and play-area slot filter
     - Add `src/dev/roundController.ts` with the play-area slot filter of design §14.2: keep only slots whose circle of radius r + m lies inside [0, A] x [0, 1], applied with the current play aspect to the demand given to `createCalibration` (N = 3, r = `TUNING.hitRadius`, m = 0) and to every round.
     - When calibration completes and at each new round, rotate the filtered slots to start at the cursor and call `placeTargets`: `simultaneous` shows three targets at once, `sequential` shows target i alone in usable slot i mod k, and `none` leads to the no-usable-slot screen. Each round has new activation ids, and the cursor moves on so that a round avoids the last round's slots when enough usable slots exist. A completed target is no longer supplied to the Dwell Engine.
     - Tests: slots outside or across the play-area edge are dropped; the targets of every round are pairwise disjoint; consecutive rounds use different slots when at least 6 slots are usable; the `sequential` order; new activation ids; pause and hold flags leave the round unchanged.

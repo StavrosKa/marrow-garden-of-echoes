@@ -1616,3 +1616,32 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.5m)`, wall time 93 s.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.4, round controller and play-area slot filter
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.4 only. Commit d219865 (task 17.3) was pushed before this part began. I read task 17.4, Req 14.5, 18.11, 22.8, 26.4, 26.9, 26.10, design sections 14.2 and 14.3, and the round rules the user approved in chat.
+- What was built: `src/dev/roundController.ts` and `roundController.test.ts`.
+  - `filterSlots(slots, playAspect)`: keeps a slot when its circle of radius `TUNING.hitRadius` + m lies in the closed box [0, A] × [0, 1]. A circle touching an edge is kept.
+  - `calibrationDemand(content, playAspect)`: N from the content, r = `TUNING.hitRadius`, m = 0, and the filtered slots.
+  - `startRound(previous, env)`, `stepRound(state, event, env)`, `openTargets(state)`, `roundComplete(state)`. The types are `RoundState`, `RoundTarget`, `RoundEvent`, `RoundEnvironment` and `RoundMode`.
+- The round rules, as approved by the user, with the two precisions the user gave:
+  - Rotation: the filtered list starts at the cursor. The cursor is the position after the last target of the previous round.
+  - Avoidance: when at least 6 slots are usable, the previous round's slots are removed before placement. "Usable" means `isSlotUsable` is true for the slot after the play-area filter, not only that the slot passed the filter. The 6 is `2 × targetCount`, which the task sets for three targets.
+  - Fallback: the list without the previous round's slots is used unless one of two things holds. Either the full list gives simultaneous targets and the reduced list does not, or the reduced list gives `none`.
+- Decisions made by Kiro, which the user did not state:
+  - The `none` case is my reading of "fewer simultaneous targets". If the reduced list gives `none` while the full list has usable slots, the full list is used. Otherwise `none` would send the player to the no-usable-slot screen although usable slots exist.
+  - Sequential mode shows one target at a time, in order. Target i is shown alone at `targetSlots[i]`, which is `slots[i mod k]` (Req 14.5, interaction-invariants.md:40).
+  - A target id and its activation id are both `r<round>-<index>`. A new round has new ids.
+  - When the last target of a round completes, the next round starts in the same step, so `stepRound` returns the new round.
+  - The round functions take no pause or hold input. The test "pause and hold flags leave the round unchanged" runs setup flow events on a separate state and checks that the round object is unchanged. It is a weak check, and it says so here.
+- Difference from design §14.3: §14.3 describes only the rotation. This commit adds the removal of the previous round's slots and the fallback above. design.md is not edited, as the user asked.
+- Tests: `roundController.test.ts` (13).
+  - Filter: an edge-touching slot is kept, and slots crossing or passing an edge are dropped; a slot near the right edge is kept at aspect 2; all 15 shipped slots are kept at aspect 1; the calibration demand fields.
+  - Targets: pairwise distance greater than 2 × `TUNING.hitRadius` in ten simultaneous rounds; consecutive rounds share no slot; the fallback case (round 2 keeps the full list, which repeats a slot of round 1, because the reduced list gives fewer simultaneous targets); a sequential round with two usable slots (order, one at a time); `none` with no grid cells valid.
+  - Events: a completed target is no longer supplied; a complete round starts round 2 with new ids; a start event and an unknown target; the flag test above.
+  - The fixtures (play aspects, the region radius of 0.2 in camera units for the sequential case, the slot positions) are test values, not tuning values. The grid, the cell threshold and the hit radius come from `TUNING`.
+- Evidence. The checks ran once on the working tree, which held the 17.3 and 17.4 files. The 17.4 commit contains only the 17.4 files and the journal and tick for 17.4.
+  - `npm run typecheck`: exit 0, no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  85 passed (85)`, `Tests  1304 passed (1304)`, `Duration  85.89s`, wall time 88 s. The 17.4 part is 2 files and 13 tests: `roundController.test.ts` and its 13 tests (44 tests across the two files, of which 31 are in `setupFlow.test.ts`).
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.5m)`, wall time 93 s.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
