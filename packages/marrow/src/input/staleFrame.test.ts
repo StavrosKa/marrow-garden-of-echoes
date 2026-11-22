@@ -42,8 +42,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('stale_frame_emits_new_invalid_frame (Req 4.8)', () => {
-  it('valid results, then a stall past staleFrameMs gives exactly one new all-invalid frame, then a fresh result gives another new frame with validity restored', () => {
+describe('the stale-frame helper (Req 4.8)', () => {
+  // Valid results, then a stall past staleFrameMs gives exactly one new all-invalid frame, then a fresh result gives another new frame with validity restored.
+  it('stale_frame_emits_new_invalid_frame', () => {
     // Scripted: the elapsed time is since the last result.
     const first = frame(1000);
     const second = frame(1050);

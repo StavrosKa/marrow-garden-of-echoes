@@ -417,8 +417,9 @@ describe('input of any shape (Req 20.4)', () => {
   });
 });
 
-describe('settings_parse_never_throws', () => {
-  it('never throws, always returns the four valid settings, equals the reading of Req 20.3, and leaves every object untouched (Req 20.4)', () => {
+describe('parseSettings (Req 20.4)', () => {
+  // Never throws, always returns the four valid settings, equals the reading of Req 20.3, and leaves every object untouched.
+  it('settings_parse_never_throws', () => {
     fc.assert(
       fc.property(genSettingsString(), fc.boolean(), (raw, reduced) => {
         const env = { prefersReducedMotion: reduced };
