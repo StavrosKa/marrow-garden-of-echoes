@@ -2,7 +2,7 @@
 // geometry checks compare the shapes with it, so no number is written here except fractions and angles.
 import { describe, expect, it } from 'vitest';
 import { TUNING, type PointerInput, type Vec2 } from 'marrow/core';
-import { easeOutCubic, ORB_RADIUS, planPlayArea, RING_STROKE, type TargetInput } from './playAreaPlan';
+import { easeOutCubic, ORB_RADIUS, planPlayArea, RING_STROKE, TARGET_STROKE, type TargetInput } from './playAreaPlan';
 import { COMPLETE_EASE_MS } from './playgroundRounds';
 
 const HIT = TUNING.hitRadius;
@@ -52,22 +52,40 @@ describe('the shapes stay inside the hit area (Req 26.6)', () => {
     expect(paint.ring.radius - paint.ring.strokeWidth / 2).toBeGreaterThan(0);
   });
 
-  it('draws the open target as a circle of the hit radius', () => {
+  it('draws the open target as a circle whose outer edge, stroke included, is the hit radius', () => {
     const paint = planOne(target());
     expect(paint.circle.visible).toBe(true);
-    expect(paint.circle.radius).toBe(HIT);
+    expect(paint.circle.strokeWidth).toBe(TARGET_STROKE);
+    expect(paint.circle.radius + paint.circle.strokeWidth / 2).toBeCloseTo(HIT, 12);
     expect(paint.cx).toBe(CENTRE.x);
     expect(paint.cy).toBe(CENTRE.y);
   });
 
-  it('draws the completed diamond with its corners on the hit circle, never beyond it', () => {
+  it('draws the completed diamond with its corners at the stroke-inset radius, so the outer edge is the hit radius', () => {
     const paint = planOne(target({ completed: true, completedAtMs: 0 }), 0);
     const numbers = paint.diamond.path.match(/-?\d+(\.\d+)?(e-?\d+)?/g)?.map(Number) ?? [];
     expect(numbers).toHaveLength(8);
     for (let i = 0; i < numbers.length; i += 2) {
       const dx = (numbers[i] ?? NaN) - CENTRE.x;
       const dy = (numbers[i + 1] ?? NaN) - CENTRE.y;
-      expect(Math.hypot(dx, dy)).toBeCloseTo(HIT, 9);
+      // Round joins add half the stroke beyond each corner, so the corner plus half the stroke is the hit radius.
+      expect(Math.hypot(dx, dy) + paint.diamond.strokeWidth / 2).toBeCloseTo(HIT, 9);
+    }
+  });
+
+  it('keeps every target shape inside the hit radius for any hit radius in its range', () => {
+    for (const radius of [TUNING.hitRadiusMin, TUNING.hitRadius, TUNING.hitRadiusMax]) {
+      const plan = planPlayArea({
+        hitRadius: radius,
+        nowMs: 1000,
+        easeMs: COMPLETE_EASE_MS,
+        targets: [target({ shown: true }), target({ id: 't2', completed: true, completedAtMs: 0 })],
+        pointers: [],
+      });
+      for (const paint of plan.targets) {
+        expect(paint.circle.radius + paint.circle.strokeWidth / 2).toBeLessThanOrEqual(radius + 1e-12);
+        expect(paint.diamond.strokeWidth).toBe(TARGET_STROKE);
+      }
     }
   });
 });

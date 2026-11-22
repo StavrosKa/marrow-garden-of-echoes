@@ -121,7 +121,7 @@
    pointer reaches the play area under them. */
 .marrow-calibration-stage {
   position: relative;
-  min-height: 60vh;
+  height: clamp(160px, 45vh, 420px);
 }
 .marrow-aura,
 .marrow-aura-orbs {

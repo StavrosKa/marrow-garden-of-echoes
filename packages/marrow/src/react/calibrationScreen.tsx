@@ -5,11 +5,12 @@
 // The aura is redrawn only when a cell's validity changes. That is when calibration.validCellCount
 // changes: the count of valid cells over the active grids, which only changes in such a step. The
 // mapping is read through a ref, so a new mapping object alone does not redraw. Each draw sizes the
-// canvas to its CSS box and paints in play-area units, so a resize only stretches the last picture
-// until the next validity change.
+// canvas to its CSS box and paints in play-area units with one uniform, centred scale. A resize keeps the
+// last picture until the next validity change.
 //
-// The orbs are SVG circles in a viewBox of 0 0 A 1, with A the play-area aspect. Their positions come
-// from the mapping, so they need no style attribute (tests/marrow-styles.test.ts forbids one).
+// The orbs are SVG circles in a viewBox of 0 0 A 1, with A the play-area aspect, drawn with the default
+// preserveAspectRatio so that they use the same uniform scale as the aura. Their positions come from the
+// mapping, so they need no style attribute (tests/marrow-styles.test.ts forbids one).
 //
 // The mapping and the no-usable-slot flag come from the app: the app keeps the transform of the
 // current grids and runs Placement on completion (design sections 14.1 and 14.2).
@@ -61,8 +62,12 @@ function drawAura(canvas: HTMLCanvasElement, { calibration, mapping }: AuraInput
   const height = canvas.clientHeight;
   canvas.width = width;
   canvas.height = height;
-  context.setTransform(width / calibration.cfg.playAspect, 0, 0, height, 0, 0);
-  context.clearRect(0, 0, calibration.cfg.playAspect, 1);
+  // One uniform scale that fits the play area in the box, centred. The orbs use the same SVG mapping, so both share
+  // one set of units and the orbs stay round (Req 22.7).
+  const aspect = calibration.cfg.playAspect;
+  const scale = Math.min(width / aspect, height);
+  context.setTransform(scale, 0, 0, scale, (width - aspect * scale) / 2, (height - scale) / 2);
+  context.clearRect(0, 0, aspect, 1);
   context.fillStyle = getComputedStyle(canvas).getPropertyValue(AURA_COLOUR).trim();
   for (const wrist of calibration.cfg.activeWrists) {
     const grid = calibration.grids[wrist];
@@ -136,7 +141,7 @@ export function CalibrationScreen({
     <Panel label={instruction}>
       <div className="marrow-calibration-stage">
         <canvas ref={canvas} className="marrow-aura" aria-hidden="true" />
-        <svg className="marrow-aura-orbs" viewBox={`0 0 ${cfg.playAspect} 1`} preserveAspectRatio="none" aria-hidden="true">
+        <svg className="marrow-aura-orbs" viewBox={`0 0 ${cfg.playAspect} 1`} aria-hidden="true">
           {activePointers.map((p) => {
             const at = mapping.toScreen(p.pos);
             return <circle key={p.wrist} className="marrow-orb" cx={at.x} cy={at.y} r={ORB_RADIUS} />;

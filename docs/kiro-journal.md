@@ -1764,3 +1764,26 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.6m)`.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input fix, playground shapes and calibration layout
+
+- Kiro feature used: a review fix to the playground (model: Claude Haiku 5.5, Medium), committed before 17.8 as the user asked. Commit d88c962 (task 17.7) was the starting point, clean and equal to origin/main.
+- Review points and what changed:
+  - (a) Shapes. The circle had radius `hitRadius` with a 0.006 stroke, so its outer edge sat 0.003 past the hit area. The diamond had no stroke, so its fill was exact, not past it. The user confirmed that. Both shapes now sit on `hitRadius − TARGET_STROKE/2`, with `TARGET_STROKE = 0.006` in `playAreaPlan.ts`. The diamond has round joins, so its corners do not stick out. The stroke width is set by the plan and by the applier, not by CSS alone. The ring already had this property.
+  - Two existing assertions encoded the overshoot: "the open target is a circle of the hit radius" and "the diamond corners are on the hit circle". They now check that the outer edge, stroke included, is the hit radius. A new test checks every shape at the three hit radii the range allows. No test was removed.
+  - (b) Calibration layout. The cause was `.marrow-calibration-stage { min-height: 60vh }` in `marrow.css`, which pushed "Use the whole screen" below 720 px. The stage default is now `height: clamp(160px, 45vh, 420px)`. In the playground, the calibration panel covers the field, so the stage is the field's box. The controls sit over the bottom edge, and only the controls take pointer events. The field width is capped at `(100vh − 200px) × 1.6`, so the field is 520 px tall at 720 px of window height.
+  - A second cause, found by measurement: `.garden-theme { min-height: 100vh }` in `theme.css` made the playground page 749 px tall in a 720 px window, which added a scrollbar. The playground's `main` now has a class, and `playground.css` sets `min-height: 0` on its theme wrapper with `:has()`. The theme file is unchanged.
+  - (c) Orbs. The orb SVG used `preserveAspectRatio="none"`, while the aura canvas stretched to the stage box, so orbs were ellipses. The canvas now draws with one uniform, centred scale, `min(width / A, height)`, with the offset from the centre. The orb SVG uses the default aspect ratio, so it uses the same scale. A new test checks the transform in a 500 by 200 box, which gives `[200, 0, 0, 200, 50, 0]`, and checks that the orb SVG has no `preserveAspectRatio`. The existing aura tests check `fillRect` in play-area units, which is unchanged, so they still pass.
+- Files changed: `apps/garden-of-echoes/src/dev/playAreaPlan.ts`, `playAreaPlan.test.ts`, `playArea.tsx`, `playground.css`, `playground.tsx` (the `main` class only); `packages/marrow/src/react/calibrationScreen.tsx` and its test (drawing and the orb SVG, the test is added); `packages/marrow/src/react/marrow.css` (the stage height); new `tests/e2e/playground-layout.spec.ts`.
+- Decisions made by Kiro, which the plan left open:
+  - The layout test checks the whole-screen button is inside the window, and that neither the page nor the screen that holds the controls scrolls. It runs at 1280 by 720 in the existing dev-server Playwright project.
+  - The 200 px in the field width is the measured header and chrome height, so the field fits at 720 px. Measured in the browser: `main` ends at 697 px, with the body margin at 8 px.
+- Process notes:
+  - The first `npm run test:e2e` of this commit failed with "Port 5173 is already in use". A Vite process I did not start from this session was listening on 5173. Its command line was `vite.js 5199`, so it served a folder named `5199`, and every page on it returned 404. I stopped that process (pid 20172) to let Playwright start its own server. The user should know that a stray dev server existed.
+  - For the measurements I started `npm run dev -w garden-of-echoes` as a background process with the process tool, and stopped it before the full run.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  91 passed (91)`, `Tests  1355 passed (1355)`, `Duration  119.23s`. The count is 1353 before this commit, plus the two tests added here (the stroke-fit test, and the uniform-scale test).
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\playground-layout.spec.ts:9:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `3 passed (1.7m)`. This is 0.1 minutes longer than the 1.6-minute run of 17.7, and within the spread between runs.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

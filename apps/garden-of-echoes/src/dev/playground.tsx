@@ -219,7 +219,7 @@ export function Playground({ tuning = TUNING, content = shipped, parts = {} }: P
   return (
     <ThemeProvider>
       <MarrowCopyProvider value={copy.marrow}>
-        <main>
+        <main className="playground-main">
           <h1>{copy.playground.title}</h1>
           {load.kind === 'ready' ? (
             <Run content={load.content} parts={resolved} />

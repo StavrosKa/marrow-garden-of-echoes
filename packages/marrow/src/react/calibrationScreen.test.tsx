@@ -158,6 +158,32 @@ describe('the aura redraw (Requirement 15.5)', () => {
     expect(y + height).toBeLessThanOrEqual(1);
   });
 });
+describe('the aura and the orbs share one uniform scale (Requirement 22.7)', () => {
+  /** jsdom has no layout, so the canvas box is fixed for one test and removed after it. */
+  function stubCanvasBox(width: number, height: number): () => void {
+    Object.defineProperty(HTMLCanvasElement.prototype, 'clientWidth', { configurable: true, get: () => width });
+    Object.defineProperty(HTMLCanvasElement.prototype, 'clientHeight', { configurable: true, get: () => height });
+    return () => {
+      Reflect.deleteProperty(HTMLCanvasElement.prototype, 'clientWidth');
+      Reflect.deleteProperty(HTMLCanvasElement.prototype, 'clientHeight');
+    };
+  }
+  it('fits the play area in the box with one centred scale, so the aura is not stretched and the orbs are round', () => {
+    const restore = stubCanvasBox(500, 200);
+    try {
+      const painted = paint(startState('camera'), { x: 0.5, y: 0.5 }, TUNING.cellValidSamples);
+      const { container } = renderScreen({ calibration: painted });
+      // The play area is PLAY_ASPECT (2) by 1. In a 500 by 200 box the scale is min(500 / 2, 200) = 200, and the
+      // play area is 400 wide, so it is centred with an offset of 50 on x.
+      const last = context.setTransform.mock.calls.at(-1);
+      expect(last).toEqual([200, 0, 0, 200, 50, 0]);
+      expect(container.querySelector('svg.marrow-aura-orbs')?.getAttribute('preserveAspectRatio')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe('the orbs (Requirement 22.7)', () => {
   it('shows one orb at the mapped position of each valid active wrist, and none for an invalid or inactive one', () => {
     const { container } = renderScreen({

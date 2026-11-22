@@ -5,7 +5,7 @@
 // Initial attributes hide everything. The first frame of a run sets the real values.
 import type { ReactElement } from 'react';
 import { TUNING, type WristId } from 'marrow/core';
-import { ORB_RADIUS, PLAY_ASPECT, type PlayAreaParts, type TargetParts } from './playAreaPlan';
+import { ORB_RADIUS, PLAY_ASPECT, TARGET_STROKE, type PlayAreaParts, type TargetParts } from './playAreaPlan';
 import type { RoundTarget } from './roundController';
 
 export interface PlayAreaProps {
@@ -33,7 +33,8 @@ function TargetShapes({ id, completed, parts }: { id: string; completed: boolean
     <g className={completed ? 'playground-target playground-target--completed' : 'playground-target'}>
       <circle
         className="playground-target-shape"
-        r={TUNING.hitRadius}
+        r={TUNING.hitRadius - TARGET_STROKE / 2}
+        strokeWidth={TARGET_STROKE}
         ref={(element) => {
           partsOf(parts, id).circle = element;
         }}

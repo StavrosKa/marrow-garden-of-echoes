@@ -3,9 +3,9 @@
 // filled. `applyPlayAreaPlan` writes those values into the SVG elements that React rendered, and nothing else.
 // The frame loop calls it every animation frame, so the rings and orbs are never waiting on a React update.
 //
-// Every shape stays inside its hit area. The circle has the hit radius. The ring is centred on a radius that is
-// the hit radius less half its stroke, so its outer edge is the hit radius (Req 26.6). The completed diamond has
-// its corners on the hit circle.
+// Every shape stays inside its hit area, stroke included. The circle, the completed diamond and the ring are each
+// drawn on a radius that is the hit radius less half their stroke, so each outer edge is the hit radius (Req 26.6).
+// The diamond uses round joins, so its corners do not stick out beyond that edge.
 import type { PointerInput, Vec2, WristId } from 'marrow/core';
 
 /** The aspect A of the play area: its width over its height. The play field's CSS box has this ratio. App value, not in tuning.ts. */
@@ -14,6 +14,11 @@ export const PLAY_ASPECT = 1.6;
 export const RING_STROKE = 0.012;
 /** The radius of an orb, in play-area units. App value, not in tuning.ts. */
 export const ORB_RADIUS = 0.02;
+/**
+ * The stroke of a target shape, in play-area units. The shape is drawn on a radius that is the hit radius less half
+ * this stroke, so its outer edge is the hit radius (Req 26.6). App value, not in tuning.ts.
+ */
+export const TARGET_STROKE = 0.006;
 
 const TAU = 2 * Math.PI;
 
@@ -36,8 +41,13 @@ export interface TargetPaint {
   readonly id: string;
   readonly cx: number;
   readonly cy: number;
-  readonly circle: { readonly visible: boolean; readonly radius: number };
-  readonly diamond: { readonly visible: boolean; readonly opacity: number; readonly path: string };
+  readonly circle: { readonly visible: boolean; readonly radius: number; readonly strokeWidth: number };
+  readonly diamond: {
+    readonly visible: boolean;
+    readonly opacity: number;
+    readonly path: string;
+    readonly strokeWidth: number;
+  };
   readonly ring: {
     readonly visible: boolean;
     readonly radius: number;
@@ -95,17 +105,20 @@ function paintTarget(target: TargetInput, input: PlanInput): TargetPaint {
         : 0;
   const ringRadius = hitRadius - RING_STROKE / 2;
   const circumference = TAU * ringRadius;
+  // The target shapes sit on a radius that leaves room for their own stroke, so the stroke stays in the hit area.
+  const shapeRadius = hitRadius - TARGET_STROKE / 2;
   // A ring shows only on a target with an owner and progress above 0 (Req 26.8).
   const ringVisible = target.owner !== null && target.progress > 0 && !target.completed;
   return {
     id: target.id,
     cx: target.centre.x,
     cy: target.centre.y,
-    circle: { visible: target.shown && !target.completed, radius: hitRadius },
+    circle: { visible: target.shown && !target.completed, radius: shapeRadius, strokeWidth: TARGET_STROKE },
     diamond: {
       visible: target.completed,
       opacity: ease,
-      path: diamondPath(target.centre.x, target.centre.y, hitRadius),
+      path: diamondPath(target.centre.x, target.centre.y, shapeRadius),
+      strokeWidth: TARGET_STROKE,
     },
     ring: {
       visible: ringVisible,
@@ -161,10 +174,12 @@ export function applyPlayAreaPlan(parts: PlayAreaParts, plan: PlayAreaPlan): voi
       target.circle.setAttribute('cx', String(paint.cx));
       target.circle.setAttribute('cy', String(paint.cy));
       target.circle.setAttribute('r', String(paint.circle.radius));
+      target.circle.setAttribute('stroke-width', String(paint.circle.strokeWidth));
       setVisible(target.circle, paint.circle.visible);
     }
     if (target.diamond !== null) {
       target.diamond.setAttribute('d', paint.diamond.path);
+      target.diamond.setAttribute('stroke-width', String(paint.diamond.strokeWidth));
       target.diamond.setAttribute('opacity', String(paint.diamond.opacity));
       setVisible(target.diamond, paint.diamond.visible);
     }
