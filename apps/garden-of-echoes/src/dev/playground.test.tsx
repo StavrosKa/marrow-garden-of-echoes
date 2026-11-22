@@ -70,6 +70,11 @@ function fakeParts() {
     cancelFrame: (handle) => {
       callbacks.delete(handle);
     },
+    basePath: '/',
+    createCameraSource: () => {
+      throw new Error('the simulated-input tests never request a camera');
+    },
+    getUserMedia: () => Promise.reject(new Error('the simulated-input tests never request a camera')),
     createToneContext: () => ({
       currentTime: 0,
       destination: 'out',

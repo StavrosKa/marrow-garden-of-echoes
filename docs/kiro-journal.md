@@ -1787,3 +1787,39 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\playground-layout.spec.ts:9:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `3 passed (1.7m)`. This is 0.1 minutes longer than the 1.6-minute run of 17.7, and within the spread between runs.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.8, playground in camera mode
+
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.8 only, after the fix commit a3d69e2. Before the code I read task 17 and the rules, Req 5, 18, 23 and 28.10, design sections 11, 14.1 and 14.5, `createCameraSource` and `mediapipeUrls.ts`, `CameraPreview`, `CalibrationScreen`, `TrackingLostOverlay` and `DebugOverlay`, the playground files of 17.2 to 17.7, the e2e config, and the world slice's throttle and M1 to M6 notes.
+- What was built:
+  - `src/dev/playgroundController.ts`: the camera path. `startCamera()` is called from the setup flow's `requestCamera` effect, so it runs inside the click that asked for the camera. It creates a hidden video element and a camera source with `basePath`, and calls `start()` before it returns. Outcomes arrive by promise, and an outcome from a replaced camera is ignored. `disposeCamera()` runs on `disposeCamera`, Exit, unmount and `pagehide`. A waiting camera run starts from the loop's read once the camera has a frame, so the frame aspect is the camera's real one.
+  - `src/dev/playground.tsx`: the camera screens (permission with its outcomes, hand choice, the preview), the tracking-lost overlay, the one-wrist hint and the held dim class.
+  - `src/dev/playground-camera.test.ts`: 11 tests, all with a fake camera that records its calls.
+  - `src/dev/playground.css`: the preview corner, the hint, the dim (`opacity` at 300 ms).
+  - `src/dev/frameDriver.ts`: the loop now reads on every tick, idle or not, and takes the raw delta after the read. This lets a camera run start from the frame it reads. The loop tests still pass.
+  - `src/dev/playground.test.tsx` and `playgroundController.test.ts`: their deps now include the camera fields. The camera stubs throw, because those tests never ask for a camera.
+- Decisions made by Kiro (the task left these open):
+  - The app's getUserMedia wrapper calls the browser's `getUserMedia` synchronously. It keeps the returned stream only for the camera that is current when the stream arrives, so the preview never shows a stream from a replaced camera. The source still owns the tracks (Req 5.6).
+  - `basePath` is `import.meta.env.BASE_URL`. It is the value of Vite's `base`, which the build takes from `BASE_PATH`.
+  - The hand choice maps to wrists as follows: right to right, left to left, both to both. The driver takes these as its active wrists.
+  - The preview is shown only on the hand-choice, calibration and no-usable-slot screens, at most 320 px wide (`PREVIEW_MAX_PX`, an Appendix B app value). It is removed when play starts.
+  - The tracking-lost overlay does not show while Pause is open, so two dialogs never stack. The flag stays set and the overlay shows when Pause closes.
+  - The play screen shows all targets with both wrists' orbs in camera mode. The left orb is hidden in simulated input, where it never gets a position.
+  - Calibration in camera mode waits for the first frame before it starts. The loop is idle during the wait, so the calibration screen shows nothing for that short time.
+  - `visibilitychange` only sets the hidden flag. The camera stays open (Req 16.3).
+  - The pagehide listener is on `window`, and it is removed by the mount cleanup.
+- Tests, in `playground-camera.test.ts` (11 tests):
+  - The camera is requested from the click: one source, the base path in its options, and the `getUserMedia` call happens before `send` returns.
+  - A ready camera opens hand choice with a preview stream. A denied one shows its screen, and Retry starts another camera.
+  - Exit, switching to simulated input, unmount and `pagehide each dispose the camera. `visibilitychange` does not.
+  - Recover: disposes the old camera, starts a new one from its click, keeps the calibration, and the overlay stays up until the hold ends. A restart that fails shows its outcome.
+  - The one-wrist hint shows after `oneWristHintMs` with the other hand in view.
+  - The dim fade in `playground.css` is at least `TUNING.uiMinLightEaseMs`.
+  - Calibration reaches play with the fake camera. The test paints the cells near the first slot, which gives a sequential round.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The first run flagged the new deps in two test helpers, which were fixed. The second run printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  92 passed (92)`, `Tests  1366 passed (1366)`, `Duration  122.34s`. Before this commit: 91 files and 1355 tests. This sub-task adds `playground-camera.test.ts` (11 tests), so the count rises by 11.
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\playground-layout.spec.ts:9:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `3 passed (1.8m)`. This is 0.1 minutes longer than the fix commit's run.
+- Not yet checked: the camera itself. No test opens a real camera, so the manual check after 17.9 is the first run with a webcam.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

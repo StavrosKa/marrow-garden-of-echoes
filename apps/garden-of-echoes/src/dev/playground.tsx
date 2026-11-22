@@ -1,25 +1,33 @@
 // The input playground (Req 26). On load it validates the tuning and the content, and shows the first problem instead
 // of running. Then it runs the setup flow, the round and the play area through the controller (playgroundController.ts).
-// Only the simulated-input path runs in 17.7. "Use the camera" does nothing until 17.8.
+// Camera mode (17.8) uses the Camera Source from marrow/input; simulated input uses the Pointer Source.
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import { formatTuningErrors, TUNING, validateTuning, type Tuning } from 'marrow/core';
-import { createPointerSource } from 'marrow/input';
+import { createCameraSource, createPointerSource } from 'marrow/input';
 import {
   AudioSettings,
   CalibrationScreen,
   CameraPermissionScreen,
+  CameraPreview,
   createSettingsStore,
+  HandChoiceScreen,
   MarrowCopyProvider,
   PauseOverlay,
   SettingsProvider,
   SimulatedInputLabel,
   StartScreen,
+  TrackingLostOverlay,
   type SettingsStorage,
 } from 'marrow/react';
 import type { ToneContext } from '../audio/tonePlayer';
 import { copy } from '../copy';
 import { ThemeProvider } from '../ui/themeProvider';
-import { createPlaygroundController, type CreatePointerSource, type PlaygroundController } from './playgroundController';
+import {
+  createPlaygroundController,
+  type CreateCameraSource,
+  type CreatePointerSource,
+  type PlaygroundController,
+} from './playgroundController';
 import { readPlaygroundContent, type PlaygroundContent } from './playgroundContent';
 import shipped from './playground-content.json';
 import { PlayArea } from './playArea';
@@ -27,9 +35,16 @@ import './playground.css';
 
 /** The storage prefix of the playground's settings. Not player-facing text. */
 const STORAGE_PREFIX = 'marrow-input-playground.';
+/** The largest width of the camera preview, in CSS px (Req 22.5). An app value, listed in Appendix B. */
+const PREVIEW_MAX_PX = 320;
 
 export interface PlaygroundParts {
   readonly createPointerSource: CreatePointerSource;
+  readonly createCameraSource: CreateCameraSource;
+  /** The browser's getUserMedia. The default is `navigator.mediaDevices.getUserMedia`. */
+  readonly getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
+  /** The app's base path. The default is `import.meta.env.BASE_URL`, so the camera's files come from under it. */
+  readonly basePath: string;
   readonly requestFrame: (callback: (timestampMs: number) => void) => number;
   readonly cancelFrame: (handle: number) => void;
   readonly createToneContext: () => ToneContext;
@@ -63,6 +78,9 @@ export function loadPlayground(tuning: Tuning, content: unknown): PlaygroundLoad
 
 const BROWSER_PARTS: PlaygroundParts = {
   createPointerSource,
+  createCameraSource,
+  getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
+  basePath: import.meta.env.BASE_URL,
   requestFrame: (callback) => window.requestAnimationFrame(callback),
   cancelFrame: (handle) => window.cancelAnimationFrame(handle),
   createToneContext: () => new AudioContext(),
@@ -92,7 +110,10 @@ function Run({ content, parts }: RunProps): ReactElement {
         prefersReducedMotion: prefersReducedMotion(),
         storage: parts.settingsStorage,
       }),
+      basePath: parts.basePath,
       createPointerSource: parts.createPointerSource,
+      createCameraSource: parts.createCameraSource,
+      getUserMedia: parts.getUserMedia,
       requestFrame: parts.requestFrame,
       cancelFrame: parts.cancelFrame,
       createToneContext: parts.createToneContext,
@@ -120,18 +141,33 @@ function Run({ content, parts }: RunProps): ReactElement {
   const text = copy.playground;
   const marrow = copy.marrow;
   const simulated = setup.mode === 'simulated';
+  /** The preview is shown during hand choice and calibration only, and removed when play starts (17.8). */
+  const showPreview =
+    setup.mode === 'camera' &&
+    view.previewStream !== null &&
+    (screen === 'handChoice' || screen === 'calibrating' || screen === 'noUsableSlot');
 
   function screenContent(): ReactElement | null {
     switch (screen) {
       case 'cameraPermission':
-        // "Use the camera" has no handler until 17.8; the button is shown because CameraPermissionScreen requires it.
+        // Retry and "Use the camera" both start the camera from their click (Req 5.1).
         return (
           <CameraPermissionScreen
             failure={null}
-            onStartCamera={() => undefined}
+            onStartCamera={() => controller.send({ kind: 'useCamera' })}
             onTryWithout={() => controller.send({ kind: 'tryWithout' })}
           />
         );
+      case 'cameraError':
+        return (
+          <CameraPermissionScreen
+            failure={setup.failure}
+            onStartCamera={() => controller.send({ kind: 'useCamera' })}
+            onTryWithout={() => controller.send({ kind: 'tryWithout' })}
+          />
+        );
+      case 'handChoice':
+        return <HandChoiceScreen onContinue={(hand) => controller.send({ kind: 'handChosen', hand })} />;
       case 'calibrating':
       case 'noUsableSlot':
         if (view.calibration === null || view.mapping === null) return null;
@@ -149,12 +185,18 @@ function Run({ content, parts }: RunProps): ReactElement {
         );
       case 'play':
         return (
-          <p aria-live="polite" className="playground-instruction">
-            {text.playInstruction}
-          </p>
+          <>
+            {view.oneWristHint ? (
+              <p aria-live="polite" className="playground-hint">
+                {marrow.tracking.oneWristHint}
+              </p>
+            ) : null}
+            <p aria-live="polite" className="playground-instruction">
+              {text.playInstruction}
+            </p>
+          </>
         );
       default:
-        // Hand choice and the camera error screen come with the camera in 17.8.
         return null;
     }
   }
@@ -187,7 +229,7 @@ function Run({ content, parts }: RunProps): ReactElement {
           {simulated ? <SimulatedInputLabel /> : null}
         </div>
         <div
-          className="playground-field"
+          className={view.holding ? 'playground-field playground-field--held' : 'playground-field'}
           ref={(element) => controller.attachPlayArea(element)}
         >
           {screen === 'play' ? (
@@ -195,9 +237,14 @@ function Run({ content, parts }: RunProps): ReactElement {
               label={text.playArea}
               targets={view.shown}
               completedIds={view.completedIds}
-              wrists={['right']}
+              wrists={['left', 'right']}
               parts={controller.playAreaParts}
             />
+          ) : null}
+          {showPreview && view.previewStream !== null ? (
+            <div className="playground-preview">
+              <CameraPreview stream={view.previewStream} maxWidth={PREVIEW_MAX_PX} />
+            </div>
           ) : null}
           <div className="playground-screen">{screenContent()}</div>
         </div>
@@ -205,6 +252,13 @@ function Run({ content, parts }: RunProps): ReactElement {
           <PauseOverlay
             onResume={() => controller.send({ kind: 'resume' })}
             onRecalibrate={() => controller.send({ kind: 'recalibrate' })}
+            onExit={() => controller.send({ kind: 'exit' })}
+          />
+        ) : null}
+        {setup.trackingLost && !setup.paused ? (
+          <TrackingLostOverlay
+            onRecover={() => controller.send({ kind: 'recover' })}
+            onTryWithout={() => controller.send({ kind: 'tryWithout' })}
             onExit={() => controller.send({ kind: 'exit' })}
           />
         ) : null}

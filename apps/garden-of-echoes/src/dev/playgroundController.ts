@@ -1,17 +1,18 @@
 // The controller of the input playground (design sections 14.1 to 14.5). Plain TypeScript with no React: the component
 // subscribes to `getView`. Each click or key handler calls `send` or `pressStart`, and `send` runs the effects of the
-// setup flow in that same call, so the browser sees the audio start and the Pointer Source begin from the gesture
-// that caused them (Req 27.1, 5.1, 22.2).
+// setup flow in that same call, so the browser sees the audio start, the camera request and the Pointer Source begin
+// from the gesture that caused them (Req 27.1, 5.1, 22.2).
 //
 // `mount` owns the one frame loop, the tone player and the window listeners. Its cleanup stops them and disposes the
-// Pointer Source. React StrictMode mounts, unmounts and mounts again, which therefore leaves exactly one loop and one
-// source (the test in playground.test.tsx checks this).
+// sources. React StrictMode mounts, unmounts and mounts again, which therefore leaves exactly one loop and one source
+// of each kind (the tests check this).
 //
-// Camera effects (`requestCamera`, `disposeCamera`) are not wired in 17.7. Camera start, its outcomes and the camera
-// calibration come in 17.8, so "Use the camera" does nothing in this step.
+// Two sources exist at most, one per mode. The Pointer Source serves simulated input. The Camera Source (17.8) serves
+// camera mode, and it is created and started only by `startCamera`, which the click that asked for the camera calls.
+// The app's getUserMedia wrapper keeps the stream for the preview; the source keeps the tracks and stops them.
 import { TUNING, dwellView, type CalibrationState, type HitArea, type Mapping } from 'marrow/core';
-import type { PoseSource } from 'marrow/input';
-import type { CalibrationPointer, SettingsStore } from 'marrow/react';
+import type { CameraSourceOptions, PoseSource } from 'marrow/input';
+import type { CalibrationPointer, HandChoice, SettingsStore } from 'marrow/react';
 import { createTonePlayer, type ToneContext, type TonePlayer } from '../audio/tonePlayer';
 import {
   createDriver,
@@ -32,12 +33,7 @@ import {
   type TargetInput,
 } from './playAreaPlan';
 import { advanceRound, COMPLETE_EASE_MS, firstRound, NO_ROUND, recordSelection, type RoundProgress } from './playgroundRounds';
-import {
-  calibrationDemand,
-  openTargets,
-  type RoundEnvironment,
-  type RoundTarget,
-} from './roundController';
+import { calibrationDemand, openTargets, type RoundEnvironment, type RoundTarget } from './roundController';
 import { INITIAL_SETUP, stepSetup, type SetupEffect, type SetupEvent, type SetupState } from './setupFlow';
 
 /** The Pointer Source's constructor, as the playground calls it. It matches `createPointerSource` of marrow/input. */
@@ -47,11 +43,19 @@ export type CreatePointerSource = (options: {
   readonly cancelFrame: (handle: number) => void;
 }) => PoseSource;
 
+/** The Camera Source's constructor, as the playground calls it. It matches `createCameraSource` of marrow/input. */
+export type CreateCameraSource = (options: CameraSourceOptions) => PoseSource;
+
 /** What the controller needs from the browser, passed in so that tests can replace each part. */
 export interface PlaygroundDeps {
   readonly content: PlaygroundContent;
   readonly settings: SettingsStore;
+  /** The app's base path, from `import.meta.env.BASE_URL`. Every URL of the camera's files is built from it. */
+  readonly basePath: string;
   readonly createPointerSource: CreatePointerSource;
+  readonly createCameraSource: CreateCameraSource;
+  /** The browser's getUserMedia. The controller calls it through a wrapper that keeps the stream for the preview. */
+  readonly getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
   readonly requestFrame: (callback: (timestampMs: number) => void) => number;
   readonly cancelFrame: (handle: number) => void;
   readonly createToneContext: () => ToneContext;
@@ -67,6 +71,12 @@ export interface PlaygroundView {
   /** The round's targets that are drawn now: open ones, and the ones completed in this round. */
   readonly shown: readonly RoundTarget[];
   readonly completedIds: readonly string[];
+  /** The camera's stream while a camera run is open, for the preview. Null otherwise. */
+  readonly previewStream: MediaStream | null;
+  /** Whether a tracking hold is in effect: the play area dims (Req 23.10). */
+  readonly holding: boolean;
+  /** Whether the one-wrist hint shows (Req 18.9). */
+  readonly oneWristHint: boolean;
 }
 
 export interface PlaygroundController {
@@ -74,7 +84,7 @@ export interface PlaygroundController {
   readonly settings: SettingsStore;
   subscribe(listener: () => void): () => void;
   getView(): PlaygroundView;
-  /** Starts the loop, the tone player and the listeners. Returns the cleanup that stops them. */
+  /** Starts the loop, the tone player and the listeners. Returns the cleanup that stops them and the sources. */
   mount(): () => void;
   /** The play field element, which the Pointer Source listens on. The component sets it through a ref. */
   attachPlayArea(element: HTMLElement | null): void;
@@ -90,6 +100,12 @@ export interface PlaygroundController {
 
 const ORIGIN = { x: 0, y: 0 };
 
+/** The wrists a hand choice uses (Req 22.4). */
+function wristsOf(hand: HandChoice): ('left' | 'right')[] {
+  if (hand === 'both') return ['left', 'right'];
+  return [hand];
+}
+
 export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundController {
   const listeners = new Set<() => void>();
   const playAreaParts = createPlayAreaParts();
@@ -100,7 +116,14 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
   let hidden = false;
   let playArea: HTMLElement | null = null;
   let loop: FrameLoop | null = null;
-  let source: PoseSource | null = null;
+  let pointer: PoseSource | null = null;
+  let camera: PoseSource | null = null;
+  let previewStream: MediaStream | null = null;
+  let pendingHand: HandChoice | null = null;
+  /** A camera run waiting for its first frame, so that the frame aspect is known (Req 10.1). */
+  let pendingCameraRun: { readonly hand: HandChoice } | null = null;
+  let holding = false;
+  let oneWristHint = false;
   let tone: TonePlayer | null = null;
 
   function driverState(): DriverState | null {
@@ -113,7 +136,7 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     return {
       content: deps.content,
       playAspect: PLAY_ASPECT,
-      frameAspect: PLAY_ASPECT,
+      frameAspect: driver.config.frameAspect,
       grids: result.grids,
       mapping: driver.mapping,
     };
@@ -132,9 +155,9 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
       driver === null
         ? []
         : driver.config.activeWrists.map((wrist) => {
-            const pointer = driver.cameraPointers[wrist];
-            return pointer !== undefined && pointer.valid
-              ? { wrist, valid: true, pos: pointer.pos }
+            const pointerOf = driver.cameraPointers[wrist];
+            return pointerOf !== undefined && pointerOf.valid
+              ? { wrist, valid: true, pos: pointerOf.pos }
               : { wrist, valid: false, pos: ORIGIN };
           });
     return {
@@ -144,6 +167,9 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
       calibrationPointers,
       shown,
       completedIds,
+      previewStream,
+      holding,
+      oneWristHint,
     };
   }
 
@@ -154,12 +180,19 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     for (const listener of [...listeners]) listener();
   }
 
-  function disposeSource(): void {
-    source?.dispose();
-    source = null;
+  function disposePointer(): void {
+    pointer?.dispose();
+    pointer = null;
   }
 
-  function calibrationConfig(): DriverConfig {
+  /** Disposes the Camera Source, detaches the preview stream (Req 5.6). The source stops its own tracks. */
+  function disposeCamera(): void {
+    camera?.dispose();
+    camera = null;
+    previewStream = null;
+  }
+
+  function simulatedConfig(): DriverConfig {
     return {
       mode: 'simulated',
       activeWrists: ['right'],
@@ -170,21 +203,85 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     };
   }
 
-  /** A new calibration run: one Pointer Source at a time (plan point 6), and a fresh driver state. */
+  function cameraConfig(hand: HandChoice, frameAspect: number): DriverConfig {
+    return {
+      mode: 'camera',
+      activeWrists: wristsOf(hand),
+      playAspect: PLAY_ASPECT,
+      frameAspect,
+      demand: calibrationDemand(deps.content, PLAY_ASPECT),
+      tuning: TUNING,
+    };
+  }
+
+  /**
+   * Requests the camera from the click that asked for it (Req 5.1). The getUserMedia wrapper keeps the stream of this
+   * camera only while it is the current one, so a stream from a replaced camera never reaches the preview.
+   */
+  function startCamera(): void {
+    disposeCamera();
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    const source: PoseSource = deps.createCameraSource({
+      basePath: deps.basePath,
+      video,
+      getUserMedia: (constraints) => {
+        const request = deps.getUserMedia(constraints);
+        request.then(
+          (stream) => {
+            if (camera === source) {
+              previewStream = stream;
+              notify();
+            }
+          },
+          () => undefined,
+        );
+        return request;
+      },
+    });
+    camera = source;
+    void source.start().then((outcome) => {
+      if (camera === source) send({ kind: 'cameraOutcome', outcome });
+    });
+  }
+
+  function disposeSource(): void {
+    disposePointer();
+    pendingCameraRun = null;
+  }
+
+  /** A calibration run: the mode decides which source serves it, and each run starts a fresh driver state. */
   function startCalibrationRun(mode: 'camera' | 'simulated'): void {
-    // Camera calibration arrives with the camera source in 17.8.
-    if (mode !== 'simulated') return;
+    if (mode === 'camera') {
+      disposePointer();
+      progress = NO_ROUND;
+      loop?.replace(null);
+      pendingCameraRun = { hand: pendingHand ?? 'right' };
+      return;
+    }
     disposeSource();
     if (playArea !== null) {
-      source = deps.createPointerSource({
+      pointer = deps.createPointerSource({
         playArea,
         requestFrame: deps.requestFrame,
         cancelFrame: deps.cancelFrame,
       });
-      void source.start();
+      void pointer.start();
     }
     progress = NO_ROUND;
-    loop?.replace(createDriver(calibrationConfig()));
+    loop?.replace(createDriver(simulatedConfig()));
+  }
+
+  /** Starts a waiting camera run once its first frame exists. Called from the loop's read, on every tick. */
+  function startPendingCameraRun(): void {
+    if (pendingCameraRun === null || camera === null) return;
+    const frame = camera.latest();
+    if (frame === null) return;
+    const { hand } = pendingCameraRun;
+    pendingCameraRun = null;
+    progress = NO_ROUND;
+    loop?.replace(createDriver(cameraConfig(hand, frame.aspect)));
   }
 
   /** Calibration has a transform: place the first round and report the Placement result (Req 26.4). */
@@ -216,7 +313,10 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
   function runEffect(effect: SetupEffect): void {
     switch (effect.kind) {
       case 'requestCamera':
+        startCamera();
+        return;
       case 'disposeCamera':
+        disposeCamera();
         return;
       case 'startCalibration':
         startCalibrationRun(effect.mode);
@@ -231,6 +331,7 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
   }
 
   function send(event: SetupEvent): void {
+    if (event.kind === 'handChosen') pendingHand = event.hand;
     const step = stepSetup(setup, event);
     setup = step.state;
     for (const effect of step.effects) runEffect(effect);
@@ -279,13 +380,23 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
   }
 
   function read(): FrameReading {
-    return { paused: setup.paused, hidden, frame: source?.latest() ?? null, hitAreas: hitAreas() };
+    startPendingCameraRun();
+    const active = setup.mode === 'camera' ? camera : pointer;
+    return { paused: setup.paused, hidden, frame: active?.latest() ?? null, hitAreas: hitAreas() };
   }
 
-  /** One animation frame of the run: the session clock, the round, the drawing, and the notifications it needs. */
+  /** One animation frame of the run: the session clock, the tracking events, the round, and the drawing. */
   function onStep(step: DriverStep): void {
     const before = progress;
+    const wasHolding = holding;
+    const wasHint = oneWristHint;
     sessionMs += step.sessionDt;
+    holding = step.holdActive;
+    oneWristHint = step.oneWristHint;
+    for (const event of step.trackingEvents) {
+      if (event.kind === 'overlayShown') send({ kind: 'overlayShown' });
+      if (event.kind === 'holdEnded') send({ kind: 'holdEnded' });
+    }
     if (step.calibrationCompleted) onCalibrationComplete();
     const driver = driverState();
     if (driver === null) return;
@@ -303,7 +414,7 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
       }),
     );
     // The calibration screen draws its orbs from React, so it is notified every frame. The play area does not.
-    if (progress !== before || setup.screen !== 'play') notify();
+    if (progress !== before || setup.screen !== 'play' || holding !== wasHolding || oneWristHint !== wasHint) notify();
   }
 
   function mount(): () => void {
@@ -319,10 +430,17 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' && !event.repeat) send({ kind: 'escape' });
     };
+    // A tab switch only sets the hidden flag (Req 16.3). The camera stays open.
     const onVisibility = (): void => {
       hidden = document.hidden;
     };
+    // The page is leaving: the camera is released (Req 5.7).
+    const onPageHide = (): void => {
+      disposeCamera();
+      notify();
+    };
     window.addEventListener('keydown', onKey);
+    window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', onVisibility);
     loop = startFrameLoop({
       initial: null,
@@ -334,11 +452,14 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     notify();
     return () => {
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
       unsubscribeAudio();
       loop?.stop();
       loop = null;
-      disposeSource();
+      disposePointer();
+      disposeCamera();
+      pendingCameraRun = null;
       tone?.dispose();
       tone = null;
     };

@@ -127,6 +127,11 @@ function build() {
   const controller = createPlaygroundController({
     content: readContent(),
     settings,
+    basePath: '/',
+    createCameraSource: () => {
+      throw new Error('the simulated-input tests never request a camera');
+    },
+    getUserMedia: () => Promise.reject(new Error('the simulated-input tests never request a camera')),
     createPointerSource: () => {
       const source = new FakeSource();
       sources.push(source);

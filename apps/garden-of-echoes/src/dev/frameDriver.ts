@@ -424,9 +424,11 @@ export function startFrameLoop(options: FrameLoopOptions): FrameLoop {
   const tick = (timestampMs: number): void => {
     pending = null;
     if (stopped) return;
+    // `read` runs on every tick, idle or not, so a caller can start a run from the frame it reads (the camera
+    // start of 17.8). The raw delta is taken after it, so a run that starts in this tick counts 0.
+    const reading = options.read();
     if (state !== null) {
       const rawDtMs = previousMs === null ? 0 : timestampMs - previousMs;
-      const reading = options.read();
       const step = stepFrameDriver(state, {
         rawDtMs,
         paused: reading.paused,
