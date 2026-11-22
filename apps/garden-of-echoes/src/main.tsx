@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { copy } from './copy';
+import { isPlaygroundRoute } from './dev/playgroundRoute';
 import { isWorldRoute } from './dev/world/route';
 import { App } from './ui/App';
 const root = document.getElementById('root');
@@ -15,6 +16,15 @@ if (isWorldRoute(window.location.search)) {
     rootElement.render(
       <StrictMode>
         <WorldPlayground />
+      </StrictMode>,
+    );
+  });
+} else if (isPlaygroundRoute(window.location.search)) {
+  // The input playground is a separate chunk, loaded only on ?playground=1 (Req 26.1, 26.2).
+  void import('./dev/playground').then(({ Playground }) => {
+    rootElement.render(
+      <StrictMode>
+        <Playground />
       </StrictMode>,
     );
   });

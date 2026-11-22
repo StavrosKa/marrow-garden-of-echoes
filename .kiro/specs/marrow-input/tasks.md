@@ -293,7 +293,7 @@ Rules for every task:
     - Tests: `copy_banned_words_and_length` (21.7: every banned word of `accessibility-and-copy.md`, whole word, any case, over every string in `src/copy`, and at most 8 words in each instruction entry); `ui_contrast_pairs` (24.6: a small pure WCAG helper checks every text and background pair used by the Setup UI and the playground, read from `theme.css`, at 4.5:1 or more).
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 24.5, 24.6, 26.12_
-  - [ ] 17.2 Playground entry, content file and tuning check
+  - [x] 17.2 Playground entry, content file and tuning check
     - `src/main.tsx` renders the current page unchanged without `playground=1`; with it, it lazy-loads `src/dev/playground.tsx` as a separate chunk that works under `BASE_PATH`.
     - Add `src/dev/playground-content.json` (15 slots in order, target count 3) and its hand-written typed validator, whose message names the first bad field, for example `playground-content.json: slots[7].y = 1.4 is out of range [0, 1]` (design §14.4).
     - On load the playground runs `validateTuning(TUNING)` and, if it fails, shows the `formatTuningErrors` message instead of running.

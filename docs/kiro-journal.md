@@ -1567,3 +1567,29 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Process note: two check outputs (typecheck and lint) were written to `.scratch` with a `>` redirect. This broke the rule against redirects, though no project file was touched. Those two files are removed at the end of task 17.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.2, playground entry, content file and tuning check
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.2 only. Commit 69cfd36 (task 17.1) was pushed before this part began. I read task 17.2, Req 1.4 and 26.1 to 26.3, design sections 14.4 and 14.5, `main.tsx`, `dev/world/route.ts` and its test, and the tuning validation functions.
+- What was built:
+  - `src/main.tsx`: a branch for `?playground=1` between the world route and the normal page. It loads `./dev/playground` with a dynamic import. The world check stays first and unchanged, and the normal page is the last branch.
+  - `src/dev/playgroundRoute.ts`: `isPlaygroundRoute(search)`, true only for the value `1`.
+  - `src/dev/playground.tsx`: the entry only, as the user approved. `Playground({ tuning, content })` runs `validateTuning` and then the content check. On failure it shows the copy message and the `formatTuningErrors` or content message, and does not run. On success it shows the title. Task 17.7 adds the rest.
+  - `src/dev/playground-content.json`: `targetCount` 3 and 15 slots in order. The x values run 0.15 to 0.75 and the y values are 0.2, 0.5 and 0.8, so every slot's circle of radius 0.09 lies inside a play area of aspect 1.0 or more.
+  - `src/dev/playgroundContent.ts`: `readPlaygroundContent(value)`, hand-written, per design §14.4. It reports the first bad field.
+- Decisions made by Kiro (the task left these open):
+  - The validator checks `x ≥ 0` only, because the play-area aspect is known only at run time. The slot filter in 17.4 drops slots outside the play area.
+  - A root-level extra property is named as `(root)`, for example `playground-content.json: (root) has an extra property "note"`.
+  - The range message prints the open upper bound as `[0, Infinity]`.
+  - `Playground` takes `tuning` and `content` as props, with the shipped values as defaults, so the checks can be tested with bad values.
+- Tests:
+  - `playgroundContent.test.ts` (7): the shipped file passes; a valid object passes; a missing field; a wrong type (and a non-integer `targetCount`); the design §14.4 example message for an out-of-range `y`; an extra property (root and slot); a slot list outside 1 to 64.
+  - `playground.test.tsx` (3, jsdom): runs with the shipped values; the tuning message shows for an invalid `hitRadius`, and the copy line is the alert; the content message shows for an invalid slot.
+  - `playgroundRoute.test.ts` (2): `playground=1` only; `main.tsx` checks the world route first, then the playground route, and loads the playground once behind its guard.
+  - `world/route.test.ts` (2, unchanged) still passes with the new branch.
+- Build check (`BASE_PATH=/garden/`, `vite build`): exit 0. The playground is its own chunk, `playground-*.js` (2.54 kB) with its CSS. `index.html` loads only the index chunk, its script URL begins with `/garden/assets/`, and the index chunk holds no marrow/react class names. The marrow.css chunk is not linked from `index.html`. The build output was removed after the check.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0, no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  83 passed (83)`, `Tests  1260 passed (1260)`, `Duration  88.87s`, wall time 91 s. Before this task: 80 files and 1248 tests, so the task adds 3 files and 12 tests.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.6m)`, wall time 96 s.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
