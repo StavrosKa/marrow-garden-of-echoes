@@ -23,12 +23,12 @@ import { TUNING, type Tuning } from './tuning';
 // identity gain and the tolerance, each named below.
 //
 // To check the examples by hand with the shipped values: k = max(A / a, 1) = 4/3, the
-// base mapping is s = ((16/9) * (1 - x), (4/3) * y - 1/6), and each cell of the 32 x 24
-// grid is a square of side 1/18 on screen. Cell (col, row) covers x from (31 - col) / 18
-// to (32 - col) / 18 and y from (row - 3) / 18 to (row - 2) / 18, so column 0, at the
+// base mapping is s = ((16/9) * (1 - x), (4/3) * y - 1/6), and each cell of the 16 x 12
+// grid is a square of side 1/9 on screen. Cell (col, row) covers x from (15 - col) / 9
+// to (16 - col) / 9 and y from (row - 1.5) / 9 to (row - 0.5) / 9, so column 0, at the
 // left edge of the camera image, lies at the right edge of the play area. The gain is
-// held at the cap for a span below 0.6 / 1.6 = 0.375 (6.75 cells) and at the floor for
-// one above 0.6 / 1.0 = 0.6 (10.8 cells).
+// held at the cap for a span below 0.6 / 1.6 = 0.375 (3.375 cells) and at the floor for
+// one above 0.6 / 1.0 = 0.6 (5.4 cells).
 
 /** A, the play area's aspect in the worked examples. A test parameter. */
 const PLAY_ASPECT = 16 / 9;
@@ -111,7 +111,7 @@ function expectedCentre(cells: readonly CellIndex[]): Vec2 {
 }
 
 /**
- * A cell's width and height on screen at gain 1: 1/18 by 1/18 with the shipped values.
+ * A cell's width and height on screen at gain 1: 1/9 by 1/9 with the shipped values.
  * Every cell has the same size, because the base mapping scales each axis by one factor.
  */
 const CELL = (() => {
@@ -160,15 +160,15 @@ describe('computeComfortTransform (Req 13.1-13.4)', () => {
 
   it('one valid cell: the centre is its base-mapped centre, on the mirrored side, and the span is its larger side on screen (Req 13.1-13.3)', () => {
     // Cell (1, ROW) lies near the left edge of the camera image, so on screen it lies near
-    // the right edge of the play area: as shipped its centre maps to (30.5 / 18, 9.5 / 18),
-    // about (1.694, 0.528). The cell beside it holds one sample less than a valid cell
+    // the right edge of the play area: as shipped its centre maps to (14.5 / 9, 5 / 9),
+    // about (1.611, 0.556). The cell beside it holds one sample less than a valid cell
     // needs, and counts for neither the centre nor the span.
     const cell: CellIndex = { col: 1, row: ROW };
     const grids = { right: withSamples(withSamples(EMPTY, [cell]), [{ col: 2, row: ROW }], NEEDED - 1) };
     const { centre } = transform(grids);
     expectNear(centre, base.toScreen(centreOf(cell)));
     expect(centre.x).toBeGreaterThan(PLAY_CENTRE.x);
-    // As shipped the gain is held at the cap (0.6 * 18 = 10.8), so the span shows only
+    // As shipped the gain is held at the cap (0.6 * 9 = 5.4 cells), so the span shows only
     // through another target: reachGainSpanTarget = MID_GAIN * span gives the gain
     // MID_GAIN when the span is one cell's larger side, and not when it is 0 (the cell's
     // centre alone) or reaches the short cell beside it.
@@ -177,21 +177,21 @@ describe('computeComfortTransform (Req 13.1-13.4)', () => {
   });
 
   it('two separate regions: the centre is the mean over their cells and lies in the gap, and the span reaches across the gap (Req 13.1-13.3, 13.5)', () => {
-    // A 2 x 2 block in columns 0-1 and one cell in column 8, with columns 2-7 empty
-    // between them. As shipped: the mean column of the five cells is 2 (cells are
-    // averaged, not regions), so the centre maps to x = 29.5 / 18, about 1.639, over the
-    // empty column 2, and y = 9.9 / 18 = 0.55. The box reaches over 9 columns and 2 rows,
-    // so the span is 9 / 18 = 0.5 and the gain 0.6 / 0.5 = 1.2, between floor and cap.
-    const cells = [...block(0, 1, ROW, ROW + 1), { col: 8, row: ROW }];
+    // Two adjacent cells in columns 0-1 and one cell in column 4, with columns 2-3 empty
+    // between them. As shipped: the mean camera column of the three cells is 2.17 (cells are
+    // averaged, not regions), which lies in the empty columns 2-3, so the centre lies over
+    // the gap. The box reaches over 5 columns and 1 row, so the span is 5 / 9, about 0.556,
+    // and the gain 0.6 / 0.556 = 1.08, between floor and cap.
+    const cells: CellIndex[] = [{ col: 0, row: ROW }, { col: 1, row: ROW }, { col: 4, row: ROW }];
     const grids = { right: withSamples(EMPTY, cells) };
     const before = structuredClone(grids);
     const { centre, gain } = transform(grids);
     expectNear(centre, expectedCentre(cells));
-    // The centre lies over the gap: on screen, right of the cell in column 8 and left of
+    // The centre lies over the gap: on screen, right of the cell in column 4 and left of
     // the block, which the mirror puts on the right. The mapping takes x on its own, so
     // any camera y gives the same screen x.
     const y = centreOf({ col: 0, row: ROW }).y;
-    const gapStart = base.toScreen({ x: cellRectCamera(8, ROW, TUNING).x0, y }).x;
+    const gapStart = base.toScreen({ x: cellRectCamera(4, ROW, TUNING).x0, y }).x;
     const gapEnd = base.toScreen({ x: cellRectCamera(1, ROW, TUNING).x1, y }).x;
     expect(centre.x).toBeGreaterThan(gapStart);
     expect(centre.x).toBeLessThan(gapEnd);
@@ -206,15 +206,15 @@ describe('computeComfortTransform (Req 13.1-13.4)', () => {
   });
 
   it('a cell valid for both wrists counts once for each wrist, and the box covers the cells of both wrists (Req 13.1, 13.2)', () => {
-    // Left wrist: P = (3, ROW) and Q = (0, ROW). Right wrist: P and R = (8, ROW). The
-    // centre is the mean over P, Q, P and R: as shipped the mean column is 3.5, so
-    // x = 28 / 18, about 1.556. Counting P once, over P, Q and R, would give the mean
-    // column 11/3 and x about 1.546. The box reaches from Q, a cell of the left wrist, to
-    // R, a cell of the right wrist: 9 columns, so the span is 0.5 and the gain 1.2.
-    // Either wrist alone would give a span below 0.375, and the cap.
+    // Left wrist: P = (3, ROW) and Q = (0, ROW). Right wrist: P and R = (4, ROW). The
+    // centre is the mean over P, Q, P and R: the mean camera column is 2.5, the mean over
+    // P, Q and R once would be 7/3, so the two differ. The box reaches from Q, a cell of
+    // the left wrist, to R, a cell of the right wrist: 5 columns, so the span is 5 / 9 and
+    // the gain 0.6 / (5 / 9), about 1.08. Alone, the left wrist's cells span 4 / 9 and the
+    // right wrist's span 2 / 9, so the box over both is a span of its own.
     const P: CellIndex = { col: 3, row: ROW };
     const Q: CellIndex = { col: 0, row: ROW };
-    const R: CellIndex = { col: 8, row: ROW };
+    const R: CellIndex = { col: 4, row: ROW };
     const grids = { left: withSamples(EMPTY, [P, Q]), right: withSamples(EMPTY, [P, R]) };
     const { centre, gain } = transform(grids);
     expectNear(centre, expectedCentre([P, Q, P, R]));

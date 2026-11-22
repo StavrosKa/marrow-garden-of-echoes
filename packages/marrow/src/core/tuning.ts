@@ -39,8 +39,8 @@ export interface Tuning {
   calmHoldMs: number;              // 2000  rule: change only with the user's approval (invariants 3)
   skipHeadViewAfterMs: number;     // 5000  rule: change only with the user's approval (invariants 3)
   calibHandHintMs: number;         // 1000  tune   (Appendix B, Req 11.12)
-  gridCols: number;                // 32    tune   (invariants 3)
-  gridRows: number;                // 24    tune   (invariants 3)
+  gridCols: number;                // 16    tune   (invariants 3; 16 x 12 for a low-cost camera at about 7 inferences a second)
+  gridRows: number;                // 12    tune   (invariants 3)
   cellValidSamples: number;        // 4     tune   (invariants 3)
 
   // --- Dwell & tracking (Req 17, 18) ---
@@ -104,8 +104,8 @@ export const TUNING: Readonly<Tuning> = Object.freeze<Tuning>({
   calmHoldMs: 2000,                // rule: change only with the user's approval
   skipHeadViewAfterMs: 5000,       // rule: change only with the user's approval
   calibHandHintMs: 1000,           // tune
-  gridCols: 32,                    // tune
-  gridRows: 24,                    // tune
+  gridCols: 16,                    // tune
+  gridRows: 12,                    // tune
   cellValidSamples: 4,             // tune
 
   // --- Dwell & tracking ---

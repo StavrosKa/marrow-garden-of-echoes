@@ -118,36 +118,38 @@ function nextBelow(v: number): number {
 }
 
 describe('auraIntensity (Req 15)', () => {
-  // A 5 x 5 block of valid cells in the middle of the grid, as an interior, sides and corners.
-  const REGION = block(10, 8, 5);
+  // A 5 x 5 block of valid cells in the middle of the 16 x 12 grid (columns 5-9, rows 4-8), as an
+  // interior, sides and corners.
+  const REGION = block(5, 4, 5);
   const region = gridOf(REGION);
 
   it('gives a valid cell (1 + its valid neighbours) / 9: 1 inside the region, 6/9 on its sides, 4/9 at its corners, constant within the cell', () => {
-    expect(auraAtCell({ col: 12, row: 10 }, region)).toBe(BLOCK / BLOCK);
-    expect(auraAtCell({ col: 11, row: 9 }, region)).toBe(BLOCK / BLOCK);
+    expect(auraAtCell({ col: 7, row: 6 }, region)).toBe(BLOCK / BLOCK);
+    expect(auraAtCell({ col: 6, row: 5 }, region)).toBe(BLOCK / BLOCK);
     for (const side of [
-      { col: 10, row: 10 },
-      { col: 14, row: 10 },
-      { col: 12, row: 8 },
-      { col: 12, row: 12 },
+      { col: 5, row: 6 },
+      { col: 9, row: 6 },
+      { col: 7, row: 4 },
+      { col: 7, row: 8 },
     ]) {
       expect(auraAtCell(side, region)).toBe(6 / BLOCK);
     }
     for (const corner of [
-      { col: 10, row: 8 },
-      { col: 14, row: 8 },
-      { col: 10, row: 12 },
-      { col: 14, row: 12 },
+      { col: 5, row: 4 },
+      { col: 9, row: 4 },
+      { col: 5, row: 8 },
+      { col: 9, row: 8 },
     ]) {
       expect(auraAtCell(corner, region)).toBe(4 / BLOCK);
     }
-    // The value is the same at every point of a cell: its four corners as half-open edges, pulled in.
-    const { x0, y0, x1, y1 } = cellRectCamera(10, 8, TUNING);
+    // The value is the same at every point of a cell: four points pulled in from its corners,
+    // so that the round trip through the mapping cannot put one in the cell above or below.
+    const { x0, y0, x1, y1 } = cellRectCamera(9, 8, TUNING);
     const inset = (x1 - x0) / 8;
     for (const camera of [
-      { x: x0, y: y0 },
-      { x: x1 - inset, y: y0 },
-      { x: x0, y: y1 - inset },
+      { x: x0 + inset, y: y0 + inset },
+      { x: x1 - inset, y: y0 + inset },
+      { x: x0 + inset, y: y1 - inset },
       { x: x1 - inset, y: y1 - inset },
     ]) {
       expect(auraIntensity(REALISTIC.toScreen(camera), { right: region }, REALISTIC, TUNING)).toBeCloseTo(4 / BLOCK, 12);
@@ -155,7 +157,7 @@ describe('auraIntensity (Req 15)', () => {
   });
 
   it('an edge cell of the region is never brighter than an interior cell, and every cell outside the region gives 0 (Req 15.4)', () => {
-    const interior = auraAtCell({ col: 12, row: 10 }, region);
+    const interior = auraAtCell({ col: 7, row: 6 }, region);
     const inRegion = (cell: CellIndex): boolean => REGION.some((c) => c.col === cell.col && c.row === cell.row);
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
@@ -171,7 +173,7 @@ describe('auraIntensity (Req 15)', () => {
   });
 
   it('a cell with 1 to cellValidSamples - 1 samples gives 0, even with every neighbour valid (Req 15.3)', () => {
-    const hole: CellIndex = { col: 12, row: 10 };
+    const hole: CellIndex = { col: 7, row: 6 };
     for (let samples = 1; samples < NEEDED; samples++) {
       const grid: ComfortGrid = {
         ...region,
@@ -179,7 +181,7 @@ describe('auraIntensity (Req 15)', () => {
       };
       expect(auraAtCell(hole, grid)).toBe(0);
       // Its neighbours do not count it as valid, and are not brightened by it.
-      expect(auraAtCell({ col: 11, row: 10 }, grid)).toBe(8 / BLOCK);
+      expect(auraAtCell({ col: 6, row: 6 }, grid)).toBe(8 / BLOCK);
     }
     // One more sample makes it valid.
     expect(auraAtCell(hole, gridOf([...REGION], NEEDED))).toBe(BLOCK / BLOCK);
@@ -188,12 +190,12 @@ describe('auraIntensity (Req 15)', () => {
   it('a grid marked all-valid gives every cell as valid: 1 inside, 6/9 on the grid sides, 4/9 at its corners, whatever the counts', () => {
     const marked = markAllValid(gridWhere((cell) => (cell.col + cell.row) % 2 === 0, 1));
     for (const grid of [ALL_VALID, marked]) {
-      expect(auraAtCell({ col: 16, row: 12 }, grid)).toBe(BLOCK / BLOCK);
+      expect(auraAtCell({ col: 8, row: 6 }, grid)).toBe(BLOCK / BLOCK);
       for (const side of [
-        { col: 0, row: 12 },
-        { col: COLS - 1, row: 12 },
-        { col: 16, row: 0 },
-        { col: 16, row: ROWS - 1 },
+        { col: 0, row: 6 },
+        { col: COLS - 1, row: 6 },
+        { col: 8, row: 0 },
+        { col: 8, row: ROWS - 1 },
       ]) {
         expect(auraAtCell(side, grid)).toBe(6 / BLOCK);
       }
@@ -303,8 +305,8 @@ describe('auraIntensity (Req 15)', () => {
   });
 
   it('finds the same cell as addSample for every column count and row count validateTuning allows: floor(v * n) alone is one cell off at some sizes', () => {
-    // At 32 columns and 24 rows, the shipped sizes, floor(v * n) is off at some row edges
-    // only; at other sizes it is off at columns too (docs/bugs-found.md, "Comfort grid").
+    // The loop covers every size, the shipped 16 columns and 12 rows among them. floor(v * n) can be off
+    // by one cell at some sizes (docs/bugs-found.md, "Comfort grid").
     // The grid has one row (or one column) so that the grid is cheap at every size, and
     // the point is mapped to screen and back, so the sample is exactly the point the aura sees.
     const SIZE_MAX = 256;
@@ -334,8 +336,8 @@ describe('auraIntensity (Req 15)', () => {
   }, 60_000);
 
   it('with two active wrists the point takes the larger of their values; a wrist with no grid is not active', () => {
-    const cell: CellIndex = { col: 12, row: 10 };
-    const side = gridOf(block(12, 10, 2));
+    const cell: CellIndex = { col: 7, row: 6 };
+    const side = gridOf(block(7, 6, 2));
     const interior = gridOf(REGION);
     const point = REALISTIC.toScreen(cellCentre(cell));
     const at = (grids: WristGrids): number => auraIntensity(point, grids, REALISTIC, TUNING);
@@ -355,7 +357,7 @@ describe('auraIntensity (Req 15)', () => {
 
   it('reads cellValidSamples from the tuning argument', () => {
     const grid = gridOf([...REGION], NEEDED);
-    const cell: CellIndex = { col: 12, row: 10 };
+    const cell: CellIndex = { col: 7, row: 6 };
     const point = REALISTIC.toScreen(cellCentre(cell));
     const higher: Tuning = { ...TUNING, cellValidSamples: NEEDED + 1 };
     expect(auraIntensity(point, { right: grid }, REALISTIC, TUNING)).toBe(BLOCK / BLOCK);
@@ -366,7 +368,7 @@ describe('auraIntensity (Req 15)', () => {
   it('leaves the grids, the point, the mapping parameters and the tuning deep-equal to what they were', () => {
     const tuning: Tuning = structuredClone(TUNING);
     const grids: WristGrids = { left: region, right: markAllValid(gridWhere((cell) => cell.row < 3, 1)) };
-    const point: Vec2 = REALISTIC.toScreen(cellCentre({ col: 12, row: 10 }));
+    const point: Vec2 = REALISTIC.toScreen(cellCentre({ col: 7, row: 6 }));
     const params = structuredClone(REALISTIC_PARAMS);
     const before = structuredClone({ grids, point, params, tuning });
     expect(auraIntensity(point, grids, makeMapping(params), tuning)).toBe(BLOCK / BLOCK);

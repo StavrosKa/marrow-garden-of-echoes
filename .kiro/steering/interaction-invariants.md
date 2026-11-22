@@ -29,7 +29,7 @@ This file is the source of truth for how input becomes interaction. Numbers mark
 
 - Calibration: the player moves each active hand wherever is comfortable. Nominal 20 s, may finish from 12 s once enough targets can be placed, hard cap 30 s *(tune)*. Then a 2 s calm hold records the neutral head position and the shoulder width.
 - The calm hold needs the nose and both shoulders. If they are not visible, show "Keep your face and shoulders in view" and keep waiting. After 5 s also offer "Skip head view", which turns head parallax off for this session only; everything else continues.
-- Storage: one low-resolution occupancy grid per wrist in camera space (start 32x24). A cell is valid after 4 valid samples *(tune)*.
+- Storage: one low-resolution occupancy grid per wrist in camera space (start 16x12: a low-cost camera gives about 7 inferences a second, so a finer grid leaves most cells short of their 4 samples). A cell is valid after 4 valid samples *(tune)*.
 - Reachable means sampled. Never treat the bounding box, convex hull or gaps between sampled areas as reachable. The glowing aura shown to the player is a visual smoothing of the grid and never enlarges the valid region.
 - A returning player calibrates again. No calibration data is stored between sessions; the early finish at 12 s keeps this short.
 

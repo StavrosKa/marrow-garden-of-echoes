@@ -69,7 +69,7 @@ Rules for every task:
   - [x] 6.2 Comfort centre and reach gain
     - Create `core/reachGain.ts`: `computeComfortTransform(grids, frameAspect, playAspect, tuning)` returns the centre as the mean of the base-mapped centres of all valid cells of all active wrists, each cell counted once per wrist; span as the larger side of the gain-1 screen bounding box of the valid cells taken as whole rectangles; gain = clamp(`reachGainSpanTarget` / span, `reachGainMin`, `reachGainMax`); and, with no valid cell, gain 1 and the play-area centre. Gain 1 is the identity scale, written as a named constant and not read from `reachGainMin`. The bounding box only sizes the gain.
     - Export `computeComfortTransform` from `marrow/core`.
-    - Add `genGrid` (32 x 24 grids with holes and several separate valid regions) with the `promote` and `demote` transformers to `testgen.ts`.
+    - Add `genGrid` (16 x 12 grids with holes and several separate valid regions) with the `promote` and `demote` transformers to `testgen.ts`.
     - Named tests (design §10.2): `reachgain_in_range_and_cells_stable` (13.6).
     - Other tests: worked examples for one valid cell, two separate regions, an empty grid, and a span small enough to hit the gain cap.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.

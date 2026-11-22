@@ -78,7 +78,7 @@ const SIM_MAPPING = makeMapping({
 
 /** The cell the demand's slot is on, and cells that become valid later. Far apart, so each is valid on its own. */
 const CELL_A: CellIndex = { col: 10, row: 10 };
-const CELL_B: CellIndex = { col: 20, row: 5 };
+const CELL_B: CellIndex = { col: 3, row: 3 };
 /** The i-th fresh cell, in the last row. */
 const fresh = (i: number): CellIndex => ({ col: i % COLS, row: ROWS - 1 });
 
@@ -353,11 +353,12 @@ describe('stepCalibration, painting phase: the end rules at their exact boundari
   });
 
   it('keeps the last computed demand result between checks, and computes it from the grids with the camera-mode transform (Req 11.11, 13)', () => {
-    // A 4 x 4 block of cells in the middle, painted one cell after another: valid cells are added in
-    // 16 steps, and the stored result must equal Placement on the final grids with the transform
-    // computed from them. One cell alone does not cover a disc of the hit radius; the block does.
+    // A 4 x 4 block of cells around the centre of the play area (columns 6-9, rows 4-7 of the
+    // 16 x 12 grid), painted one cell after another: valid cells are added in 16 steps, and the
+    // stored result must equal Placement on the final grids with the transform computed from them.
+    // One cell alone does not cover a disc of the hit radius; the block does.
     const block: CellIndex[] = [];
-    for (let row = 10; row < 14; row++) for (let col = 14; col < 18; col++) block.push({ col, row });
+    for (let row = 4; row < 8; row++) for (let col = 6; col < 10; col++) block.push({ col, row });
     const demand: Demand = { slots: [{ x: PLAY_ASPECT * HALF, y: HALF }], n: 1, r: TUNING.hitRadius, m: 0 };
     const oracle = (grids: WristGrids): boolean => {
       const transform = computeComfortTransform(grids, FRAME_ASPECT, PLAY_ASPECT, TUNING);

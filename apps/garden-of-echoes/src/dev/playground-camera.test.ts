@@ -19,8 +19,16 @@ const BASE_PATH = '/garden/';
 const STEP_MS = 100;
 /** Enough ticks for the painting cap (calibCapMs) and the calm hold, with room to spare. */
 const MAX_CALIBRATION_TICKS = Math.ceil((TUNING.calibCapMs + TUNING.calmHoldMs) / STEP_MS) + 50;
-/** A cell's centre is counted as close when it lies within this distance of the slot, in screen units. */
-const CELL_REACH = 0.05;
+/**
+ * Ticks the painted hand stays on one cell before it moves on. The one-euro filter on the wrist
+ * (oneEuroMinCutoffHz) takes about a second to settle, so a hand that jumps every tick between
+ * cells is smoothed into their middle and paints only the middle cell.
+ */
+const DWELL_TICKS = 10;
+/** Added to hitRadius, in screen units, so that the painted disc includes the cells it only grazes. */
+const PAINT_MARGIN = 0.01;
+/** The spacing of the screen points sampled in the painted disc, in screen units. Finer than a cell's edge. */
+const PAINT_STEP = 0.001;
 
 /** A camera that records its calls and whose start outcome the test decides. */
 class FakeCamera implements PoseSource {
@@ -176,21 +184,34 @@ async function flush(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-/** The camera-space cells whose centres lie near a screen point, under the run's mapping. */
-function cellsNear(mapping: Mapping, screenPoint: Vec2): Vec2[] {
-  const cells: Vec2[] = [];
-  for (let col = 0; col < TUNING.gridCols; col++) {
-    for (let row = 0; row < TUNING.gridRows; row++) {
-      const centre = { x: (col + 0.5) / TUNING.gridCols, y: (row + 0.5) / TUNING.gridRows };
-      const at = mapping.toScreen(centre);
-      if (Math.hypot(at.x - screenPoint.x, at.y - screenPoint.y) <= TUNING.hitRadius + CELL_REACH) cells.push(centre);
+/**
+ * The camera-space centres of the cells that the disc of radius hitRadius + PAINT_MARGIN around a
+ * screen point touches. Screen points of the disc are sampled on a fine grid and mapped to camera
+ * space, and each cell that a sample falls in is painted. The margin makes the disc slightly larger
+ * than the slot's own, so that the sampling does not miss a cell at its corner.
+ */
+function cellsTouchedBy(mapping: Mapping, screenPoint: Vec2): Vec2[] {
+  const reach = TUNING.hitRadius + PAINT_MARGIN;
+  const cells = new Map<string, Vec2>();
+  const steps = Math.ceil(reach / PAINT_STEP);
+  for (let i = -steps; i <= steps; i++) {
+    for (let j = -steps; j <= steps; j++) {
+      const dx = i * PAINT_STEP;
+      const dy = j * PAINT_STEP;
+      if (dx * dx + dy * dy > reach * reach) continue;
+      const camera = mapping.toCamera({ x: screenPoint.x + dx, y: screenPoint.y + dy });
+      if (camera.x < 0 || camera.x > 1 || camera.y < 0 || camera.y > 1) continue;
+      const col = Math.min(Math.floor(camera.x * TUNING.gridCols), TUNING.gridCols - 1);
+      const row = Math.min(Math.floor(camera.y * TUNING.gridRows), TUNING.gridRows - 1);
+      const key = `${col},${row}`;
+      if (!cells.has(key)) cells.set(key, { x: (col + 0.5) / TUNING.gridCols, y: (row + 0.5) / TUNING.gridRows });
     }
   }
-  return cells;
+  return [...cells.values()];
 }
 
 /**
- * Starts the camera, lets it become ready, chooses the hands, and paints the cells near the first slot until
+ * Starts the camera, lets it become ready, chooses the hands, and paints the cells the first slot's disc touches until
  * calibration ends. The first slot's cells cover one usable slot, so Placement gives a sequential round, and the
  * page reaches play (Req 26.4).
  */
@@ -210,11 +231,11 @@ async function reachPlay(h: Harness, hand: HandChoice): Promise<void> {
   const mapping = h.controller.getView().mapping;
   const slot = readContent().slots[0];
   if (mapping === null || slot === undefined) throw new Error('no mapping or slot');
-  const cells = cellsNear(mapping, slot);
+  const cells = cellsTouchedBy(mapping, slot);
   if (cells.length === 0) throw new Error('no cell near the slot');
   for (let tick = 0; tick < MAX_CALIBRATION_TICKS; tick++) {
     if (h.controller.getView().setup.screen === 'play') return;
-    const cell = cells[tick % cells.length];
+    const cell = cells[Math.floor(tick / DWELL_TICKS) % cells.length];
     h.run(STEP_MS, cell ?? null);
   }
   throw new Error(`calibration did not reach play (screen ${h.controller.getView().setup.screen})`);

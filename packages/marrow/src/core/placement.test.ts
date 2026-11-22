@@ -29,7 +29,7 @@ import { TUNING, type Tuning } from './tuning';
 // R. Every coordinate in the exact tests is a multiple of EXACT_STEP, a power of two, so
 // the arithmetic is exact in floating point, as the tangency tests need; each of them
 // first asserts that its construction is exactly tangent. As shipped, the middle cell
-// (16, 12) is [1/2, 17/32) x [1/2, 13/24), and the exact radius is 3/32.
+// (8, 6) is [1/2, 9/16) x [1/2, 7/12), and the exact radius is 3/32.
 //
 // REALISTIC maps a 16:9 play area and a 4:3 camera image at the middle of the gain range
 // about the play-area centre. A screen disc of radius R is then a camera ellipse with
@@ -129,7 +129,7 @@ function cellsOf(pos: Vec2): CellIndex[] {
   return validCells(grid, TUNING);
 }
 
-/** The middle cell, (16, 12) as shipped. Its edges at x = col / cols and y = row / rows are both 1/2. */
+/** The middle cell, (8, 6) as shipped. Its edges at x = col / cols and y = row / rows are both 1/2. */
 const MIDDLE: CellIndex = { col: Math.floor(COLS / 2), row: Math.floor(ROWS / 2) };
 const MIDDLE_RECT = cellRectCamera(MIDDLE.col, MIDDLE.row, TUNING);
 /** The cell before the middle one along x. Its open edge at x = (col + 1) / cols is the middle cell's edge at x = col / cols. */
@@ -1036,6 +1036,41 @@ it('the placement inputs reach a centre from computeComfortTransform outside the
   });
 }, PROPERTY_TIMEOUT_MS);
 
+/**
+ * TUNING with the grid the two seed regressions below were found on, 32 x 24. Their inputs
+ * are numbers of that grid, so they run on this copy. Everything else in TUNING is the shipped value.
+ */
+const SEED_TUNING: Tuning = { ...TUNING, gridCols: 32, gridRows: 24 };
+
+// The two seed regressions, restored unchanged from the commit before the 16 x 12 grid. They
+// pin the one-ULP float defect of task 7.2 (docs/bugs-found.md). Inside this block TUNING and the
+// helpers that read it (EMPTY, COLS, MIDDLE, cellsOf, allValidExcept) refer to SEED_TUNING, so
+// the bodies below run on the 32 x 24 grid they were written for.
+describe('seed regressions, on the 32 x 24 grid they were found on', () => {
+  const TUNING = SEED_TUNING;
+  const COLS = TUNING.gridCols;
+  const ROWS = TUNING.gridRows;
+  const NEEDED = TUNING.cellValidSamples;
+  const EMPTY = createGrid(TUNING);
+  const MIDDLE: CellIndex = { col: Math.floor(COLS / 2), row: Math.floor(ROWS / 2) };
+  const MIDDLE_RECT = cellRectCamera(MIDDLE.col, MIDDLE.row, TUNING);
+
+  /** A grid in which every cell is valid except the given ones, which hold no sample. */
+  function allValidExcept(...blocked: CellIndex[]): ComfortGrid {
+    const isBlocked = (cell: CellIndex): boolean => blocked.some((b) => b.col === cell.col && b.row === cell.row);
+    return {
+      ...EMPTY,
+      counts: EMPTY.counts.map((_, i) => (isBlocked({ col: i % COLS, row: Math.floor(i / COLS) }) ? 0 : NEEDED)),
+    };
+  }
+
+  /** The cells a point is counted in: the valid cells after NEEDED samples at it on an empty grid. */
+  function cellsOf(pos: Vec2): CellIndex[] {
+    let grid = EMPTY;
+    for (let i = 0; i < NEEDED; i++) grid = addSample(grid, pos);
+    return validCells(grid, TUNING);
+  }
+
 // Regression: seed 29, input 340 of placement_covers_every_point's inputs (found while
 // checking those inputs over 120 seeds; recorded in docs/bugs-found.md). The numbers
 // below are that input exactly: the mapping, the left wrist's grid as (column, row,
@@ -1077,7 +1112,6 @@ const REGRESSION_DEMAND: Demand = {
   r: 0.13,
   m: 0.05,
 };
-
 it('regression: a slot whose disc has a mapped extreme exactly on the edge of a cell that is not valid is unusable, though the semi-axis from the +R side is one ULP short (seed 29, input 340)', () => {
   const mapping = makeMapping(REGRESSION_MAPPING);
   const counts = [...EMPTY.counts];
@@ -1087,7 +1121,6 @@ it('regression: a slot whose disc has a mapped extreme exactly on the edge of a 
   const { r, m } = REGRESSION_DEMAND;
   const slot = REGRESSION_DEMAND.slots[3] ?? { x: NaN, y: NaN };
   const reach = r + m;
-
   // The construction is as described above. Cell (5, 22) is not valid, the cells around the
   // slot's centre cell (3, 22) are, and the extreme lies exactly on the edge of cell (5, 22).
   const edge = cellRectCamera(5, 22, TUNING).x0;
@@ -1103,12 +1136,10 @@ it('regression: a slot whose disc has a mapped extreme exactly on the edge of a 
   expect(cellsOf(mapping.toCamera({ x: slot.x - reach, y: slot.y })).map(({ col, row }) => [col, row])).toEqual([
     [5, 22],
   ]);
-
   expect(isSlotUsable(slot, grids, mapping, r, m, TUNING)).toBeNull();
   // The other five slots are unusable as well, so the demand has no usable slot.
   expect(placeTargets(REGRESSION_DEMAND, grids, mapping, TUNING)).toEqual({ kind: 'none' });
 });
-
 // Regression, the same defect on the y axis. Found by searching for the case of the one
 // above on y after the fix: a mutation that took only ry from the +R side survived every
 // other test, because random inputs seldom give a gap that falls between the two distances.
@@ -1127,7 +1158,6 @@ const Y_REGRESSION_MAPPING: MappingParams = {
   centre: { x: 0, y: 0.9999999999999981 },
 };
 const Y_REGRESSION_SLOT: Vec2 = { x: 0.9485964170617822, y: 0.4615996917902612 };
-
 it('regression: a non-valid cell above the disc, whose gap falls between the two distances to the extremes on y, makes the slot unusable', () => {
   const mapping = makeMapping(Y_REGRESSION_MAPPING);
   const grids: WristGrids = { right: allValidExcept(MIDDLE) };
@@ -1138,17 +1168,60 @@ it('regression: a non-valid cell above the disc, whose gap falls between the two
   const north = mapping.toCamera({ x: Y_REGRESSION_SLOT.x, y: Y_REGRESSION_SLOT.y - reach });
   const south = mapping.toCamera({ x: Y_REGRESSION_SLOT.x, y: Y_REGRESSION_SLOT.y + reach });
   const gap = centre.y - MIDDLE_RECT.y1;
-
   // The construction is as described above.
   expect(gap).toBeGreaterThan(south.y - centre.y);
   expect(gap).toBeLessThanOrEqual(centre.y - north.y);
   expect(cellsOf(north).map(({ col, row }) => [col, row])).toEqual([[MIDDLE.col, MIDDLE.row]]);
   expect(cellsOf(centre).map(({ col }) => col)).toEqual([MIDDLE.col]);
-
   expect(isSlotUsable(Y_REGRESSION_SLOT, grids, mapping, r, m, TUNING)).toBeNull();
 });
+});
 
-// Regression, the frame test. The seed 29 and y tests above pin the semi-axis; nothing
+// Regression, rebuilt for the 16 x 12 grid. The 32 x 24 seed (seed 29, input 340, recorded in
+// docs/bugs-found.md) put a disc's extreme exactly on the edge of a non-valid cell, at a
+// camera position that no 16 x 12 edge has, so that input no longer applies. This case
+// keeps the claim in exact arithmetic (EXACT, whose coordinates are multiples of
+// EXACT_STEP): the west extreme of a disc lies exactly on the west edge of a non-valid
+// cell, which belongs to that cell, so the slot is unusable.
+it('regression: a disc whose west extreme lies exactly on the edge of a cell that is not valid is unusable, and that point belongs to the cell (Req 14.2)', () => {
+  const blocked: CellIndex = { col: MIDDLE.col - 1, row: MIDDLE.row };
+  const edge = cellRectCamera(blocked.col, blocked.row, TUNING).x0;
+  const centre: Vec2 = { x: edge + EXACT_RADIUS, y: INSET_Y };
+  const slot = exactSlot(centre);
+  const grid = allValidExcept(blocked);
+  const west = EXACT.toCamera({ x: slot.x + EXACT_RADIUS, y: slot.y });
+  expect(cellsOf(centre)).toEqual([MIDDLE]);
+  expect(isCellValid(grid, blocked.col, blocked.row, TUNING)).toBe(false);
+  expect(west.x).toBe(edge);
+  expect(cellsOf(west)).toEqual([blocked]);
+  expect(exactUsable(slot, grid)).toBeNull();
+  expect(placeTargets({ slots: [slot], n: 1, r: HIT, m: EXACT_MARGIN }, { right: grid }, EXACT, TUNING)).toEqual({
+    kind: 'none',
+  });
+});
+
+// Regression, the open edge on y. A point on the line y = row / rows belongs to the cell
+// below it, not to the cell above. The closed test of design section 9.2 step 3 still counts
+// the cell above when the disc touches its bottom edge. The disc's centre is at y = 9 / 16
+// and its radius is 4 * EXACT_STEP = 1 / 16, so its north extreme lies exactly on
+// y = 8 / 16, the top edge of the middle cell. The cell above, BEFORE_MIDDLE_Y, is the only
+// one that is not valid, so the slot is unusable though its extreme's cell is valid.
+const Y_REGRESSION_RADIUS = 4 * EXACT_STEP;
+
+it('regression: a disc whose north extreme lies exactly on the open bottom edge of a non-valid cell above it is unusable, though that point belongs to a valid cell (Req 14.2)', () => {
+  const above = BEFORE_MIDDLE_Y;
+  const grid = allValidExcept(above);
+  const centre: Vec2 = { x: INSET_X, y: MIDDLE_RECT.y0 + Y_REGRESSION_RADIUS };
+  const slot = EXACT.toScreen(centre);
+  const north = EXACT.toCamera({ x: slot.x, y: slot.y - Y_REGRESSION_RADIUS });
+  expect(cellRectCamera(above.col, above.row, TUNING).y1).toBe(MIDDLE_RECT.y0);
+  expect(isCellValid(grid, above.col, above.row, TUNING)).toBe(false);
+  expect(north.y).toBe(MIDDLE_RECT.y0);
+  expect(cellsOf(north)).toEqual([MIDDLE]);
+  expect(isSlotUsable(slot, { right: grid }, EXACT, Y_REGRESSION_RADIUS, NO_MARGIN, TUNING)).toBeNull();
+});
+
+// Regression, the frame test. The exact tests above pin the semi-axis; nothing
 // pinned the frame test, and a frame test taken back to the centre plus or minus the +R
 // side's distance (the form of the committed "Add slot placement") passed every test.
 // The construction is from the 7.2 journal and docs/bugs-found.md. Every cell is valid, so

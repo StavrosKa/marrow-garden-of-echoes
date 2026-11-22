@@ -20,7 +20,7 @@ Acceptance criteria use EARS wording. Criteria that start with "FOR ALL" are pro
 - **Mapping**: the composition of base mapping and reach gain, with its exact inverse. It is the only conversion between camera space and screen space.
 - **Active wrist**: in camera mode, a wrist the player chose (right, left or both); in simulated-input mode, the right wrist.
 - **Pointer**: per active wrist and per step, a screen-space position and a validity flag.
-- **Comfort grid**: per active wrist, a 32 x 24 grid over camera space holding the number of valid samples per cell.
+- **Comfort grid**: per active wrist, a 16 x 12 grid over camera space holding the number of valid samples per cell.
 - **Valid cell**: a cell with at least 4 valid samples.
 - **Slot**: a candidate target centre in screen space, supplied by the caller in a fixed order.
 - **Hit area**: a circle in screen space (centre, radius) for one target, supplied by the caller in every step together with the target id and its activation id.
@@ -194,8 +194,8 @@ Component names used in the criteria: Tuning, PoseFrame, Camera Source, Pointer 
 
 #### Acceptance Criteria
 
-1. WHEN the painting phase starts, THE Calibration SHALL create one empty comfort grid (32 x 24 cells over camera space) per active wrist.
-2. WHEN a frame is consumed in which an active wrist is valid, THE Calibration SHALL add one sample to that wrist's grid, in the cell containing the wrist's camera-space position after the Pointer Filter stage: column min(floor(x * 32), 31), row min(floor(y * 24), 23). The cell containing a position is the cell whose half-open rectangle [col / 32, (col + 1) / 32) x [row / 24, (row + 1) / 24), with each edge computed as that division in floating point, contains it, with x = 1 and y = 1 in the last column and row; floor(x * 32) and floor(y * 24) are the usual way to find it, corrected by one where floating-point rounding disagrees.
+1. WHEN the painting phase starts, THE Calibration SHALL create one empty comfort grid (16 x 12 cells over camera space) per active wrist.
+2. WHEN a frame is consumed in which an active wrist is valid, THE Calibration SHALL add one sample to that wrist's grid, in the cell containing the wrist's camera-space position after the Pointer Filter stage: column min(floor(x * 16), 15), row min(floor(y * 12), 11). The cell containing a position is the cell whose half-open rectangle [col / 16, (col + 1) / 16) x [row / 12, (row + 1) / 12), with each edge computed as that division in floating point, contains it, with x = 1 and y = 1 in the last column and row; floor(x * 16) and floor(y * 12) are the usual way to find it, corrected by one where floating-point rounding disagrees.
 3. THE Calibration SHALL treat a cell as valid if and only if it holds at least 4 samples.
 4. FOR ALL sample sequences, a cell SHALL be valid only if at least 4 valid samples fell inside it; cells inside the bounding box, the convex hull or the gaps between sampled cells SHALL never become valid without their own samples.
 5. THE Calibration SHALL measure painting time on the presence clock and count it only in steps in which at least one active wrist is valid.
@@ -526,7 +526,7 @@ Each lives in `packages/marrow/src/core/tuning.ts` with the label shown. `tune` 
 | 20 s, 12 s, 30 s | Calibration nominal, earliest finish, cap | invariants 3 | tune |
 | 2 s | Calm hold | invariants 3 | rule |
 | 5 s | "Skip head view" offered after | invariants 3 | rule |
-| 32 x 24 | Comfort grid | invariants 3 | tune |
+| 16 x 12 | Comfort grid | invariants 3 | tune |
 | 4 | Samples for a valid cell | invariants 3 | tune |
 | 0.09 (0.07-0.13) | Hit radius, fraction of viewport height | invariants 4 | tune |
 | 1.5 s | Dwell time | invariants 5 | tune |

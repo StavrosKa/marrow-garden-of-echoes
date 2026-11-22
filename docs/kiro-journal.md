@@ -1888,3 +1888,27 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\playground-layout.spec.ts:9:1`, `ok 4 tests\e2e\playground-layout.spec.ts:32:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `4 passed (1.7m)`. The run reused the dev server that was already on 5173.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input, Use a 16 by 12 comfort grid
+- Kiro feature used: the comfort grid changed from 32 x 24 to 16 x 12, after the user's second camera check (model: Claude Haiku 5.5, Medium). The camera-check numbers are not in this entry. They go in the 17.10 entry.
+- Why: the second check showed most painted cells held 1 to 3 samples. A cell needs 4 samples, and the camera gives about 7 inferences a second, so a 32 x 24 grid leaves most cells short. A 16 x 12 cell is 1/16 of the camera width and 1/12 of its height.
+- Spec and steering, all approved by the user: requirements.md lines 23, 197, 198 and 529 (grid size, the indexing formulas `min(floor(x * 16), 15)` and `min(floor(y * 12), 11)`, the half-open cell rectangles, and Appendix A); design.md (every 32 x 24 and 16 x 12 mention, the constructor example and §9.2 step 3); interaction-invariants.md line 32; tasks.md line 72 (`genGrid` builds 16 x 12 grids). No task is ticked in this commit.
+- Code: `tuning.ts` has gridCols 16 and gridRows 12, with a comment. The validation range (integers 1 to 256) is unchanged.
+- Test fixtures recomputed for the new grid. No assertion was loosened and no test was removed.
+  - `aura.test.ts`: the region is a 5 x 5 block at columns 5 to 9 and rows 4 to 8. The interior, side, corner, all-valid and hole cases are recomputed. The two-wrist and tuning cases use cell (7, 6). The corner check pulls four points inside cell (9, 8), so the round trip through the mapping cannot land a point in the row above.
+  - `calibration.test.ts`: CELL_B is {col 3, row 3}, and the painted block is columns 6 to 9, rows 4 to 7.
+  - `reachGain.test.ts`: the worked examples, the two-region fixture and the both-wrists fixture are recomputed.
+  - `placement.test.ts`:
+    - Both seed regressions are restored unchanged from the commit before this one: the x-axis case (seed 29, input 340, docs/bugs-found.md) and the y-axis case that follows it. They run in a `describe` block on a copy of TUNING with gridCols 32 and gridRows 24, because their inputs are numbers of that grid. Inside the block, the helpers that read the grid (EMPTY, COLS, MIDDLE, cellsOf, allValidExcept) are rebuilt on that copy, and the test bodies are the committed ones. The seed inputs match HEAD line for line.
+    - Two exact-arithmetic cases on the 16 x 12 grid are added. The x case: the west extreme of a disc lies on the west edge of a non-valid cell, so the slot is unusable. The y case: the north extreme lies on the bottom edge of the non-valid cell above, and the closed test of §9.2 step 3 still counts that cell, so the slot is unusable, though the point itself belongs to a valid cell. Coordinates are multiples of EXACT_STEP = 1/64. EXACT_STEP and EXACT_RADIUS are unchanged.
+    - Comments that named the middle cell (16, 12) now name (8, 6).
+- `playground-camera.test.ts`: only the helper changed. No assertion and no test was changed. At 16 x 12, five tests failed because calibration ended on noUsableSlot. Two causes, both in `reachPlay`:
+  - It painted the cells whose centres lay within hitRadius + 0.05 of the first slot. It now paints every cell that the slot's disc touches, with hitRadius + 0.01 in screen units, sampled every 0.001 and mapped through the mapping. Alone, this change still ended on noUsableSlot.
+  - It moved to the next cell on every tick. The one-euro filter on the wrist (oneEuroMinCutoffHz 1.2) averages a hand that jumps every tick, so only cells near the middle of the group received samples. The helper now holds each cell for 10 ticks (`DWELL_TICKS`).
+- Encoding: no changed file has a BOM, and none contains the sequences `Â` or `â€`.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  95 passed (95)`, `Tests  1389 passed (1389)`, `Duration  174.47s`. The previous commit had 1387 tests in 95 files. The two new placement cases account for the difference. The world-view tests are in this run and pass.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\playground-layout.spec.ts:9:1`, `ok 4 tests\e2e\playground-layout.spec.ts:32:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `4 passed (1.7m)`.
+- No property failed, and the seed 29 regression passes on the 32 x 24 copy, so no `docs/bugs-found.md` entry.
+
