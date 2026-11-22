@@ -1,0 +1,62 @@
+/* The layout of the input playground. Colours are the --marrow-* properties of ui/theme.css, so this file writes none. */
+
+.playground-root {
+  display: grid;
+  gap: 1rem;
+}
+
+.playground-chrome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The field is the play area and the box the Pointer Source listens on. Its aspect is PLAY_ASPECT (8 / 5 = 1.6). */
+.playground-field {
+  position: relative;
+  width: min(100%, 960px);
+  aspect-ratio: 8 / 5;
+  touch-action: none;
+}
+
+.playground-area {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.playground-screen {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+
+.playground-target-shape {
+  fill: var(--marrow-color-surface);
+  stroke: var(--marrow-color-border);
+  stroke-width: 0.006;
+}
+
+.playground-target-diamond {
+  fill: var(--marrow-color-accent);
+}
+
+.playground-ring {
+  stroke: var(--marrow-color-progress);
+  stroke-linecap: butt;
+}
+
+.playground-orb {
+  fill: var(--marrow-color-text);
+}
+
+.playground-instruction {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.5rem;
+  margin: 0;
+  text-align: center;
+}

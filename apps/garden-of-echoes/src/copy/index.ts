@@ -73,6 +73,8 @@ export const copy = {
     tuningInvalid: 'The tuning needs a fix before the playground can run.',
     contentInvalid: 'The playground content needs a fix before it can run.',
     detailHeading: 'Developer detail',
+    playArea: 'Play area',
+    playInstruction: 'Rest on a target until it completes.',
   },
   worldPlayground: {
     title: 'World playground',

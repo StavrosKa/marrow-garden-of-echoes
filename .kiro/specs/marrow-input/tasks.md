@@ -322,7 +322,7 @@ Rules for every task:
     - Tests with a fake AudioContext: nothing is created before the Start call; gain targets and ramp times; mute.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.5_
-  - [ ] 17.7 Playground in simulated-input mode
+  - [x] 17.7 Playground in simulated-input mode
     - `src/dev/playground.tsx` composes the providers, the setup flow, the Pointer Source, the frame driver, the calibration screen and the play area. The same code runs after the PoseSource in both modes.
     - The play area draws targets as plain SVG placeholder shapes, never larger than their hit areas and without story content. Every frame gives the Dwell Engine the presence delta, the pointers and the hit areas of the open targets. An orb for each valid active wrist, hidden while invalid. A progress ring, its arc length showing progress, only on targets with an owner and progress above 0. On selection the target shows as completed with a different shape and colour, eased over at least 300 ms, plays its tone unless muted, and is no longer supplied.
     - Escape and a Pause control open Pause on every screen after Start, and Escape or Resume closes it; Pause sets the paused flag; a mute control on every screen after Start; the "Simulated input" label on every screen; the current instruction in the live region; "Use the whole screen" during calibration. The playground does not use the Help Policy.

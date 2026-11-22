@@ -255,6 +255,29 @@ describe('the frame driver step', () => {
 });
 
 describe('the frame loop', () => {
+  it('steps nothing while idle, and a replaced state starts with raw delta 0', () => {
+    const callbacks: ((t: number) => void)[] = [];
+    const seen: DriverStep[] = [];
+    const reading: FrameReading = { paused: false, hidden: false, frame: null, hitAreas: [] };
+    const loop = startFrameLoop({
+      initial: null,
+      read: () => reading,
+      onStep: (step) => seen.push(step),
+      requestFrame: (callback) => callbacks.push(callback),
+      cancelFrame: () => undefined,
+    });
+    callbacks[0]?.(100);
+    callbacks[1]?.(116);
+    expect(seen).toHaveLength(0);
+    expect(loop.state()).toBeNull();
+    expect(loop.act({ kind: 'wholeScreen' })).toBe(false);
+    loop.replace(createDriver(cameraConfig()));
+    callbacks[2]?.(1000);
+    callbacks[3]?.(1016);
+    expect(seen.map((s) => s.presenceDt)).toEqual([0, 16]);
+    loop.stop();
+  });
+
   it('gives the first tick raw delta 0, passes the frame time as the draw time, and stops once', () => {
     const callbacks: ((t: number) => void)[] = [];
     const cancelled: number[] = [];

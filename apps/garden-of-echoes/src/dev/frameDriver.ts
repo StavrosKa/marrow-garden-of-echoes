@@ -393,7 +393,8 @@ export interface FrameReading {
 }
 
 export interface FrameLoopOptions {
-  readonly initial: DriverState;
+  /** The state to step, or null while no calibration run exists. An idle loop keeps asking for frames and steps nothing. */
+  readonly initial: DriverState | null;
   readonly read: () => FrameReading;
   readonly onStep: (step: DriverStep) => void;
   readonly requestFrame: (callback: (timestampMs: number) => void) => number;
@@ -401,44 +402,54 @@ export interface FrameLoopOptions {
 }
 
 export interface FrameLoop {
-  readonly state: () => DriverState;
-  /** Applies a calibration control. Returns whether calibration completed. */
+  /** The current state, or null while idle. */
+  readonly state: () => DriverState | null;
+  /** Replaces the state. The next tick has raw delta 0, so a new run does not count the time before it. */
+  readonly replace: (next: DriverState | null) => void;
+  /** Applies a calibration control. Returns whether calibration completed; false while idle. */
   readonly act: (action: DriverAction) => boolean;
   /** Stops the loop and cancels the pending frame. Calling it again does nothing. */
   readonly stop: () => void;
 }
 
 /**
- * Runs `stepFrameDriver` once per animation frame. The first tick has raw delta 0; later ticks use the
+ * Runs `stepFrameDriver` once per animation frame. The first tick of a run has raw delta 0; later ticks use the
  * difference of the frame timestamps, which the Clocks clamp.
  */
 export function startFrameLoop(options: FrameLoopOptions): FrameLoop {
-  let state = options.initial;
+  let state: DriverState | null = options.initial;
   let previousMs: number | null = null;
   let pending: number | null = null;
   let stopped = false;
   const tick = (timestampMs: number): void => {
     pending = null;
     if (stopped) return;
-    const rawDtMs = previousMs === null ? 0 : timestampMs - previousMs;
+    if (state !== null) {
+      const rawDtMs = previousMs === null ? 0 : timestampMs - previousMs;
+      const reading = options.read();
+      const step = stepFrameDriver(state, {
+        rawDtMs,
+        paused: reading.paused,
+        hidden: reading.hidden,
+        frame: reading.frame,
+        drawAtMs: timestampMs,
+        hitAreas: reading.hitAreas,
+      });
+      state = step.state;
+      options.onStep(step);
+    }
     previousMs = timestampMs;
-    const reading = options.read();
-    const step = stepFrameDriver(state, {
-      rawDtMs,
-      paused: reading.paused,
-      hidden: reading.hidden,
-      frame: reading.frame,
-      drawAtMs: timestampMs,
-      hitAreas: reading.hitAreas,
-    });
-    state = step.state;
-    options.onStep(step);
     if (!stopped) pending = options.requestFrame(tick);
   };
   pending = options.requestFrame(tick);
   return {
     state: () => state,
+    replace: (next) => {
+      state = next;
+      previousMs = null;
+    },
     act: (action) => {
+      if (state === null) return false;
       const result = applyDriverAction(state, action);
       state = result.state;
       return result.completed;

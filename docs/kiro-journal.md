@@ -1717,3 +1717,50 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.4m)`.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.7, playground in simulated-input mode
+
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.7 only. Commit 6c7a88d (task 17.6) was pushed before this part began. I followed the plan the user approved, with the changes they listed. Before the code I read task 17.7, Req 6.10, 11.14, 16.7, 19.10, 22, 23, 24.7 to 24.9, 26 and 27.1, design sections 14.1 to 14.5, and the existing playground, setup flow, round controller, Pointer Source and marrow screens.
+- What was built:
+  - `src/dev/playgroundController.ts`: a plain TypeScript controller with no React. It holds the setup flow, the frame loop, the Pointer Source, the tone player, the round progress and the session clock. `mount()` starts the loop, the tone player and the window listeners, and its cleanup stops them and disposes the source. `send(event)` runs the setup flow's effects in the same call, so each effect runs from the handler that caused it. `pressStart()` creates the audio context from the Start handler.
+  - `src/dev/playground.tsx`: the page. The load check is unchanged. When the load passes, `Run` subscribes to the controller with `useSyncExternalStore` and renders the screens, the chrome, the Pause overlay and the focus rules.
+  - `src/dev/playAreaPlan.ts`: the drawing plan. `planPlayArea` is a pure function from the step's pointers, the round and the dwell views to plain values: each target's circle, diamond and ring, and each wrist's orb. `applyPlayAreaPlan` writes those values into the registered SVG elements.
+  - `src/dev/playArea.tsx`: the SVG component. It renders the target groups and the orbs once per round change, and each element registers itself through a ref.
+  - `src/dev/playgroundRounds.ts`: the round progression. It records selections and starts the next round after the wait. `startRound` and `stepRound` in roundController.ts are unchanged.
+  - `src/dev/playground.css`: the layout. It uses only `--marrow-*` properties.
+  - `src/dev/frameDriver.ts`: the loop now accepts an idle state (`initial: null`), with `replace` and an `act` that returns false while idle. This is the only change to the 17.5 driver, and it is needed to start one loop in `mount`.
+  - `src/copy/index.ts`: `copy.playground.playArea` ("Play area") and `copy.playground.playInstruction` ("Rest on a target until it completes.", 7 words, no banned word).
+- Tests (4 files new, 1 file extended, 30 tests added):
+  - `playAreaPlan.test.ts` (11): the ring only with an owner and progress above 0; the dash length; the ring's outer edge on the hit radius, including the stroke; the circle at the hit radius; the diamond's corners on the hit circle; the ease at both ends; the completed shape; the ring off a completed target; sequential targets that are not shown; orbs at a valid pointer and hidden at an invalid one.
+  - `playArea.test.tsx` (4, jsdom): one render of the component and one application of the plan. It checks the registered refs, the ring and diamond attributes, the hidden orb, and the orb's position.
+  - `playgroundRounds.test.ts` (5): the wait is ROUND_PAUSE_MS of session time; a frozen session time does not advance it; a second selection of the same target changes nothing; nothing happens before calibration.
+  - `playgroundController.test.ts` (5, jsdom, fake parts): the audio is created only on Start; one source for Try without camera; Recalibrate disposes the old source; unmount stops everything; the whole screen places three targets; a held pointer selects a target and plays C5; a paused round does not advance, and the next round has new ids.
+  - `playground.test.tsx`: the 3 existing tests, unchanged, plus 4 new ones. StrictMode runs one frame loop and one pointer source, including through unmount and remount. The Simulated input label and the Pause control show on every screen after Start. Escape opens Pause, and focus returns to the Pause control on Resume. "Use the whole screen" shows the play instruction in a live region.
+  - `frameDriver.test.ts` (+1): the idle loop and `replace`.
+  - `playAreaPlan.test.ts` checks the ring and diamond against `TUNING.hitRadius` and the ease against `TUNING.uiMinLightEaseMs`.
+- Decisions made by Kiro (the task left these open, or the plan left them to me):
+  - Drawing: the play area's shapes, rings and orbs are written every animation frame, outside React. React renders them only on round changes, so a ring is never delayed by React and needs no throttle.
+  - Calibration orbs are the exception. `CalibrationScreen` takes its orbs as props, and I did not change that component. So the calibration screen re-renders once per frame while it is shown, and the play area does not. The calibration screen's React work is small, a single canvas that redraws only when a cell's validity changes, and one set of orbs.
+  - Round wait: ROUND_PAUSE_MS = 600 and COMPLETE_EASE_MS = 400, both in `playgroundRounds.ts`. Both use the session clock, as the user approved for Req 16.7, so a pause or a hold freezes them. The wait is at least the ease time.
+  - Round progression: `recordSelection` marks a target completed and sets the next round's time. `advanceRound` calls `startRound` once that time has passed. This keeps the wait in the playground and leaves roundController.ts as it was.
+  - Pointer Source: one per calibration run. `startCalibration` disposes any source that exists before it creates the next one, so Recalibrate and "Use the whole screen" never leave two sources. The source is created in the click that caused it, and it is disposed in `discardCalibration`, in `startCalibration` and in unmount.
+  - Frame loop: one loop per mount, created in `mount()` with its cleanup. The loop idles until a calibration run starts, so StrictMode's double mount leaves one loop.
+  - Whole screen from the no-usable-slot screen: the calibration that already completed is restarted first, then "whole screen" completes it. The whole-screen transform is the identity in simulated input, so the round uses the base mapping.
+  - Pause: a frame that arrives while paused is not consumed, so calibration, the filter and the round wait do not count paused time.
+  - Escape: one `keydown` listener on `window`, installed in `mount()`. It ignores repeats, and it does nothing on the start screen. The overlays do not listen for Escape.
+  - Focus: a screen change focuses the first button of the new screen. Closing Pause without a screen change focuses the Pause control. The overlay components are unchanged.
+  - Hidden tab: a `visibilitychange` listener sets the hidden flag from `document.hidden`. No camera is involved yet.
+  - The Simulated input label appears in the chrome on every screen after Start while the mode is simulated. Pause and mute appear on every screen after Start in both modes.
+  - App values beside the code, none in tuning.ts and none in Appendix B (I did not edit requirements.md): ROUND_PAUSE_MS (600), COMPLETE_EASE_MS (400), PLAY_ASPECT (1.6, the 8:5 field), RING_STROKE (0.012), ORB_RADIUS (0.02), the tone's ATTACK_MS (40) and RELEASE_MS (120) from 17.6, and the settings prefix. Each is documented where it is defined.
+  - The tone for a target is chosen by its index in the round, so the first target of a round plays C5.
+  - "Use the camera" has no handler in 17.7. `CameraPermissionScreen` requires the prop, so the button is shown and does nothing until 17.8. The hand choice and camera error screens are not rendered in this step.
+- Known limits:
+  - The Pointer Source's frame callback is requested after the loop's, so the driver reads the frame made in the previous animation frame. That is one frame, about 16 ms, of lag in simulated input.
+  - The play field has the 8:5 aspect, and its width is at most 960 px. The calibration panel sits inside the field and scrolls if it does not fit.
+  - Only jsdom has run this code. No browser run of the real `requestAnimationFrame` loop or the real AudioContext has been done. The end-to-end suite does not cover the playground.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors. The first run flagged jest-dom matchers, which the app's test config does not type. Those assertions were replaced with plain checks, and a second run passed.
+  - `npm run lint`: exit 0, `> eslint .`, no output. The first run flagged `const owner = this` in the test's fake tone context. It now captures the frequency array instead.
+  - `npm test`: exit 0. `Test Files  91 passed (91)`, `Tests  1353 passed (1353)`, `Duration  104.98s`. Before 17.7: 87 files and 1323 tests, so this sub-task adds 4 files and 30 tests.
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.6m)`.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
