@@ -348,7 +348,7 @@ Rules for every task:
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 4.4, 6.10, 24.2, 26.1, 26.2, 28.10_
 
-- [ ] 18. Requirement coverage check
+- [x] 18. Requirement coverage check
   - Add `tests/spec-coverage.test.ts`. It reads every acceptance criterion id from `.kiro/specs/marrow-input/requirements.md` and every `_Requirements:` line of this file, and fails with a list of any criterion that no task references. It also fails if any named test of design §10.2, or `stale_frame_emits_new_invalid_frame`, is not the title of a test in the repository.
   - Check the cross-cutting rules with evidence: core logic reads every steering and Appendix B number from `TUNING` (search `packages/marrow/src/core` for numeric literals); files sit where Req 28.1 says; the app imports Marrow only through `marrow/core`, `marrow/input` and `marrow/react`; MediaPipe is imported only in `src/input`; packages hold no story words or player-facing text; `eslint.config.js` and `tests/dependency-graph.test.ts` gained no exception and lost no rule since this spec began; every failing seed is in `docs/bugs-found.md`.
   - Run `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e`, and record their output.

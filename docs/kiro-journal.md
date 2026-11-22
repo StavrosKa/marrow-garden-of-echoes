@@ -1957,3 +1957,17 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - No glide or headView test timed out.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 18, requirement coverage check
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 18 only. The rename of the two named tests, `stale_frame_emits_new_invalid_frame` and `settings_parse_never_throws`, to their exact titles is in its own commit, 76a30c5 "Name the stale-frame and settings-parse tests", at the user's request. The coverage test accepts a name only as the first argument of an it or test call, found by parsing the source, so a describe title, a comment or another string does not count.
+- `tests/spec-coverage.test.ts` reads the criterion ids from requirements.md (260 criteria) and the `_Requirements:` bullets of tasks.md (331 references). It fails on any criterion that no task references, and on any reference that is not a criterion. It checks that every §10.2 name and `stale_frame_emits_new_invalid_frame` is a test title, and that the §10.2 table and the Correctness Properties list agree in names, order and requirement numbers.
+- Failure demo: removing `16.8` from the task 3 bullet made the test fail and name 16.8. Renaming `clocks_delta_bounds` made it fail and name that test. Both files were restored from `.scratch` copies, and their SHA-256 values match the originals.
+- Cross-cutting checks:
+  - `git --no-pager diff --stat e0f972d HEAD -- eslint.config.js tests/dependency-graph.test.ts`: no output, so neither file changed.
+  - MediaPipe is imported only in `packages/marrow/src/input/poseLandmarker.ts`.
+  - The app imports Marrow only through `marrow/core`, `marrow/input` and `marrow/react`, and no relative import reaches a package.
+  - Non-test core files, outside `tuning.ts`: the only numeric literals are landmark indices, 0.5 midpoints and a 1000 ms conversion. None is a steering or Appendix B value.
+  - The Req 28.1 folders exist.
+  - Every bug the journal calls a code bug has a `docs/bugs-found.md` entry. The disabled-button and camera-latency fixes have none, because no property failed.
+- Tests: `npm run typecheck` exit 0; `npm run lint` exit 0; `npm test`: 97 files and 1398 tests pass (1393 before); `npm run test:e2e`: 13 passed.
+
+
