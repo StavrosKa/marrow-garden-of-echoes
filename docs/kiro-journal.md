@@ -1369,3 +1369,18 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - Task 16.2 is ticked. Task 16 is not.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input fix, keep the disabled primary button readable
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium). This is a fix commit before task 16.3, and it is not a spec task. Before the change the tree was clean, `main` equalled `origin/main`, and the last commit was 460c3d5.
+- Cause: `.marrow-button:disabled` set the muted text colour on the accent fill. In the defaults both are #9AA0B2, so the Continue button of HandChoiceScreen would have been unreadable when disabled.
+- Change: `marrow.css` gives a disabled button of either variant the secondary fill (`--marrow-color-surface-2`), the border colour, and the muted text. The disabled rule comes after the primary rule and has a higher specificity, so it wins for both variants.
+- Test (`tests/marrow-styles.test.ts`, 4 tests): for a disabled primary and a disabled secondary button, the test resolves the background and text declarations with the cascade (specificity, then source order). It asserts that the two use different custom properties, and that their defaults from `:root` differ in value.
+- Decision by Kiro: the name check alone would pass on the old bug, because `--marrow-color-text-muted` and `--marrow-color-accent` are different names with equal values. So the value check was added. The test failed on the old stylesheet in the value check (`expected '#9aa0b2' not to be '#9aa0b2'`) and the name check passed, which confirms that.
+- Check that the test can fail: the new test was run against the unchanged stylesheet first. Result: 1 of 15 failed, the value check for the primary button.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  71 passed (71)`, `Tests  1170 passed (1170)`, `Duration  54.77s`, wall time 57 s. One earlier run failed on a 5 s timeout in `packages/world-view/src/core/glide.test.ts` (a property test). That run had the typecheck and lint going in parallel. The rerun, alone, passed. This code is not touched by the change.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.1m)`, wall time 70 s.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
+

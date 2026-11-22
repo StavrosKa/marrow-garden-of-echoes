@@ -132,3 +132,58 @@ describe('no colour outside the custom-property defaults (Req 24.4)', () => {
     }
   });
 });
+/** The custom property a `var(--name)` value names, or a readable failure. */
+function varName(value: string | undefined): string {
+  const match = /^var\((--[a-z0-9-]+)\)$/.exec(value?.trim() ?? '');
+  if (match?.[1] === undefined) throw new Error(`not a plain var() value: ${value ?? 'missing'}`);
+  return match[1];
+}
+/** The value a custom property has in the :root defaults. */
+function rootValue(name: string): string {
+  const match = new RegExp(`${name}:\\s*([^;]+);`).exec(ROOT_BLOCK);
+  if (match?.[1] === undefined) throw new Error(`${name} has no default in :root`);
+  return match[1].trim().toLowerCase();
+}
+/**
+ * The background and text colour a disabled button of one variant ends with, under the cascade:
+ * rules of a higher specificity win, and between equal ones the later rule wins.
+ */
+function disabledButton(variant: 'primary' | 'secondary'): { background: string | undefined; color: string | undefined } {
+  const selectors =
+    variant === 'primary'
+      ? ['.marrow-button', '.marrow-button--primary', '.marrow-button:disabled']
+      : ['.marrow-button', '.marrow-button:disabled'];
+  const declarations: { order: number; specificity: number; prop: string; value: string }[] = [];
+  let order = 0;
+  for (const rule of RULES.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    const selector = (rule[1] ?? '').trim();
+    if (!selectors.includes(selector)) continue;
+    const specificity = (selector.match(/\./g)?.length ?? 0) + (selector.match(/:/g)?.length ?? 0);
+    for (const declaration of (rule[2] ?? '').split(';')) {
+      const colon = declaration.indexOf(':');
+      if (colon < 0) continue;
+      declarations.push({
+        order: order++,
+        specificity,
+        prop: declaration.slice(0, colon).trim(),
+        value: declaration.slice(colon + 1).trim(),
+      });
+    }
+  }
+  declarations.sort((a, b) => a.specificity - b.specificity || a.order - b.order);
+  const resolved = new Map<string, string>();
+  for (const d of declarations) resolved.set(d.prop, d.value);
+  return { background: resolved.get('background'), color: resolved.get('color') };
+}
+describe('a disabled button stays readable (Req 22.4, 24.6)', () => {
+  for (const variant of ['primary', 'secondary'] as const) {
+    it(`a disabled ${variant} button never uses the same custom property for its text and its fill`, () => {
+      const { background, color } = disabledButton(variant);
+      expect(varName(background)).not.toBe(varName(color));
+    });
+    it(`a disabled ${variant} button has text and fill that differ in value at the defaults`, () => {
+      const { background, color } = disabledButton(variant);
+      expect(rootValue(varName(background))).not.toBe(rootValue(varName(color)));
+    });
+  }
+});
