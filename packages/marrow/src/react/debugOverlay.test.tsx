@@ -38,7 +38,7 @@ function snapshotWith(overrides: Partial<DebugSnapshot>): DebugSnapshot {
     nowMs: NOW,
     renderTimesMs: [],
     newFrameTimesMs: [],
-    latencyMs: null,
+    frameDrawnAtMs: null,
     frame: frameWith(true, false, true),
     playAspect: PLAY_ASPECT,
     activeWrists: ['right'],
@@ -78,12 +78,16 @@ describe('the rates (Requirement 25.2)', () => {
   });
 });
 describe('latency and head offset', () => {
-  it('shows the pipeline latency it is given, labelled from the copy', () => {
-    renderOverlay(snapshotWith({ latencyMs: 42.4 }));
+  it('shows the pipeline latency, labelled from the copy', () => {
+    renderOverlay(snapshotWith({ frameDrawnAtMs: NOW + 42.4 }));
     expect(figureAfter(FIXTURE_COPY.debug.latency)).toBe('42');
   });
+  it('shows the latency as the draw time minus frame.t, not the draw time itself', () => {
+    renderOverlay(snapshotWith({ frame: { ...frameWith(true, false, true), t: NOW - 100 }, frameDrawnAtMs: NOW + 42.4 }));
+    expect(figureAfter(FIXTURE_COPY.debug.latency)).toBe('142');
+  });
   it('shows no latency row before the first frame is rendered', () => {
-    renderOverlay(snapshotWith({ latencyMs: null }));
+    renderOverlay(snapshotWith({ frameDrawnAtMs: null }));
     expect(screen.queryByText(FIXTURE_COPY.debug.latency)).not.toBeInTheDocument();
   });
   it('shows the head offset to two decimals', () => {
@@ -152,7 +156,7 @@ describe('no input and no state (Requirement 25.4, 25.5)', () => {
       snapshotWith({
         renderTimesMs: [NOW - WINDOW / 2],
         newFrameTimesMs: [NOW - WINDOW / 4],
-        latencyMs: 12,
+        frameDrawnAtMs: NOW + 12,
         grids: { right: addSample(createGrid(TUNING), { x: 0.25, y: 0.25 }) },
         hitAreas: [{ targetId: 'a', activationId: 'a1', centre: { x: 0.5, y: 0.5 }, radius: TUNING.hitRadius }],
         headOffset: { x: 0.1, y: 0.2 },
@@ -166,7 +170,7 @@ describe('no input and no state (Requirement 25.4, 25.5)', () => {
 });
 describe('labels come from the copy', () => {
   it('shows every label from the copy', () => {
-    renderOverlay(snapshotWith({ latencyMs: 7 }));
+    renderOverlay(snapshotWith({ frameDrawnAtMs: NOW + 7 }));
     for (const label of [
       FIXTURE_COPY.debug.fps,
       FIXTURE_COPY.debug.inferenceHz,

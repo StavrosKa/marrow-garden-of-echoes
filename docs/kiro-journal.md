@@ -1645,3 +1645,38 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.5m)`, wall time 93 s.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.5, frame driver
+
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.5 only. Commit fd868b3 was the starting point and was checked clean first. Before the code I read task 17.5, Req 2.7, 8.2, 8.4, 9, 10, 11, 16.7, 17 and 18, design sections 3, 9.7 and 14, the core reducers, `pointerSource.ts`, the debug overlay and its test, and the frame loop of `WorldPlayground.tsx` and `worldSession.ts`.
+- What was built:
+  - `src/dev/frameDriver.ts`: `createDriver(config)`, `stepFrameDriver(state, input)` (one pure step per frame), `applyDriverAction(state, action)` for retry, whole screen and skip head view, and `startFrameLoop(options)`, the thin rAF loop with `stop()`.
+  - `src/dev/frameDriver.test.ts` (7 tests).
+  - Req 2.7: `DebugSnapshot.latencyMs` is replaced by `frameDrawnAtMs`, the driver's clock at the first tick that draws the current frame. `DebugOverlay` computes the latency as `frameDrawnAtMs - frame.t`, and shows nothing when either is missing.
+- Step order, as approved: presenceDelta; the frame read and the reference check; tracking on this tick's validity and presenceDt; sessionDelta from this step's hold; head view; on a consumed frame the pointer filter, then calibration; the Mapping; dwell on presenceDt.
+- Decisions made by Kiro (the task left these open, or they follow the approved points):
+  - A frame seen while paused or hidden is not consumed. Its reference is not stored, so the first frame after resume is new. Calibration and the filter do not see paused time.
+  - The filter resets on the tick in which paused or hidden goes from true to false. The presence time since the last consumed frame is kept as `sinceConsumedMs`.
+  - Tracking reads the newest frame's validity, not the held validity. A wrist that turns invalid in the tick that reads the frame therefore counts in that tick (a test checks the tick number).
+  - Simulated input skips the filter. Its pointer is the camera position of the Pointer Source's base mapping, passed through `toScreen` with gain 1.
+  - The Mapping is rebuilt only when the transform changes. Before calibration completes it has gain 1 and the play-area centre. After completion it uses the calibration's gain and centre. Both wrists use the same object.
+  - Head view is output only. It reads the simulated pointer in screen space, as Req 6.7 says.
+  - `frameDrawnAtMs` is set on consumed frames only. A frame that is seen while paused is drawn when it is consumed.
+  - The loop's first tick has raw delta 0. Later ticks use the difference of the rAF timestamps, which the Clocks clamp.
+  - `applyDriverAction` on retry also resets the head view. It has no test of its own in this commit. The playground's use of it is tested in 17.7.
+  - "Use the whole screen" is simulated-input only in core (Req 11.16). The camera tests therefore reach the complete state through the painting cap and the calm hold, with the right wrist valid on every tick.
+- Test decisions:
+  - `driver_ignores_frame_timestamps` runs one schedule three times: with timestamps in order, with scrambled values, and with a value that repeats from one frame to the next. It also runs with one constant value. The step outputs must be equal in every run. The repeated and constant runs were added after mutation M1 survived with scrambled values alone, because a comparison by timestamp gave the same answer there.
+  - The other tests cover the same-tick invalid wrist, the session delta in the hold step, the filter after a pause (including a frame that is not consumed while paused), the simulated pointer, the head offset not reaching pointers or dwell, and the frame loop's delta, draw time and stop.
+  - The Debug Overlay tests changed as follows. The default snapshot uses `frameDrawnAtMs: null`. The latency test passes `NOW + 42.4` and still expects `'42'`. The no-row test uses `frameDrawnAtMs: null` and the same assertion. The frozen-snapshot test uses `NOW + 12`, and the labels test uses `NOW + 7`. One new test checks the subtraction against `frame.t` (`NOW - 100` and `NOW + 42.4` give `'142'`). Every other assertion is unchanged.
+- Mutation check, `driver_ignores_frame_timestamps` only. Each mutation was a one-line edit to `frameDriver.ts`, applied with the editor tool, run with `powershell -File .scratch\run-driver-tests.ps1`, and reverted with the editor tool. The file's SHA-256 was `00194E72C24EB9BF1A52F44172D0481BB62C12B16005D082DFCD6A1D21DC8F85` before the first mutation and the same after the last one.
+  - M1, new frame by timestamp (`frame.t !== lastFrame.t`) instead of reference. The first version of the test did not catch it. The test was made stronger with the paired and constant runs, and then M1 failed the test.
+  - M2, `frameDrawnAtMs = frame.t`. Killed: 1 test failed.
+  - M3, the filter's presence time taken from `frame.t` differences. Killed: 1 test failed.
+  - M4, frames dropped when `frame.t` does not increase. Not run. The editor tool's safety guard blocked the edit, and the guard's message asked for a safer approach. I did not try another way to apply it. The three mutations run are inside the 3 to 5 range.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output. The first run flagged one unused import in the test file. It was removed, and the second run passed.
+  - `npm test`: exit 0. `Test Files  86 passed (86)`, `Tests  1312 passed (1312)`, `Duration  78.45s`. Before 17.5: 85 files and 1304 tests. This sub-task adds `frameDriver.test.ts` (7 tests) and one overlay test.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.3m)`.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

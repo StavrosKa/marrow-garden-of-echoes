@@ -312,7 +312,7 @@ Rules for every task:
     - Tests: slots outside or across the play-area edge are dropped; the targets of every round are pairwise disjoint; consecutive rounds use different slots when at least 6 slots are usable; the `sequential` order; new activation ids; pause and hold flags leave the round unchanged.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.
     - _Requirements: 14.5, 18.11, 22.8, 26.4, 26.9, 26.10_
-  - [ ] 17.5 Frame driver
+  - [x] 17.5 Frame driver
     - Add `src/dev/frameDriver.ts`: a pure per-frame step plus a thin `requestAnimationFrame` loop, following design §3. `presenceDelta` first; then head view and tracking; then `sessionDelta` from this step's hold. A new frame is detected by reference identity of `source.latest()`, never by `t`. The pointer filter runs only on new frames, with the presence time accumulated since the last consumed frame, and resets when play resumes after Pause or a hidden tab. One Mapping, with one gain and centre, serves every active wrist. In simulated-input mode there is no filter and the gain is 1. Calibration samples on new frames; dwell, tracking and head view step every frame on the presence delta. The head offset never reaches pointers, hit areas, dwell or tracking. Mode differences come only from the settings passed in, never from the source type.
     - Tests: `driver_ignores_frame_timestamps` (added by this plan: the same frame objects with scrambled `t` give identical outputs); the filter resets after a pause; the simulated pointer equals the pointer position; the session delta is 0 in the step a hold begins; changing the head offset leaves pointers and dwell unchanged.
     - Done when `npm run typecheck`, `npm run lint` and `npm test` pass.

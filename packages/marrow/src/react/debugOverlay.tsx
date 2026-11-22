@@ -3,8 +3,8 @@
 // cannot change the run. The frame driver records the times the rates are counted from, and the
 // pipeline latency; this component only counts and shows them.
 //
-// The rates count the recorded times over debugRateWindowMs (debugRates.ts). The latency is the value
-// the driver measured at the first render that draws a new frame, from that frame's timestamp.
+// The rates count the recorded times over debugRateWindowMs (debugRates.ts). The latency is the driver's
+// draw time of the current frame minus the frame's timestamp, which only this component reads (Req 2.7).
 //
 // The grids are drawn through the current mapping, as rectangles of the cells that hold a sample. The
 // hit areas are screen-space circles. The SVG uses the play-area viewBox (0 0 A 1), so these shapes
@@ -31,9 +31,12 @@ export interface DebugSnapshot {
   readonly renderTimesMs: readonly number[];
   /** The times at which a new PoseFrame was first seen, for the inference or pointer rate. */
   readonly newFrameTimesMs: readonly number[];
-  /** The time from the current frame's timestamp to the first render that draws it, or null before one. Excludes camera and display latency. */
-  readonly latencyMs: number | null;
-  /** The current frame, for the validity of the wrists and the nose. Null before the first frame. */
+  /**
+   * The frame driver's clock at the first render that draws the current frame, or null before one (Req 2.7).
+   * The driver never reads the frame's timestamp. The overlay subtracts `frame.t` to get the latency.
+   */
+  readonly frameDrawnAtMs: number | null;
+  /** The current frame, for the validity of the wrists and the nose, and for its timestamp. Null before the first frame. */
   readonly frame: PoseFrame | null;
   /** The play-area aspect A, which sets the viewBox. */
   readonly playAspect: number;
@@ -120,6 +123,15 @@ function validityRows(snapshot: DebugSnapshot, copy: MarrowCopy): ReactElement[]
   ));
 }
 
+/**
+ * The pipeline latency: the driver's draw time of the current frame minus the frame's own timestamp (Req 25.2).
+ * Null before the first frame is drawn.
+ */
+function latencyOf(snapshot: DebugSnapshot): number | null {
+  if (snapshot.frameDrawnAtMs === null || snapshot.frame === null) return null;
+  return snapshot.frameDrawnAtMs - snapshot.frame.t;
+}
+
 export function DebugOverlay({ snapshot }: DebugOverlayProps) {
   const copy = useMarrowCopy();
   const windowMs = TUNING.debugRateWindowMs;
@@ -128,6 +140,7 @@ export function DebugOverlay({ snapshot }: DebugOverlayProps) {
   const frameRateLabel = snapshot.mode === 'camera' ? copy.debug.inferenceHz : copy.debug.pointerHz;
   const { headOffset } = snapshot;
   const { mapping } = snapshot;
+  const latencyMs = latencyOf(snapshot);
   const grids =
     mapping === null ? [] : snapshot.activeWrists.flatMap((wrist) => gridRects(snapshot, wrist, mapping));
   return (
@@ -147,10 +160,10 @@ export function DebugOverlay({ snapshot }: DebugOverlayProps) {
           <dt>{copy.debug.headOffset}</dt>
           <dd>{headOffset.x.toFixed(2)}</dd>
           <dd>{headOffset.y.toFixed(2)}</dd>
-          {snapshot.latencyMs === null ? null : (
+          {latencyMs === null ? null : (
             <>
               <dt>{copy.debug.latency}</dt>
-              <dd>{Math.round(snapshot.latencyMs)}</dd>
+              <dd>{Math.round(latencyMs)}</dd>
             </>
           )}
         </dl>
