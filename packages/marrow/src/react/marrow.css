@@ -205,6 +205,8 @@
 /* The live preview is mirrored so that the player sees a mirror image. Its width is capped by the width attribute the component sets. */
 .marrow-camera-preview {
   display: block;
+  /* The border is part of the box, so the whole box is at most the width the component is given (Req 22.5). */
+  box-sizing: border-box;
   max-width: 100%;
   height: auto;
   border: 1px solid var(--marrow-color-border);

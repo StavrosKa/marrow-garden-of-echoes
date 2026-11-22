@@ -4,7 +4,10 @@
 // sees. Nothing here opens a camera: the simulated-input path and fake parts only.
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { TUNING } from 'marrow/core';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { TUNING, type PoseFrame } from 'marrow/core';
 import type { PoseSource } from 'marrow/input';
 import { createSettingsStore } from 'marrow/react';
 import { readPlaygroundContent } from './playgroundContent';
@@ -44,9 +47,22 @@ function frameQueue() {
   };
 }
 
-/** A pointer source whose frames are always absent: this file tests the overlay, not the drawing. */
-function silentPointer(): PoseSource {
-  return { start: () => Promise.resolve('ready'), latest: () => null, dispose: () => undefined };
+/** A pointer source whose frame the test sets. Without a frame it gives none, as the overlay tests need. */
+class FakePointer implements PoseSource {
+  frame: PoseFrame | null = null;
+  start(): Promise<'ready'> {
+    return Promise.resolve('ready');
+  }
+  latest(): PoseFrame | null {
+    return this.frame;
+  }
+  dispose(): void {
+    return undefined;
+  }
+}
+
+function silentPointer(): FakePointer {
+  return new FakePointer();
 }
 
 function toneStub() {
@@ -66,13 +82,14 @@ function toneStub() {
   };
 }
 
-function controllerWith(debug: boolean) {
+function controllerWith(debug: boolean, extra: { now?: () => number; pointer?: FakePointer } = {}) {
   const raf = frameQueue();
   const controller = createPlaygroundController({
     content: readContent(),
     settings: createSettingsStore({ prefix: 'test.debug.', prefersReducedMotion: false, storage: null }),
     basePath: '/',
-    createPointerSource: () => silentPointer(),
+    now: extra.now,
+    createPointerSource: () => extra.pointer ?? silentPointer(),
     createCameraSource: () => {
       throw new Error('this file never requests a camera');
     },
@@ -90,7 +107,7 @@ function controllerWith(debug: boolean) {
       raf.run(clock.now);
     }
   }
-  return { controller, run };
+  return { controller, run, raf };
 }
 
 describe('the URL and the window (Req 25.1)', () => {
@@ -193,6 +210,56 @@ describe('the refresh is throttled to DEBUG_REFRESH_MS of frame time', () => {
     expect(controller.debugEnabled).toBe(false);
     expect(controller.getDebugSnapshot()).toBeNull();
     cleanup();
+  });
+});
+
+describe('the draw time is read after the frame is drawn (Req 2.7)', () => {
+  it('gives a latency of at least 0 when a frame arrives between the frame start and the draw', () => {
+    const FRAME_START_MS = 100;
+    const FRAME_T_MS = 105;
+    const DRAWN_AT_MS = 110;
+    const pointer = new FakePointer();
+    const { controller, raf } = controllerWith(true, { now: () => DRAWN_AT_MS, pointer });
+    const cleanup = controller.mount();
+    controller.attachPlayArea(document.createElement('div'));
+    controller.pressStart();
+    controller.send({ kind: 'tryWithout' });
+    // The frame's timestamp is after the animation frame's start and before the draw (the race of the camera).
+    pointer.frame = {
+      t: FRAME_T_MS,
+      aspect: 1.6,
+      landmarks: {
+        leftWrist: { pos: { x: 0.5, y: 0.5 }, valid: false },
+        rightWrist: { pos: { x: 0.5, y: 0.5 }, valid: true },
+        nose: { pos: { x: 0.5, y: 0.3 }, valid: true },
+        leftShoulder: { pos: { x: 0.65, y: 0.5 }, valid: true },
+        rightShoulder: { pos: { x: 0.35, y: 0.5 }, valid: true },
+      },
+    };
+    raf.run(FRAME_START_MS);
+    const snapshot = controller.getDebugSnapshot();
+    if (snapshot === null || snapshot.frame === null) throw new Error('no snapshot with a frame');
+    expect(snapshot.frameDrawnAtMs).toBe(DRAWN_AT_MS);
+    const latency = (snapshot.frameDrawnAtMs ?? NaN) - snapshot.frame.t;
+    // The old draw time, the frame start, would give -5 here: a negative latency.
+    expect(latency).toBeGreaterThanOrEqual(0);
+    expect(latency).toBe(DRAWN_AT_MS - FRAME_T_MS);
+    cleanup();
+  });
+});
+
+describe('the overlay does not cover the title, the Pause control or the controls', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const css = readFileSync(path.join(here, 'playground.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('draws the overlay inside the field, so its drawing lines up with the play area', () => {
+    expect(css).toMatch(/\.playground-field > \.marrow-debug\s*\{[^}]*position:\s*absolute/);
+  });
+
+  it('puts the figures in the bottom-right corner of the window', () => {
+    expect(css).toMatch(/\.playground-root \.marrow-debug-text\s*\{[^}]*position:\s*fixed/);
+    expect(css).toMatch(/\.playground-root \.marrow-debug-text\s*\{[^}]*right:\s*0\.5rem/);
+    expect(css).toMatch(/\.playground-root \.marrow-debug-text\s*\{[^}]*bottom:\s*0\.5rem/);
   });
 });
 

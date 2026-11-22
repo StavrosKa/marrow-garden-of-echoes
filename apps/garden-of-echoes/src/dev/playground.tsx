@@ -239,7 +239,7 @@ function Run({ content, parts, debug }: RunProps): ReactElement {
           {simulated ? <SimulatedInputLabel /> : null}
         </div>
         <div
-          className={view.holding ? 'playground-field playground-field--held' : 'playground-field'}
+          className={view.dimmed ? 'playground-field playground-field--held' : 'playground-field'}
           ref={(element) => controller.attachPlayArea(element)}
         >
           {screen === 'play' ? (
@@ -257,6 +257,7 @@ function Run({ content, parts, debug }: RunProps): ReactElement {
             </div>
           ) : null}
           <div className="playground-screen">{screenContent()}</div>
+          {overlay}
         </div>
         {setup.paused ? (
           <PauseOverlay
@@ -272,7 +273,6 @@ function Run({ content, parts, debug }: RunProps): ReactElement {
             onExit={() => controller.send({ kind: 'exit' })}
           />
         ) : null}
-        {overlay}
       </div>
     </SettingsProvider>
   );

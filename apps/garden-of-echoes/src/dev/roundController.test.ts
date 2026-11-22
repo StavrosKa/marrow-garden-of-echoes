@@ -18,6 +18,8 @@ import { readPlaygroundContent, type PlaygroundContent } from './playgroundConte
 import shipped from './playground-content.json';
 
 const RADIUS = TUNING.hitRadius;
+/** The play aspect the shipped slots are laid out for (the playground's PLAY_ASPECT, 8 by 5). */
+const PLAY_ASPECT = 1.6;
 /** Camera-space distance a cell may lie from a slot and still count as valid in the region grids (a fixture). */
 const REGION_RADIUS = 0.2;
 
@@ -90,14 +92,20 @@ describe('the play-area slot filter', () => {
     expect(filterSlots([{ x: 0.95, y: 0.5 }], 2)).toHaveLength(1);
   });
 
-  it('keeps all 15 shipped slots at aspect 1, and the positions are in order', () => {
-    const kept = filterSlots(SHIPPED.slots, 1);
+  it('keeps all 15 shipped slots at the play aspect 1.6, and the positions are in order', () => {
+    // The shipped slots are spread over the play area of aspect 1.6 (the playground's PLAY_ASPECT). At aspect 1 the two
+    // outer columns lie past the edge, which the next test checks.
+    const kept = filterSlots(SHIPPED.slots, PLAY_ASPECT);
     expect(kept).toHaveLength(15);
     expect(kept.map((entry) => entry.position)).toEqual([...kept.keys()]);
   });
 
+  it('drops the outer columns of the shipped slots at aspect 1, where they lie past the edge', () => {
+    expect(filterSlots(SHIPPED.slots, 1)).toHaveLength(9);
+  });
+
   it('the calibration demand has N from the content, r from TUNING and m of zero', () => {
-    const demand = calibrationDemand(SHIPPED, 1);
+    const demand = calibrationDemand(SHIPPED, PLAY_ASPECT);
     expect(demand.n).toBe(SHIPPED.targetCount);
     expect(demand.r).toBe(RADIUS);
     expect(demand.m).toBe(0);

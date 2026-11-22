@@ -10,7 +10,7 @@ import { TUNING, type Mapping, type PoseFrame, type Vec2 } from 'marrow/core';
 import type { CameraSourceOptions, PoseSource, StartOutcome } from 'marrow/input';
 import { createSettingsStore, type HandChoice } from 'marrow/react';
 import type { ToneContext } from '../audio/tonePlayer';
-import { createPlaygroundController, type PlaygroundController } from './playgroundController';
+import { createPlaygroundController, dimsPlayArea, type PlaygroundController } from './playgroundController';
 import { PLAY_ASPECT } from './playAreaPlan';
 import { readPlaygroundContent, type PlaygroundContent } from './playgroundContent';
 import shipped from './playground-content.json';
@@ -301,6 +301,26 @@ describe('the camera is disposed on Exit, on switching to simulated input, on un
     h.controller.send({ kind: 'useCamera' });
     document.dispatchEvent(new Event('visibilitychange'));
     expect(h.cameras[0]?.disposed).toBe(0);
+    h.cleanup();
+  });
+});
+
+describe('the play area dims only where the tracking-lost overlay can show (Req 23.10)', () => {
+  it('dims on the play screen during a hold, and on no other screen', () => {
+    expect(dimsPlayArea('play', true)).toBe(true);
+    expect(dimsPlayArea('play', false)).toBe(false);
+    for (const screen of ['calibrating', 'noUsableSlot', 'handChoice', 'cameraPermission', 'cameraError', 'start'] as const) {
+      expect(dimsPlayArea(screen, true)).toBe(false);
+    }
+  });
+
+  it('reports the dim in the view while a hold runs on the play screen', async () => {
+    const h = harness();
+    await reachPlay(h, 'right');
+    expect(h.controller.getView().dimmed).toBe(false);
+    // The hand leaves the frame for longer than the hold threshold, which begins a hold on the play screen.
+    h.run(TUNING.trackingHoldAfterMs + STEP_MS * 2, null);
+    expect(h.controller.getView().dimmed).toBe(true);
     h.cleanup();
   });
 });

@@ -62,6 +62,12 @@ export interface PlaygroundDeps {
   readonly createToneContext: () => ToneContext;
   /** Whether the page shows the Debug Overlay (`debug=1`, Req 25.1). The snapshot is built only when it is on. */
   readonly debug: boolean;
+  /**
+   * The clock that records the draw time of a new frame, read right after the frame is drawn (Req 2.7). The default is
+   * `performance.now`, the clock of the camera's frame timestamps. It is not the animation frame's time, which is the
+   * start of the frame and can be earlier than a frame that arrives during it.
+   */
+  readonly now?: () => number;
 }
 
 /** What the component draws. It changes only when the controller notifies its listeners. */
@@ -76,8 +82,11 @@ export interface PlaygroundView {
   readonly completedIds: readonly string[];
   /** The camera's stream while a camera run is open, for the preview. Null otherwise. */
   readonly previewStream: MediaStream | null;
-  /** Whether a tracking hold is in effect: the play area dims (Req 23.10). */
-  readonly holding: boolean;
+  /**
+   * Whether the play area is dimmed: a tracking hold on the play screen, where the tracking-lost overlay can show
+   * (Req 23.10). A hold on another screen does not dim anything.
+   */
+  readonly dimmed: boolean;
   /** Whether the one-wrist hint shows (Req 18.9). */
   readonly oneWristHint: boolean;
 }
@@ -107,6 +116,14 @@ export interface PlaygroundController {
 }
 
 const ORIGIN = { x: 0, y: 0 };
+
+/**
+ * Whether the play area dims. The tracking-lost overlay shows only on the play screen (setupFlow), so a hold on any
+ * other screen dims nothing: the field would dim with no overlay to explain it.
+ */
+export function dimsPlayArea(screen: SetupState['screen'], holding: boolean): boolean {
+  return screen === 'play' && holding;
+}
 
 /** The wrists a hand choice uses (Req 22.4). */
 function wristsOf(hand: HandChoice): ('left' | 'right')[] {
@@ -139,8 +156,11 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
   let lastNowMs = 0;
   let lastRefreshMs = Number.NEGATIVE_INFINITY;
   let headOffset = ORIGIN;
+  /** The draw time of the newest consumed frame, read after the frame was drawn. Null before the first frame. */
+  let lastDrawnAtMs: number | null = null;
   let debugSnapshot: DebugSnapshot | null = null;
   const debugListeners = new Set<() => void>();
+  const clock = deps.now ?? (() => performance.now());
 
   function driverState(): DriverState | null {
     return loop?.state() ?? null;
@@ -184,7 +204,7 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
       shown,
       completedIds,
       previewStream,
-      holding,
+      dimmed: dimsPlayArea(setup.screen, holding),
       oneWristHint,
     };
   }
@@ -207,7 +227,7 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
       nowMs: lastNowMs,
       renderTimesMs: renderTimes,
       newFrameTimesMs: newFrameTimes,
-      frameDrawnAtMs: driver?.frameDrawnAtMs ?? null,
+      frameDrawnAtMs: lastDrawnAtMs,
       frame: driver?.lastFrame ?? null,
       playAspect: PLAY_ASPECT,
       activeWrists: driver?.config.activeWrists ?? ['right'],
@@ -468,6 +488,8 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
         pointers: step.pointers,
       }),
     );
+    // The draw time is read after the drawing, so a frame that arrived before this point is never later than it.
+    if (step.newFrame) lastDrawnAtMs = clock();
     const changed = progress !== before || setup.screen !== wasScreen || holding !== wasHolding || oneWristHint !== wasHint;
     refreshDebugSnapshot(changed);
     // The calibration screen draws its orbs from React, so it is notified every frame. The play area does not.

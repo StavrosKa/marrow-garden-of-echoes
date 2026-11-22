@@ -125,3 +125,18 @@
 .playground-field--held .playground-area {
   opacity: 0.35;
 }
+
+/* The Debug Overlay's drawing covers the play area only: inside the field, its box is the field, so the grids and hit
+   areas line up with the targets. Its figures sit in the bottom-right corner of the window, clear of the title, the
+   Pause control and the calibration controls. The overlay still takes no pointer input (marrow.css). */
+.playground-field > .marrow-debug {
+  position: absolute;
+  inset: 0;
+}
+
+.playground-root .marrow-debug-text {
+  position: fixed;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  max-width: 14rem;
+}

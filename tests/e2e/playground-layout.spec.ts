@@ -28,3 +28,28 @@ test('the calibration controls are inside the window at 1280 by 720, with no scr
   });
   expect(scrolls).toEqual({ page: false, screen: false });
 });
+
+test('the debug figures cover no control at 1280 by 720', async ({ page }) => {
+  await page.goto('/?playground=1&debug=1');
+  await page.getByRole('button', { name: 'Start' }).click();
+  await page.getByRole('button', { name: 'Try without camera' }).click();
+  await expect(page.locator('.marrow-debug-text')).toBeVisible();
+
+  const boxOf = async (locator: ReturnType<typeof page.locator>) => {
+    const box = await locator.first().boundingBox();
+    if (box === null) throw new Error('no box');
+    return box;
+  };
+  const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+  const figures = await boxOf(page.locator('.marrow-debug-text'));
+  const controls = [
+    page.getByRole('button', { name: 'Pause', exact: true }),
+    page.getByRole('button', { name: 'Use the whole screen' }),
+    page.getByRole('heading', { level: 1 }),
+  ];
+  for (const control of controls) {
+    expect(overlaps(figures, await boxOf(control))).toBe(false);
+  }
+});

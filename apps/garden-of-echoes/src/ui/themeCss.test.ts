@@ -17,7 +17,7 @@ const COLOUR_TOKENS: Record<string, ThemeToken> = {
   '--marrow-color-accent': 'lanternWarm',
   '--marrow-color-accent-text': 'grey0',
   '--marrow-color-focus': 'lanternGlow',
-  '--marrow-color-aura': 'grey5',
+  '--marrow-color-aura': 'lanternWarm',
   '--marrow-color-progress': 'lanternWarm',
   '--marrow-color-progress-track': 'grey4',
 };

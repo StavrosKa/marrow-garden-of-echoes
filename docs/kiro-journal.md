@@ -1858,3 +1858,33 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\playground-layout.spec.ts:9:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `3 passed (2.1m)`. This is 0.3 minutes longer than the 1.8-minute run of 17.8. The first e2e run of this sub-task was not repeated.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input, fix: camera check findings
+
+- Kiro feature used: a fix to the playground after the user's camera check of 17.8 and 17.9 (model: Claude Haiku 5.5, Medium). The commit is "Fix camera check findings", before 17.10. The measured numbers of the check are not in this entry. They go in the 17.10 entry, after the user's second check.
+- What the check found, and what changed:
+  1. Slots. All 15 shipped slots had x between 0.15 and 0.75, so they sat in the left half of the play area of aspect 1.6. The user's example of x from 0.2 to 1.4 spans only 1.2 of the 1.6 width, which is 75%, not the 80% that the test asks for. The slots are now at x 0.15, 0.5, 0.85, 1.2 and 1.45 in each of the three rows, a span of 1.3 (81%). The target count is still 3.
+  2. Draw time. The overlay's draw time was the animation frame's start. A camera result that arrived during the frame has a timestamp later than that start, so the latency was negative. The controller now reads `now()` right after it draws the play area, when a new frame was consumed. That value goes into the snapshot. The default clock is `performance.now`, the camera's clock. The driver still never reads `frame.t` (Req 2.7). The driver's own `frameDrawnAtMs` is still in its output, but the overlay no longer uses it.
+  3. Overlay placement. The overlay's drawing now sits inside the field, so its grids and hit areas line up with the targets. Its figures are fixed in the bottom-right corner of the window. The start screen keeps the overlay in the root, and its drawing is empty there.
+  4. Preview box. `box-sizing: border-box` on `.marrow-camera-preview`, so the border is inside `maxWidth`.
+  5. Dim. The field's held class now depends on the play screen only (`dimsPlayArea`). I could not find in the code how the field dimmed on the no-usable-slot screen. The class was set there, but the only rule it drives dims the play-area SVG, which is not rendered on that screen. So the class change is a guard against a cause I did not reproduce. The next camera check should show whether the dim still appears.
+  6. Aura. `--marrow-color-aura` is `lanternWarm` (`#F0A840`) in `theme.css`. The token map in `themeCss.test.ts` says `lanternWarm`. The contrast pairs are unchanged. The aura is not one of them.
+- Tests changed (the user asked that no test be removed or weakened; these are the changes, with the reason):
+  - `roundController.test.ts`: "keeps all 15 shipped slots at aspect 1" and "the calibration demand" asserted 15 slots at aspect 1. The new slots are laid out for 1.6, and at aspect 1 the two outer columns are past the edge. The first assertion now uses aspect 1.6 and still asserts 15. A new assertion asserts 9 at aspect 1. The demand test uses 1.6.
+  - No other existing test changed. In `playground-debug.test.tsx` the helper now returns `raf`, which the new draw-time test uses.
+- New tests:
+  - `playgroundSlots.test.ts` (4): the span of the kept slots is at least 80% of the width after the play-area filter. The target count is still 3. A camera grid valid on the right half of the frame leaves at least 3 usable slots, and so does one valid on the left half. Both halves are checked, because the mirror maps the camera's right half onto the screen's left half, and the requirement does not say which hand is meant.
+  - `playground-debug.test.tsx` (3): the draw time is 110 when the frame's timestamp is 105 and the frame starts at 100, so the latency is 5, not -5. The overlay's CSS puts the drawing inside the field, and the figures in the bottom-right corner.
+  - `marrow-preview-style.test.ts` (2): the preview rule has `box-sizing: border-box` and `max-width: 100%`.
+  - `playground-camera.test.ts` (2): `dimsPlayArea` gives true only for play with a hold. The view's `dimmed` is true during a hold on the play screen.
+  - `playground-layout.spec.ts` (1, e2e): with `debug=1` at 1280 by 720 on the calibration screen, the overlay's figures do not overlap the Pause control, the whole-screen button or the title.
+- Files: `playground-content.json`; `playgroundController.ts`; `playground.tsx`; `playground.css`; `theme.css`; `themeCss.test.ts`; `marrow.css`; `roundController.test.ts`; `playground-debug.test.tsx`; `playground-camera.test.ts`; `playgroundSlots.test.ts`; `tests/marrow-preview-style.test.ts`; `tests/e2e/playground-layout.spec.ts`.
+- Decisions made by Kiro (the task left these open):
+  - The figures are placed with `position: fixed` in the bottom-right corner, 14 rem wide at most. That is clear of the field at 1280 px wide. In a narrower window the figures can overlap the field's right edge. They take no pointer input, so they never block a control.
+  - The tracking-lost overlay shows only on the play screen (setupFlow, from 17.3). The spec does not say that. I did not change it. If the no-usable-slot screen should also show the overlay, that is a change to setupFlow and to a requirement's reading, so I will ask first.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  95 passed (95)`, `Tests  1387 passed (1387)`, `Duration  170.25s`. Before this commit: 93 files and 1375 tests. The commit adds 12 tests: the 11 in the list above (4 + 3 + 2 + 2), plus one roundController test for the edge drop at aspect 1. The changed roundController tests keep the count.
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\playground-layout.spec.ts:9:1`, `ok 4 tests\e2e\playground-layout.spec.ts:32:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `4 passed (1.7m)`. The run reused the dev server that was already on 5173.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
