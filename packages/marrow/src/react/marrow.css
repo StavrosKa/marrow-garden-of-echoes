@@ -134,6 +134,20 @@
 .marrow-orb {
   fill: var(--marrow-color-progress);
 }
+/* The overlays cover the screen with the scrim and centre their panel. */
+.marrow-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--marrow-space-md);
+  background: var(--marrow-color-scrim);
+}
+.marrow-placeholder {
+  width: 8rem;
+  height: 8rem;
+  color: var(--marrow-color-text-muted);
+}
 /* Keeps an element for screen readers only. */
 .marrow-visually-hidden {
   position: absolute;

@@ -2,7 +2,7 @@
 // are real DOM elements: a button, radio inputs, a range input and a polite live line. Every
 // piece of text and every accessible name comes in as a prop, taken from MarrowCopy by the
 // caller. The look comes from marrow.css, which holds the --marrow-* custom properties.
-import { useId, type ReactNode } from 'react';
+import { useId, type ReactNode, type Ref } from 'react';
 import './marrow.css';
 
 export interface PanelProps {
@@ -24,12 +24,14 @@ export interface ButtonProps {
   onClick: () => void;
   variant?: 'primary' | 'secondary';
   disabled?: boolean;
+  /** The button element, for the overlays that focus their first control when they open. */
+  ref?: Ref<HTMLButtonElement>;
 }
 
-export function Button({ children, onClick, variant = 'secondary', disabled = false }: ButtonProps) {
+export function Button({ children, onClick, variant = 'secondary', disabled = false, ref }: ButtonProps) {
   const className = variant === 'primary' ? 'marrow-button marrow-button--primary' : 'marrow-button';
   return (
-    <button type="button" className={className} disabled={disabled} onClick={onClick}>
+    <button ref={ref} type="button" className={className} disabled={disabled} onClick={onClick}>
       {children}
     </button>
   );

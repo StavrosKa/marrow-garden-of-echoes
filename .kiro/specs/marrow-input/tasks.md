@@ -270,7 +270,7 @@ Rules for every task:
     - Tests: `whole_screen_never_in_camera_mode` (Req 28.9, design Â§10.4); each message and control appears only when its flag or mode says so; with a stubbed canvas context, the aura is redrawn only when validity changes.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 11.12, 11.14, 11.16, 12.3, 12.6, 15.5, 21.1, 22.7, 22.8, 22.10, 28.9_
-  - [ ] 16.5 Pause and tracking-lost overlays
+  - [x] 16.5 Pause and tracking-lost overlays
     - `PauseOverlay`: Resume, Recalibrate, the motion setting, mute, volume and Exit.
     - `TrackingLostOverlay`: "Step back into view" with a simple placeholder picture that has an accessible name, Recover, "Try without camera" and Exit.
     - Focus moves into an overlay when it opens.

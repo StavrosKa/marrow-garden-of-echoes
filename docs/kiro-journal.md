@@ -1460,3 +1460,33 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - Task 16.4 is ticked. Task 16 is not.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 16.5, pause and tracking-lost overlays
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 16.5 only. Commit bf856e1 (task 16.4) was pushed before this part began. I read task 16.5, Req 21.1, 23.1 to 23.9, 24.1 and 28.9, the design sections the plan used, and the settings controls the overlay reuses.
+- What was built:
+  - `react/pauseOverlay.tsx`: `PauseOverlay({ onResume, onRecalibrate, onExit })`. A dialog named from `copy.pause.pause`, with Resume (primary), Recalibrate, the motion setting (`MotionSetting`), mute and volume (`AudioSettings`), and Exit.
+  - `react/trackingLostOverlay.tsx`: `TrackingLostOverlay({ onRecover, onTryWithout, onExit })`. A dialog named from `copy.tracking.stepBackIn`, with that text as its live instruction, an inline SVG placeholder picture, Recover (primary), "Try without camera" and Exit.
+  - The placeholder: `<svg role="img" aria-label={copy.tracking.pictureLabel}>` with a rounded frame, a head circle and a shoulder arc. The shapes are filled or stroked with `currentColor`. The class `.marrow-placeholder` sets `color` from `--marrow-color-text-muted`, so the source has no colour.
+  - `react/primitives.tsx`: `Button` takes an optional `ref` prop, which React 19 passes to function components as a plain prop. Nothing else in `Button` changed, and its 16.1 tests pass unchanged.
+  - `react/marrow.css`: `.marrow-overlay` (fixed, full screen, `--marrow-color-scrim` behind the panel) and `.marrow-placeholder` (8rem square, colour from the muted text property).
+  - `react/index.ts` exports both overlays and their props types.
+- Decisions made by Kiro (the task left these open):
+  - Focus: on mount, the overlay focuses its first control, Resume or Recover. It does not return focus to the element that had it before the overlay opened. The app owns the open and close state, so it can add that later.
+  - The dialog is a `div` with `role="dialog"`, not the `Panel` section, because the panel has no role for a modal and the overlay needs one. The inner panel keeps the panel look.
+  - Escape and the open state belong to the app, as the plan said (Req 23.1). The overlays do not listen for keys.
+  - The mute control and the Pause control are drawn by the app as chrome around the screens, as the plan said (Req 23.2). The Pause overlay does include the mute checkbox, which is in `AudioSettings`, as Req 23.4 requires.
+  - The `oneWristHint` copy is not used here. The playground shows it from the tracking output (plan, point 3).
+  - The placeholder's SVG coordinates are presentation constants. They are not interaction values, so they are not in `tuning.ts`.
+- Tests: `react/overlays.test.tsx` (8 tests):
+  - Pause: a dialog named from the copy, with focus on Resume at mount. It shows the motion group, mute, volume, Recalibrate and Exit with names from the copy. Resume, Recalibrate and Exit each fire by mouse and keyboard, and only their own callback. The motion radio and the mute checkbox change the stored settings.
+  - Tracking-lost: a dialog named from the instruction, with focus on Recover at mount. The picture is an image named from the copy and has no style attribute. Recover, "Try without camera" and Exit each fire by mouse or keyboard, and only their own callback.
+  - The barrel exports both overlays.
+  - The stylesheet test for the placeholder and the overlay colours is in `tests/marrow-styles.test.ts`, which already checks that no colour appears outside `:root`. No new check was needed.
+- Check that the tests can fail: not applied. This is a UI task, and the rules of this task skip the mutation check.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  75 passed (75)`, `Tests  1217 passed (1217)`, `Duration  61.28s`, wall time 63 s. Task 16.4 ended at 74 files and 1209 tests, so this task adds 1 file and 8 tests.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.2m)`, wall time 71 s.
+  - Task 16.5 is ticked. Task 16 is not.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

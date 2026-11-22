@@ -20,3 +20,5 @@ export {
   type CalibrationPointer,
   type CalibrationScreenProps,
 } from './calibrationScreen';
+export { PauseOverlay, type PauseOverlayProps } from './pauseOverlay';
+export { TrackingLostOverlay, type TrackingLostOverlayProps } from './trackingLostOverlay';
