@@ -1593,3 +1593,26 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.6m)`, wall time 96 s.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.3, setup flow
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.3 only, with the additions the user gave in chat. Commit ac025bf (task 17.2) was pushed before this part began. I read task 17.3, Req 5.1, 6.10, 12.9, 18.11, 22.2 to 22.4, 22.8, 23.1 to 23.9, design section 14.1, and the existing setup screens (`startScreen`, `cameraPermissionScreen`, `handChoiceScreen`, `pauseOverlay`).
+- What was built: `src/dev/setupFlow.ts`, a pure step function `stepSetup(state, event) -> { state, effects }`. The state is `SetupState` (screen, mode, failure, paused, trackingLost, recovering). The events are `SetupEvent` and the effects are `SetupEffect`. The component runs an effect from the click or key handler that caused the event. Effects: `requestCamera`, `disposeCamera`, `startCalibration(mode)`, `completeWholeScreen`, `discardCalibration`.
+- Decisions made by Kiro (the task left these open, or they follow the additions):
+  - Stores: the flow stores nothing. `HandChoiceScreen` stores the hand on Continue (16.3), so the flow receives `handChosen(hand)` and emits no `storeHands` effect. One place stores.
+  - Escape toggles Pause on every screen after the start screen, and does nothing on the start screen. The Pause control only opens Pause, and does nothing on the start screen.
+  - Recalibrate in camera mode goes to hand choice and emits no effect, so the camera keeps running and is not requested again.
+  - Recover emits `disposeCamera` and `requestCamera`, and sets `recovering`. A `ready` outcome keeps the screen and the overlay flag until `holdEnded`. A non-ready outcome goes to `cameraError` with that outcome and clears the flag.
+  - A round placement of `none` during play goes to `noUsableSlot`. Any other placement during play changes nothing.
+  - `overlayShown` is accepted only in camera play, because a hold cannot start during calibration (Req 18.10).
+  - "Try without camera" is accepted on the screens that offer it: cameraPermission, cameraError, calibrating, play and noUsableSlot, in camera mode only. It emits `disposeCamera` before `startCalibration('simulated')`.
+  - `completeWholeScreen` is ignored in camera mode (Req 11.16). In simulated input the app must create a calibration first when the flow is on the no-usable-slot screen. The flow itself does not know about calibration.
+  - Exit returns to the initial state, which has camera mode. It emits `disposeCamera` in camera mode and always emits `discardCalibration`.
+  - The flow follows the text of design §14.1 where its diagram and text differ (see the point on the arrow in the plan).
+- Reuse: none. `dev/world/worldSession.ts` has its own screen type (start, camera-starting, running, notice). It has no Pause or overlay flags, and reusing it would import another spec's files.
+- Tests: `setupFlow.test.ts` (31): start and the permission outcomes (ready, the three failures, Retry); try without camera (from each screen that offers it, and not from hand choice); hand choice and calibration (Continue, the placements, Retry, whole screen in camera and simulated input); the flags (Escape, the Pause control, Resume, the overlay, and that Pause and the overlay never change the screen); Recalibrate and Exit (camera and simulated); Recover (restart, ready, non-ready, ignored without the overlay or in simulated input); and the whole simulated path, which never produces `requestCamera`.
+- Evidence. The checks ran on the working tree, which also held the 17.4 files at that time. The 17.3 commit contains only the 17.3 files.
+  - `npm run typecheck`: exit 0, no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  85 passed (85)`, `Tests  1304 passed (1304)`, `Duration  85.89s`, wall time 88 s. Before 17.3 and 17.4: 83 files and 1260 tests.
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.5m)`, wall time 93 s.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

@@ -300,7 +300,7 @@ Rules for every task:
     - Tests: the validator for a missing field, a wrong type, an out-of-range value and an extra property; the tuning check shows the message for an invalid tuning object.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 1.4, 26.1, 26.2, 26.3_
-  - [ ] 17.3 Setup flow
+  - [x] 17.3 Setup flow
     - Add `src/dev/setupFlow.ts`, the pure state machine of design §14.1: START, CAMERA_PERMISSION, HAND_CHOICE, CAMERA_ERROR (with its outcome), CALIBRATING, PLAY and NO_USABLE_SLOT. "Try without camera" goes to CALIBRATING with the Pointer Source and skips hand choice; Retry requests the camera again; Recalibrate goes to hand choice in camera mode and straight to calibration in simulated-input mode; Exit returns to START and discards calibration; Recover keeps calibration; "Try without camera" in the tracking-lost overlay goes to calibration with the Pointer Source.
     - PAUSE and TRACKING_LOST are flags that never change the active state.
     - Tests: one per transition; the flags never change the state or the round.
