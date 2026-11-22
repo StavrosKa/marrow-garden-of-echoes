@@ -12,7 +12,7 @@
 // The app's getUserMedia wrapper keeps the stream for the preview; the source keeps the tracks and stops them.
 import { TUNING, dwellView, type CalibrationState, type HitArea, type Mapping } from 'marrow/core';
 import type { CameraSourceOptions, PoseSource } from 'marrow/input';
-import type { CalibrationPointer, HandChoice, SettingsStore } from 'marrow/react';
+import type { CalibrationPointer, DebugSnapshot, HandChoice, SettingsStore } from 'marrow/react';
 import { createTonePlayer, type ToneContext, type TonePlayer } from '../audio/tonePlayer';
 import {
   createDriver,
@@ -35,6 +35,7 @@ import {
 import { advanceRound, COMPLETE_EASE_MS, firstRound, NO_ROUND, recordSelection, type RoundProgress } from './playgroundRounds';
 import { calibrationDemand, openTargets, type RoundEnvironment, type RoundTarget } from './roundController';
 import { INITIAL_SETUP, stepSetup, type SetupEffect, type SetupEvent, type SetupState } from './setupFlow';
+import { keepDebugWindow, refreshDue } from './playgroundDebug';
 
 /** The Pointer Source's constructor, as the playground calls it. It matches `createPointerSource` of marrow/input. */
 export type CreatePointerSource = (options: {
@@ -59,6 +60,8 @@ export interface PlaygroundDeps {
   readonly requestFrame: (callback: (timestampMs: number) => void) => number;
   readonly cancelFrame: (handle: number) => void;
   readonly createToneContext: () => ToneContext;
+  /** Whether the page shows the Debug Overlay (`debug=1`, Req 25.1). The snapshot is built only when it is on. */
+  readonly debug: boolean;
 }
 
 /** What the component draws. It changes only when the controller notifies its listeners. */
@@ -82,6 +85,11 @@ export interface PlaygroundView {
 export interface PlaygroundController {
   /** The settings store the page's providers read. */
   readonly settings: SettingsStore;
+  /** Whether the Debug Overlay is on for this page. */
+  readonly debugEnabled: boolean;
+  /** Subscribes to the Debug Overlay's snapshot. It changes at most every DEBUG_REFRESH_MS, or at a change a player sees. */
+  subscribeDebug(listener: () => void): () => void;
+  getDebugSnapshot(): DebugSnapshot | null;
   subscribe(listener: () => void): () => void;
   getView(): PlaygroundView;
   /** Starts the loop, the tone player and the listeners. Returns the cleanup that stops them and the sources. */
@@ -125,6 +133,14 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
   let holding = false;
   let oneWristHint = false;
   let tone: TonePlayer | null = null;
+  // The Debug Overlay's inputs: the frame times in the debug window, the time of the last tick, and the head offset.
+  let renderTimes: number[] = [];
+  let newFrameTimes: number[] = [];
+  let lastNowMs = 0;
+  let lastRefreshMs = Number.NEGATIVE_INFINITY;
+  let headOffset = ORIGIN;
+  let debugSnapshot: DebugSnapshot | null = null;
+  const debugListeners = new Set<() => void>();
 
   function driverState(): DriverState | null {
     return loop?.state() ?? null;
@@ -178,6 +194,37 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
   function notify(): void {
     view = buildView();
     for (const listener of [...listeners]) listener();
+  }
+
+  /**
+   * The Debug Overlay's snapshot of this frame: the values the playground draws, from the same state. The overlay gets
+   * the latest refreshed copy (refreshDebugSnapshot), so its numbers are at most DEBUG_REFRESH_MS of frame time old.
+   */
+  function buildDebugSnapshot(): DebugSnapshot {
+    const driver = driverState();
+    return {
+      mode: setup.mode,
+      nowMs: lastNowMs,
+      renderTimesMs: renderTimes,
+      newFrameTimesMs: newFrameTimes,
+      frameDrawnAtMs: driver?.frameDrawnAtMs ?? null,
+      frame: driver?.lastFrame ?? null,
+      playAspect: PLAY_ASPECT,
+      activeWrists: driver?.config.activeWrists ?? ['right'],
+      mapping: driver?.mapping ?? null,
+      grids: driver?.calibration.grids ?? {},
+      hitAreas: hitAreas(),
+      headOffset,
+    };
+  }
+
+  /** Refreshes the overlay's copy when a change a player sees happened, or when DEBUG_REFRESH_MS have passed (Req 25.5). */
+  function refreshDebugSnapshot(changed: boolean): void {
+    if (!deps.debug) return;
+    if (!refreshDue({ changed, nowMs: lastNowMs, lastMs: lastRefreshMs })) return;
+    lastRefreshMs = lastNowMs;
+    debugSnapshot = buildDebugSnapshot();
+    for (const listener of [...debugListeners]) listener();
   }
 
   function disposePointer(): void {
@@ -335,6 +382,7 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     const step = stepSetup(setup, event);
     setup = step.state;
     for (const effect of step.effects) runEffect(effect);
+    refreshDebugSnapshot(true);
     notify();
   }
 
@@ -379,8 +427,12 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     }));
   }
 
-  function read(): FrameReading {
+  function read(timestampMs: number): FrameReading {
     startPendingCameraRun();
+    lastNowMs = timestampMs;
+    renderTimes = keepDebugWindow([...renderTimes, timestampMs], timestampMs);
+    // Before the first run there is no step to refresh the overlay, so the idle tick does it.
+    if (driverState() === null) refreshDebugSnapshot(false);
     const active = setup.mode === 'camera' ? camera : pointer;
     return { paused: setup.paused, hidden, frame: active?.latest() ?? null, hitAreas: hitAreas() };
   }
@@ -390,9 +442,12 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
     const before = progress;
     const wasHolding = holding;
     const wasHint = oneWristHint;
+    const wasScreen = setup.screen;
     sessionMs += step.sessionDt;
     holding = step.holdActive;
     oneWristHint = step.oneWristHint;
+    headOffset = step.headOffset;
+    if (step.newFrame) newFrameTimes = keepDebugWindow([...newFrameTimes, lastNowMs], lastNowMs);
     for (const event of step.trackingEvents) {
       if (event.kind === 'overlayShown') send({ kind: 'overlayShown' });
       if (event.kind === 'holdEnded') send({ kind: 'holdEnded' });
@@ -413,8 +468,10 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
         pointers: step.pointers,
       }),
     );
+    const changed = progress !== before || setup.screen !== wasScreen || holding !== wasHolding || oneWristHint !== wasHint;
+    refreshDebugSnapshot(changed);
     // The calibration screen draws its orbs from React, so it is notified every frame. The play area does not.
-    if (progress !== before || setup.screen !== 'play' || holding !== wasHolding || oneWristHint !== wasHint) notify();
+    if (changed || setup.screen !== 'play') notify();
   }
 
   function mount(): () => void {
@@ -449,6 +506,7 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
       requestFrame: deps.requestFrame,
       cancelFrame: deps.cancelFrame,
     });
+    refreshDebugSnapshot(true);
     notify();
     return () => {
       window.removeEventListener('keydown', onKey);
@@ -467,6 +525,14 @@ export function createPlaygroundController(deps: PlaygroundDeps): PlaygroundCont
 
   return {
     settings: deps.settings,
+    debugEnabled: deps.debug,
+    subscribeDebug(listener) {
+      debugListeners.add(listener);
+      return () => {
+        debugListeners.delete(listener);
+      };
+    },
+    getDebugSnapshot: () => debugSnapshot,
     subscribe(listener) {
       listeners.add(listener);
       return () => {

@@ -1830,3 +1830,31 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Rule for the rest of the task: a tick and its commit run in separate steps, never in the same batch.
 - Evidence: the four checks below were run on the tree at this commit, one after another. No file changed except `tasks.md` and this journal.
 
+## 2026-11-22 - marrow-input task 17.9, debug overlay in the playground
+
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 17.9 only, after the tick commit 9d06b9f. Before the code I read task 17.9, Req 25.1 and 25.5, the controller and the frame driver, and the world slice's refresh (`DEBUG_REFRESH_MS`, journal 2026-11-21).
+- What was built:
+  - `src/dev/playgroundDebug.ts`: `DEBUG_REFRESH_MS = 100`, `isDebugRequested(search)` (true only for `debug=1`), `keepDebugWindow(times, nowMs)` (the same half-open window as the rate count), and `refreshDue`.
+  - `src/dev/playgroundController.ts`: the snapshot. `read(timestampMs)` records every tick in the render-time window and refreshes the overlay while idle. `onStep` records the new-frame times, the head offset and the state, and refreshes the overlay in the same frame it draws. `send` refreshes at once, because a screen change is a change a player sees. `buildDebugSnapshot` takes the values from the driver, the frame, the mapping, the grids, the hit areas and the head offset.
+  - `src/dev/playground.tsx`: the overlay is rendered on every screen, including the start screen, only when `debug=1` is set. `Playground` takes a `debug` prop, and defaults to the page's query string.
+  - `src/dev/frameDriver.ts`: the loop passes the frame time to `read`.
+  - `src/dev/playground-debug.test.tsx`: 9 tests.
+- Decisions made by Kiro (the task left these open):
+  - The overlay gets a copy of the snapshot, not the live one. The copy is refreshed at most every `DEBUG_REFRESH_MS` of frame time, or at a change a player sees (a screen change, a hold or hint change, a completed target, a calibration event). So the numbers are at most 100 ms old. This is the throttle you approved: the render rate on the overlay comes from the render times in the copy, and the copy is at most 100 ms old when the overlay draws it.
+  - The frame times that feed the rates are kept only for the last `debugRateWindowMs`, so the arrays do not grow.
+  - The latency is the overlay's own subtraction: `frameDrawnAtMs` minus `frame.t` of the consumed frame (Req 2.7). The consumed frame is the driver's `lastFrame`, which matches `frameDrawnAtMs`.
+  - `DEBUG_REFRESH_MS = 100` is an app value, the same number as the world slice's constant. It is not in tuning.ts and not in Appendix B.
+- Tests, in `playground-debug.test.tsx` (9 tests):
+  - The flag: `debug=1` on, and `debug=0`, `debug=true`, a missing parameter and an empty query off.
+  - The window keeps the times exactly as the rate count does. The refresh is due for a change at once, and otherwise after `DEBUG_REFRESH_MS` of frame time.
+  - The overlay is rendered on the start screen with `debug=1`, and not without it. With no flag passed, the page's URL decides.
+  - Throttle: with ticks of 16 ms, the refreshes are at least `DEBUG_REFRESH_MS` apart and at most one per interval plus two. A screen change refreshes at once. With the flag off, no snapshot is built.
+  - In a live round (simulated input, whole screen), the snapshot's hit areas are the open targets, and its render times cover the window less the refresh interval.
+- Evidence (final tree, real output):
+  - `npm run typecheck`: exit 0. The first run flagged `PoseSource` imported from `marrow/core` in the new test. It is imported from `marrow/input` now, and the second run printed no errors.
+  - The tick of 17.9 is a separate step after these checks, as the lesson of 17.8 requires.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  93 passed (93)`, `Tests  1375 passed (1375)`, `Duration  253.32s`. Before this commit: 92 files and 1366 tests. This sub-task adds `playground-debug.test.tsx` (9 tests), so the count rises by 9. The duration is about twice the 122 s of earlier runs. I did not find a cause on this machine, and two node processes started at 17:21 were still running. They were not listening on any port I use, and I left them alone.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\playground-layout.spec.ts:9:1`, `ok 3 tests\e2e\world-view.spec.ts:220:3`, `3 passed (2.1m)`. This is 0.3 minutes longer than the 1.8-minute run of 17.8. The first e2e run of this sub-task was not repeated.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+

@@ -395,7 +395,8 @@ export interface FrameReading {
 export interface FrameLoopOptions {
   /** The state to step, or null while no calibration run exists. An idle loop keeps asking for frames and steps nothing. */
   readonly initial: DriverState | null;
-  readonly read: () => FrameReading;
+  /** Called on every tick with the tick's frame time. Its reading is the input of that tick. */
+  readonly read: (timestampMs: number) => FrameReading;
   readonly onStep: (step: DriverStep) => void;
   readonly requestFrame: (callback: (timestampMs: number) => void) => number;
   readonly cancelFrame: (handle: number) => void;
@@ -426,7 +427,7 @@ export function startFrameLoop(options: FrameLoopOptions): FrameLoop {
     if (stopped) return;
     // `read` runs on every tick, idle or not, so a caller can start a run from the frame it reads (the camera
     // start of 17.8). The raw delta is taken after it, so a run that starts in this tick counts 0.
-    const reading = options.read();
+    const reading = options.read(timestampMs);
     if (state !== null) {
       const rawDtMs = previousMs === null ? 0 : timestampMs - previousMs;
       const step = stepFrameDriver(state, {

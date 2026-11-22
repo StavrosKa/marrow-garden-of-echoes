@@ -139,6 +139,7 @@ function build() {
     },
     requestFrame: (callback) => raf.request(callback),
     cancelFrame: (handle) => raf.cancel(handle),
+    debug: false,
     createToneContext: () => {
       const tone = new FakeTone();
       tones.push(tone);

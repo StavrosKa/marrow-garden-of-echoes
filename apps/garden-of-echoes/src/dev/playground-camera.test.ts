@@ -149,6 +149,7 @@ function harness(): Harness {
     },
     requestFrame: (callback) => raf.request(callback),
     cancelFrame: (handle) => raf.cancel(handle),
+    debug: false,
     createToneContext: () => toneStub(),
   });
   const cleanup = controller.mount();

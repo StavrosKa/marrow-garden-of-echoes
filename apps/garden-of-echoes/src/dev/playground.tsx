@@ -10,6 +10,7 @@ import {
   CameraPermissionScreen,
   CameraPreview,
   createSettingsStore,
+  DebugOverlay,
   HandChoiceScreen,
   MarrowCopyProvider,
   PauseOverlay,
@@ -29,6 +30,7 @@ import {
   type PlaygroundController,
 } from './playgroundController';
 import { readPlaygroundContent, type PlaygroundContent } from './playgroundContent';
+import { isDebugRequested } from './playgroundDebug';
 import shipped from './playground-content.json';
 import { PlayArea } from './playArea';
 import './playground.css';
@@ -59,6 +61,8 @@ export interface PlaygroundProps {
   readonly content?: unknown;
   /** Replaces the browser parts. The defaults are the real ones. */
   readonly parts?: Partial<PlaygroundParts>;
+  /** Whether the Debug Overlay shows. Default: `debug=1` in the page's query string (Req 25.1). */
+  readonly debug?: boolean;
 }
 
 /** What the playground can run with, or the one problem to show. */
@@ -98,10 +102,11 @@ function firstScreenControl(root: HTMLElement | null): HTMLElement | null {
 interface RunProps {
   readonly content: PlaygroundContent;
   readonly parts: PlaygroundParts;
+  readonly debug: boolean;
 }
 
 /** The running playground: one controller for the page, subscribed through useSyncExternalStore. */
-function Run({ content, parts }: RunProps): ReactElement {
+function Run({ content, parts, debug }: RunProps): ReactElement {
   const [controller] = useState<PlaygroundController>(() =>
     createPlaygroundController({
       content,
@@ -117,9 +122,13 @@ function Run({ content, parts }: RunProps): ReactElement {
       requestFrame: parts.requestFrame,
       cancelFrame: parts.cancelFrame,
       createToneContext: parts.createToneContext,
+      debug,
     }),
   );
   const view = useSyncExternalStore(controller.subscribe, controller.getView);
+  const debugSnapshot = useSyncExternalStore(controller.subscribeDebug, controller.getDebugSnapshot);
+  // The overlay is drawn on every screen, from the snapshot the controller refreshed in the frame it drew (Req 25.1).
+  const overlay = controller.debugEnabled && debugSnapshot !== null ? <DebugOverlay snapshot={debugSnapshot} /> : null;
   const rootRef = useRef<HTMLDivElement>(null);
   const pauseRef = useRef<HTMLButtonElement>(null);
   const previous = useRef({ paused: false, screen: 'start' });
@@ -208,6 +217,7 @@ function Run({ content, parts }: RunProps): ReactElement {
           <div className="playground-screen">
             <StartScreen onStart={() => controller.pressStart()} />
           </div>
+          {overlay}
         </div>
       </SettingsProvider>
     );
@@ -262,21 +272,23 @@ function Run({ content, parts }: RunProps): ReactElement {
             onExit={() => controller.send({ kind: 'exit' })}
           />
         ) : null}
+        {overlay}
       </div>
     </SettingsProvider>
   );
 }
 
-export function Playground({ tuning = TUNING, content = shipped, parts = {} }: PlaygroundProps): ReactElement {
+export function Playground({ tuning = TUNING, content = shipped, parts = {}, debug }: PlaygroundProps): ReactElement {
   const load = loadPlayground(tuning, content);
   const resolved: PlaygroundParts = { ...BROWSER_PARTS, ...parts };
+  const debugOn = debug ?? isDebugRequested(window.location.search);
   return (
     <ThemeProvider>
       <MarrowCopyProvider value={copy.marrow}>
         <main className="playground-main">
           <h1>{copy.playground.title}</h1>
           {load.kind === 'ready' ? (
-            <Run content={load.content} parts={resolved} />
+            <Run content={load.content} parts={resolved} debug={debugOn} />
           ) : (
             <>
               <p role="alert">{load.kind === 'tuning' ? copy.playground.tuningInvalid : copy.playground.contentInvalid}</p>

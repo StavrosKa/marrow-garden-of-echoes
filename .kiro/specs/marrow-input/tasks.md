@@ -337,7 +337,7 @@ Rules for every task:
     - Manual check with a webcam (Playwright never uses a camera): `?playground=1&debug=1` completes a round; record the inference rate the overlay shows in the journal, as measured.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 4.4, 5.1, 5.7, 11.12, 18.9, 22.2, 22.3, 22.4, 22.5, 22.6, 23.6, 23.7, 23.8, 23.9, 23.10_
-  - [ ] 17.9 Debug overlay in the playground
+  - [x] 17.9 Debug overlay in the playground
     - With `debug=1` in the URL the playground renders `DebugOverlay` on every screen, fed from the snapshot the playground draws in the same frame; without it, the overlay is not rendered.
     - Tests: rendered only with `debug=1`.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
