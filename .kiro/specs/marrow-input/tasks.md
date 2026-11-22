@@ -329,7 +329,7 @@ Rules for every task:
     - Tests: component tests of the play area (ring only with an owner and progress above 0; orb hidden while invalid; the completed shape); the existing end-to-end test still passes.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 6.10, 11.14, 19.10, 22.1, 22.9, 22.10, 23.1, 23.2, 23.3, 24.7, 24.8, 24.9, 26.5, 26.6, 26.7, 26.8, 26.9, 26.11, 27.1_
-  - [ ] 17.8 Playground in camera mode
+  - [x] 17.8 Playground in camera mode
     - "Use the camera" starts `createCameraSource` from the click, with every URL under `BASE_PATH`. Outcome screens with Retry. Hand choice, and the mirrored preview of at most 320 CSS px during hand choice and calibration, removed and detached when play starts.
     - The tracking-lost overlay follows the tracking outputs. Recover disposes and restarts the source from the click, keeps calibration and keeps the overlay until the hold ends; an outcome other than `ready` shows that outcome's screen. "Try without camera" disposes the source and calibrates with the Pointer Source. During a hold the play area dims, eased over at least 300 ms, and every target stays where it is. The calibration hand hint's "Try without camera" works the same way. The one-wrist hint shows when tracking says so.
     - The source is disposed on Exit, on switching to simulated input, on unmount and on `pagehide`, and not on a tab switch (design §14.5).

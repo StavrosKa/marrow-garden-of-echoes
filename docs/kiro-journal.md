@@ -1823,3 +1823,10 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Not yet checked: the camera itself. No test opens a real camera, so the manual check after 17.9 is the first run with a webcam.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 17.8, tick added in a follow-up commit
+
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), a process correction. No code changed.
+- What happened: the tick `[x] 17.8` in `tasks.md` was sent in the same batch as the commit `e8587fb` ("Add playground camera mode"), so the commit went in without the tick. The tick stayed in the working tree. The commit was already pushed, so I did not amend it or force-push. The tick goes in this follow-up commit, "Tick task 17.8", with its own checks.
+- Rule for the rest of the task: a tick and its commit run in separate steps, never in the same batch.
+- Evidence: the four checks below were run on the tree at this commit, one after another. No file changed except `tasks.md` and this journal.
+
