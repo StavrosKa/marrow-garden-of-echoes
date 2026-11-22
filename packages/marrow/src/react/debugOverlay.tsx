@@ -1,4 +1,4 @@
-﻿// The Debug Overlay (Requirement 25, design section 10.4). It draws the state of one frame, from the
+// The Debug Overlay (Requirement 25, design section 10.4). It draws the state of one frame, from the
 // snapshot it is given and nothing else: no state, no effects, no refs, and no pointer input, so it
 // cannot change the run. The frame driver records the times the rates are counted from, and the
 // pipeline latency; this component only counts and shows them.
