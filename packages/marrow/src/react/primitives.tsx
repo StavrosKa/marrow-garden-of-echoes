@@ -49,12 +49,21 @@ export interface RadioGroupProps<T extends string> {
   /** The chosen value, or null for none. */
   value: T | null;
   onChange: (value: T) => void;
+  /** False hides the legend on screen but keeps it as the group's accessible name. */
+  legendVisible?: boolean;
 }
 
-export function RadioGroup<T extends string>({ legend, name, options, value, onChange }: RadioGroupProps<T>) {
+export function RadioGroup<T extends string>({
+  legend,
+  name,
+  options,
+  value,
+  onChange,
+  legendVisible = true,
+}: RadioGroupProps<T>) {
   return (
     <fieldset className="marrow-choices">
-      <legend>{legend}</legend>
+      <legend className={legendVisible ? undefined : 'marrow-visually-hidden'}>{legend}</legend>
       {options.map((option) => (
         <RadioChoice
           key={option.value}

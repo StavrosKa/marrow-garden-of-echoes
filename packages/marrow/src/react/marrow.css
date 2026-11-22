@@ -117,6 +117,23 @@
   color: var(--marrow-color-text);
 }
 
+/* Keeps an element for screen readers only. */
+.marrow-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+/* The live preview is mirrored so that the player sees a mirror image. Its width is capped by the width attribute the component sets. */
+.marrow-camera-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--marrow-color-border);
+  border-radius: var(--marrow-radius-control);
+  transform: scaleX(-1);
+}
 .marrow-label {
   margin: 0;
   font-family: var(--marrow-font-ui);

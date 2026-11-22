@@ -132,6 +132,16 @@ describe('no colour outside the custom-property defaults (Req 24.4)', () => {
     }
   });
 });
+describe('the camera preview and hidden text (Req 22.5)', () => {
+  it('mirrors the preview and lets its width shrink below the attribute cap', () => {
+    const preview = /\.marrow-camera-preview\s*\{([^}]*)\}/.exec(RULES)?.[1] ?? '';
+    expect(preview).toMatch(/transform:\s*scaleX\(-1\)/);
+    expect(preview).toMatch(/max-width:\s*100%/);
+  });
+  it('keeps a visually hidden class for the legend of a choice group', () => {
+    expect(RULES).toMatch(/\.marrow-visually-hidden\s*\{[^}]*clip-path/);
+  });
+});
 /** The custom property a `var(--name)` value names, or a readable failure. */
 function varName(value: string | undefined): string {
   const match = /^var\((--[a-z0-9-]+)\)$/.exec(value?.trim() ?? '');

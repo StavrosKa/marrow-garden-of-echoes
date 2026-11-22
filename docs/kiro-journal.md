@@ -1384,3 +1384,35 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
 
+## 2026-11-22 - marrow-input task 16.3, start, camera permission, hand choice and camera preview
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 16.3 only. The fix commit 1ebd50d was pushed before this part began. I read task 16.3, Req 5.1, 21.1, 22.1 to 22.6, 24.1 and 28.9, design sections 6, 7, 8 and 14.1, and the plan agreed for this task.
+- What was built:
+  - `react/startScreen.tsx`: `StartScreen({ onStart })`. The title is the live instruction and the Start control is primary.
+  - `react/cameraPermissionScreen.tsx`: `CameraPermissionScreen({ failure, onStartCamera, onTryWithout })`. With `failure` null it shows the explanation with "Use the camera" and "Try without camera". With `denied`, `no-camera` or `model-failed` it shows that outcome's own message with Retry and "Try without camera". Exports the type `CameraFailure`.
+  - `react/handChoiceScreen.tsx`: `HandChoiceScreen({ onContinue })`. A radio group Right, Left, Both and Continue. The selection starts from `settings.hands`. Continue is disabled while the selection is null.
+  - `react/cameraPreview.tsx`: `CameraPreview({ stream, maxWidth })`. It attaches the stream to its own video element in an effect, and sets `srcObject` to null on unmount or when the stream changes. It never stops a track. It renders nothing when the stream is null.
+  - `react/primitives.tsx`: `RadioGroup` takes an optional `legendVisible` prop. When it is false, the legend gets the class `marrow-visually-hidden`, and it is still the group's accessible name.
+  - `react/marrow.css`: `.marrow-visually-hidden`, and `.marrow-camera-preview` with `transform: scaleX(-1)`, `max-width: 100%` and `height: auto`.
+  - `react/index.ts` exports the four components, plus the types `CameraFailure`, `HandChoice` and the props types.
+- Decisions made by Kiro (the task left these open):
+  - The hand choice is stored when Continue is pressed, through `update({ hands })`, and then `onContinue(hand)` is called. A radio change stores nothing, so leaving with Escape or Exit leaves the stored hands as they were.
+  - The hand choice screen's question is both the live instruction and the group legend. The legend is hidden on screen to avoid showing the same sentence twice, and it stays the accessible name.
+  - The start screen's live instruction is its title, because the copy has no separate instruction for that screen.
+  - The permission screen's live instruction is the explanation, or the calm message of the failed outcome.
+  - The preview's width cap is the video's `width` attribute, set to the cap the app passes, plus `max-width: 100%` in CSS. The element is at most that wide, and no style attribute is used. The test for this lives in `tests/marrow-styles.test.ts`, because the component test cannot read `marrow.css` under the package's tsconfig.
+  - The preview is not placed inside the hand choice or calibration screens. The app places it beside them in camera mode, as the plan said.
+  - `CameraPreview` renders its own video element, not the element the Camera Source uses. The stream comes from that element's `srcObject`, which the app reads. `PoseSource` is unchanged.
+- Tests:
+  - `react/setupScreens.test.tsx` (14 tests): the start screen (mouse and Enter); the permission screen before any start, and each of the three outcomes (its own message, Retry and "Try without camera" present, the Retry and the other control each call their own callback by mouse and keyboard); the hand choice (nothing pre-selected with no stored choice and Continue disabled, the stored choice pre-selected, the question as the group name, a radio change stores nothing, Continue stores and reports the choice, the arrow keys and Enter); the barrel.
+  - `react/cameraPreview.test.tsx` (5 tests): the stream is shown in a named, muted video element; the mirror class and the width attribute equal to the cap the test passes; nothing rendered without a stream; detached on unmount with no track stopped; switched to a new stream with the old one detached and no track stopped.
+  - `tests/marrow-styles.test.ts` gained 2 tests: the preview is mirrored and has `max-width: 100%`, and `.marrow-visually-hidden` exists. The fix commit's 4 tests are unchanged.
+  - The preview width used in the test is 240, a fixture value. The 320 of Req 22.5 is an app value, not a `tuning.ts` value, so it is not in a test.
+- Check that the tests can fail: not applied. This is a UI task, and the rules of this task skip the mutation check.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0. The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  73 passed (73)`, `Tests  1191 passed (1191)`, `Duration  58.06s`, wall time 60 s. The fix commit ended at 71 files and 1170 tests, so this task adds 2 files and 21 tests: 14 + 5 + 2.
+  - `npm run test:e2e`: exit 0. `ok 1 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 2 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.1m)`, wall time 69 s.
+  - Task 16.3 is ticked. Task 16 is not.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
