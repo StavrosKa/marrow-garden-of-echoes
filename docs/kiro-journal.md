@@ -1969,5 +1969,8 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - The Req 28.1 folders exist.
   - Every bug the journal calls a code bug has a `docs/bugs-found.md` entry. The disabled-button and camera-latency fixes have none, because no property failed.
 - Tests: `npm run typecheck` exit 0; `npm run lint` exit 0; `npm test`: 97 files and 1398 tests pass (1393 before); `npm run test:e2e`: 13 passed.
-
-
+## 2026-11-22 - bugs-found: frame-case note updated
+- Kiro feature used: docs edit (model: Claude Haiku 5.5, Medium). In `docs/bugs-found.md`, entry "2026-11-17 - Placement", regression tests bullet: the last sentence said the mapped-extremes frame test was not pinned by any test. It now names the test "regression: a disc whose sample at theta = pi maps to camera x = 1.0000000000000002 leaves the frame, though the centre plus the distance to the +R side extreme stays inside" in `placement.test.ts`, which "Pin the placement frame test" (685446c) added. The title was checked against the file. No other text of the entry changed.
+- Why: the sentence was written before 685446c and was no longer true.
+- Also removed two blank lines that ended this journal after the task 18 entry.
+- No code changed, so only `npm run lint` was run.
