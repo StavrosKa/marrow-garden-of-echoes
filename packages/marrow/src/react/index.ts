@@ -15,3 +15,8 @@ export {
 } from './cameraPermissionScreen';
 export { HandChoiceScreen, type HandChoice, type HandChoiceScreenProps } from './handChoiceScreen';
 export { CameraPreview, type CameraPreviewProps } from './cameraPreview';
+export {
+  CalibrationScreen,
+  type CalibrationPointer,
+  type CalibrationScreenProps,
+} from './calibrationScreen';

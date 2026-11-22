@@ -262,7 +262,7 @@ Rules for every task:
     - Tests: one component test per screen and per outcome; Retry and "Use the camera" call the start callback from the click; the preview detaches its stream on unmount.
     - Done when `npm run typecheck`, `npm run lint`, `npm test` and `npm run test:e2e` pass (UI task).
     - _Requirements: 5.1, 21.1, 22.1, 22.2, 22.3, 22.4, 22.5, 22.6, 24.1, 28.9_
-  - [ ] 16.4 Calibration screen
+  - [x] 16.4 Calibration screen
     - `CalibrationScreen`: the aura drawn on a canvas from `auraIntensity` and redrawn when a cell's validity changes; an orb for each valid active wrist; the current instruction in the live region; Retry.
     - "Keep your face and shoulders in view" while the calm-hold flag says so, and "Skip head view" once it is offered; the calibration hand hint with "Try without camera" in camera mode; "Use the whole screen" throughout calibration in simulated-input mode only.
     - The no-usable-slot state: its message with "Retry calibration" and "Try without camera" in camera mode, or with "Retry calibration" and "Use the whole screen" in simulated-input mode.

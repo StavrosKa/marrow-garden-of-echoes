@@ -117,6 +117,23 @@
   color: var(--marrow-color-text);
 }
 
+/* The calibration stage: the aura canvas and the orbs fill it. They take no pointer input, so the painting
+   pointer reaches the play area under them. */
+.marrow-calibration-stage {
+  position: relative;
+  min-height: 60vh;
+}
+.marrow-aura,
+.marrow-aura-orbs {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.marrow-orb {
+  fill: var(--marrow-color-progress);
+}
 /* Keeps an element for screen readers only. */
 .marrow-visually-hidden {
   position: absolute;

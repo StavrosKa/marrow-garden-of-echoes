@@ -1416,3 +1416,47 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - Task 16.3 is ticked. Task 16 is not.
 - No property failed, so no seed and no `docs/bugs-found.md` entry.
 
+## 2026-11-22 - marrow-input task 16.4, calibration screen
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 16.4 only. Commit 114c9ec (task 16.3) was pushed before this part began. I read task 16.4, Req 11.12, 11.14, 11.16, 12.3, 12.6, 15.5, 22.7, 22.8, 22.10 and 28.9, design sections 7, 8 and 10.4, and the calibration core (`calibration.ts`, `aura.ts`, `comfortGrid.ts`, `mapping.ts`).
+- What was built:
+  - `react/calibrationScreen.tsx`: `CalibrationScreen`, with props `calibration` (the `CalibrationState`, whose `cfg.mode` gives the mode), `mapping`, `pointers` (filtered camera-space pointers), `noUsableSlot`, `onRetry`, `onWholeScreen`, `onTryWithout` and `onSkipHeadView`. The types `CalibrationPointer` and `CalibrationScreenProps` are exported.
+  - The aura: a canvas (`aria-hidden`). Each valid cell of each active grid becomes a rectangle, from `cellRectCamera` through `mapping.toScreen`. Its alpha is `auraIntensity` at the rectangle centre. The fill colour comes from `--marrow-color-aura`, read with `getComputedStyle`, so the source has no colour.
+  - Redraw: one effect keyed on `calibration.validCellCount`. The mapping and the calibration are read through a ref, so a new mapping object does not redraw.
+  - Orbs: SVG circles in `viewBox="0 0 A 1"` (A is `cfg.playAspect`), at the mapped position of each valid active pointer.
+  - `react/marrow.css`: `.marrow-calibration-stage`, `.marrow-aura`, `.marrow-aura-orbs` (both `pointer-events: none`, so mouse painting reaches the play area under them), and `.marrow-orb` (fill from `--marrow-color-progress`).
+  - `react/index.ts` exports `CalibrationScreen` and its two types.
+- The table, as built (`calibrationScreen.tsx`):
+  - Painting or calm instruction: from `phase`.
+  - Hand hint and "Try without camera" beside it: `handHint`, in camera mode only.
+  - "Keep your face and shoulders in view": `keepInView`, in the calm phase only.
+  - "Skip head view": `skipOffered`, in the calm phase only.
+  - "Retry": painting or calm phase, not in the no-usable-slot state.
+  - "Use the whole screen": simulated mode, and painting or calm phase or the no-usable-slot state.
+  - No-usable-slot message and "Retry calibration": `noUsableSlot`.
+  - "Try without camera" for the no-usable-slot state: `noUsableSlot` and camera mode.
+- Decisions made by Kiro (the task left these open):
+  - The mapping and `noUsableSlot` come from the app, as the plan said. The screen does not compute the transform or run Placement.
+  - Canvas size: each draw reads the canvas's CSS size, sets the canvas to it, and paints in play-area units. There is no resize listener, so a resize redraws only at the next validity change. The aura is then stretched by CSS until then.
+  - The instruction line shows the current instruction. The no-usable-slot message is the instruction in that state. The panel's accessible name is the same text.
+  - The hint, the keep-in-view message and the skip button sit outside the live region. Only the instruction line is live, so the messages are not announced twice.
+  - The orb radius (`ORB_RADIUS`, 0.02 play-area units) is a visual size in the component, not a value in `tuning.ts`.
+  - `eslint` has no react-hooks rules in this repository, so the effect has no disable comment.
+- Tests: `react/calibrationScreen.test.tsx` (18 tests):
+  - The redraw (Req 15.5): the count of draws stays the same when only the pointer and the mapping change, and rises by one when a cell becomes valid. The valid cell paints one rectangle inside the play area.
+  - The orbs: one orb at the mapped position of a valid active pointer; none for an invalid pointer or for a wrist that is not active.
+  - Each message and control of the table, tested with the flag or mode that does and does not show it (9 tests, including the instruction of each phase).
+  - `whole_screen_never_in_camera_mode`: over the phases `painting`, `calm` and `complete`, with and without a usable slot, and with the hint flag on and off, "Use the whole screen" never appears in camera mode.
+  - The callbacks by mouse and keyboard: Retry, "Use the whole screen", "Skip head view", "Try without camera" beside the hint, and "Retry calibration".
+  - The barrel export.
+  - The canvas context is a stub that counts the calls to `clearRect`, `setTransform` and `fillRect`.
+  - Test fixtures use the aspect values 2 and 1.5 and the centre of the play area. These are fixture geometry, not tuning values. The grid, the cell threshold and the hit radius come from `TUNING`.
+- `tests/marrow-styles.test.ts`: unchanged in 16.4, 17 tests, all passing.
+- Check that the tests can fail: not applied. This is a UI task, and the rules of this task skip the mutation check.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0, after one fix in the test file (three possibly-undefined values read from a mock call, given defaults). The four `tsc --noEmit` runs printed no errors.
+  - `npm run lint`: exit 0, `> eslint .`, no output.
+  - `npm test`: exit 0. `Test Files  74 passed (74)`, `Tests  1209 passed (1209)`, `Duration  59.51s`, wall time 61 s. Task 16.3 ended at 73 files and 1191 tests, so this task adds 1 file and 18 tests.
+  - `npm run test:e2e`: exit 0. `ok 2 tests\e2e\garden-of-echoes.spec.ts:3:1`, `ok 1 tests\e2e\world-view.spec.ts:220:3`, `2 passed (1.1m)`, wall time 68 s.
+  - Task 16.4 is ticked. Task 16 is not.
+- No property failed, so no seed and no `docs/bugs-found.md` entry.
+
