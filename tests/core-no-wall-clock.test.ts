@@ -1,6 +1,8 @@
-// core_no_wall_clock (Req 16.8): no non-test file under packages/marrow/src/core
-// reads the time or schedules a callback; the core gets time only as clock deltas
-// from its caller. The files are parsed with the TypeScript parser, so a name in a
+// core_no_wall_clock (Req 16.8, 23.2): no non-test file under the pure folders
+// reads the time or schedules a callback; the logic gets time only as clock deltas
+// from its caller. The pure folders are the two core folders, marrow's challenges
+// and sim folders, and the app's session folder. A folder that does not exist yet
+// is skipped. The files are parsed with the TypeScript parser, so a name in a
 // comment or a string does not count.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +14,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const coreDirs = [
   path.join(repoRoot, 'packages', 'marrow', 'src', 'core'),
   path.join(repoRoot, 'packages', 'world-view', 'src', 'core'),
+  path.join(repoRoot, 'packages', 'marrow', 'src', 'challenges'),
+  path.join(repoRoot, 'packages', 'marrow', 'src', 'sim'),
+  path.join(repoRoot, 'apps', 'garden-of-echoes', 'src', 'session'),
 ];
 
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
@@ -70,7 +75,7 @@ function findWallClockUses(fileName: string, text: string): string[] {
 }
 
 it('core_no_wall_clock', () => {
-  const files = coreDirs.flatMap(listFiles);
+  const files = coreDirs.filter((dir) => fs.existsSync(dir)).flatMap(listFiles);
   // The scan reaches the core, so a wrong path cannot pass by finding nothing.
   expect(files.map(rel)).toContain('packages/marrow/src/core/clocks.ts');
   const uses = files.flatMap((file) =>

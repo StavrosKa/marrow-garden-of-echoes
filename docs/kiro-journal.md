@@ -1974,3 +1974,24 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Why: the sentence was written before 685446c and was no longer true.
 - Also removed two blank lines that ended this journal after the task 18 entry.
 - No code changed, so only `npm run lint` was run.
+## 2026-11-23 - garden-level task 1, tooling for the pure code (G12)
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5), task 1 of `.kiro/specs/garden-level/tasks.md` only, on top of ec0ad65. Before the code I read the task, the rules at the top of the plan, requirements 23.1 to 23.3, design section 7 gap G12, `eslint.config.js`, `tests/core-no-wall-clock.test.ts`, `tests/tuning-labels.test.ts`, and `tests/dependency-graph.test.ts`, which keeps its own copy of the pure zones.
+- What was built:
+  - `eslint.config.js`: `apps/garden-of-echoes/src/session/**` is a pure zone, and `apps/garden-of-echoes/src/stages/*/rules.ts` gets the same rules. They forbid React, react-dom, PixiJS, MediaPipe and the DOM globals. No existing rule changed. The DOM-globals rule's file list now also names the two new globs.
+  - `tests/core-no-wall-clock.test.ts`: also scans `packages/marrow/src/challenges`, `packages/marrow/src/sim` and `apps/garden-of-echoes/src/session`. A listed folder that does not exist is skipped.
+  - `tests/garden-tuning-labels.test.ts` (`tuning_labels_garden`): checks each `tuning.ts` in those three folders. An interface member needs the label form `// <starting value> <label> (<source>)`, and an object property needs `// <label>`, as in `tests/tuning-labels.test.ts`. A fixture with a missing label is reported, and the test asserts that.
+  - `.kiro/specs/garden-level/tasks.md`: task 1 ticked. The `docs/` sentence now says `docs/` already exists and names its four files.
+- Decisions made by Kiro:
+  - The label check covers every object property in a tuning file, at any depth. A table row in a later `SIM_PROFILES` therefore needs its own label. The spec text names only keys, so this is stricter.
+  - The two probe files had to sit in `session/` to test the new zone, so they were not put in `.scratch/`. Both were deleted, and the empty folder was removed.
+  - `tests/dependency-graph.test.ts` still lists only the four original pure folders. Task 1 does not name that file, so it is unchanged. Left for the owner to decide.
+  - The approved correction covered the `docs/` sentence only. The rule that every task writes a journal entry was not added to `tasks.md`.
+- Probes, both present, `npm run lint` exit 1:
+  - `session/probe-react.ts` (`import { version } from 'react'`): `1:1 error 'react' import is restricted from being used by a pattern. This zone must stay free of React no-restricted-imports`.
+  - `session/probe-document.ts` (`document.title`): `1:22 error Unexpected use of 'document'. The DOM is off limits in pure logic no-restricted-globals`.
+- Evidence (final tree):
+  - `npm run typecheck`: exit 0.
+  - `npm run lint`: exit 0, no output.
+  - `npm test`: exit 0. `Test Files 98 passed (98)`, `Tests 1400 passed (1400)`. The changed test files pass, including `core_no_wall_clock`, the wall-clock scan test, and both `tuning_labels_garden` tests.
+  - Encoding: no changed file has a BOM or mojibake.
+- No mutation check, as the task did not ask for one.

@@ -81,6 +81,7 @@ const regions = [
   ['marrow', 'sim', true, false],
   ['world-view', 'core', true, false],
   ['world-view', 'pixi', false, true],
+  [APP, 'session', true, false],
 ];
 
 const importZones = [];
@@ -109,6 +110,13 @@ for (const [name, sub, pure, allowPixi] of regions) {
     );
   }
 }
+// A stage's rules.ts sits two folders below src (stages/<id>/rules.ts). Four "../" leave the app.
+importZones.push(
+  zone(
+    [`${workspaces[APP].root}/src/stages/*/rules.ts`],
+    [rx.escape(4), ...wsPatterns(APP, { pure: true })],
+  ),
+);
 
 // Nothing in packages/ mentions app content or carries player-facing text.
 const CONTENT = 'lantern|spirit|glade|whisper|candle|firefl|bloom|forest|echo';
@@ -149,11 +157,13 @@ const DOM_GLOBALS = [
 ];
 const pureNoDom = {
   files: [
-    'packages/marrow/src/core/**',
-    'packages/marrow/src/challenges/**',
-    'packages/marrow/src/sim/**',
-    'packages/world-view/src/core/**',
-  ].map((g) => `${g}/*.{ts,tsx}`),
+    'packages/marrow/src/core/**/*.{ts,tsx}',
+    'packages/marrow/src/challenges/**/*.{ts,tsx}',
+    'packages/marrow/src/sim/**/*.{ts,tsx}',
+    'packages/world-view/src/core/**/*.{ts,tsx}',
+    'apps/garden-of-echoes/src/session/**/*.{ts,tsx}',
+    'apps/garden-of-echoes/src/stages/*/rules.ts',
+  ],
   rules: {
     'no-restricted-globals': [
       'error',

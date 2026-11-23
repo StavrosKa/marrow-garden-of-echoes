@@ -11,12 +11,12 @@ Rules for every task:
 - Tasks marked "stop after plan" write a plan of files, signatures and tests in the chat, then stop. The owner reviews it before any code is written.
 - A task that needs a change to `requirements.md` or `design.md`, a new dependency, a lint exception, a relaxed rule, or a deploy stops and asks. Nothing else needs asking.
 - Throwaway files go in `.scratch/`, and are deleted when the task is done.
-- `docs/` does not exist yet. A task creates it only when the task names it.
+- `docs/` already exists. It holds `architecture.md`, `bugs-found.md`, `kiro-journal.md` and `licenses.md`.
 - If a push is rejected, stop and report. Never force-push.
 
 ## Tasks
 
-- [ ] 1. Tooling for the pure code (gap G12)
+- [x] 1. Tooling for the pure code (gap G12)
   - In `eslint.config.js`, add a pure zone for `apps/garden-of-echoes/src/session/**` and `apps/garden-of-echoes/src/stages/*/rules.ts`. It forbids React, `react-dom`, PixiJS, MediaPipe and the DOM globals, as the `marrow/core` zone does. No existing rule changes.
   - In `tests/core-no-wall-clock.test.ts`, add `packages/marrow/src/challenges`, `packages/marrow/src/sim` and `apps/garden-of-echoes/src/session` to the scanned directories. A listed directory that does not exist yet is skipped.
   - Add `tests/garden-tuning-labels.test.ts`. It checks every tuning file in the three new directories for the label comments of `tests/tuning-labels.test.ts`. A fixture with a missing label fails the test.
