@@ -192,7 +192,7 @@ Steering references in this document:
 
 1. The calibration screen SHALL show the painted area of reach as a clearly visible area.
 2. The screen SHALL show a progress ring toward the 20 s nominal time. The ring SHALL carry no number, no seconds count and no countdown.
-3. The screen SHALL show the sentence "Reach stops at the edge of the camera's view." from `src/copy`.
+3. The screen SHALL show the sentence "Reach ends where the camera's view ends." from `src/copy`.
 4. The sentence and the ring SHALL have an accessible name and SHALL meet the contrast rules of steering "Accessibility and wording".
 
 ### Requirement 12: Help read only at placement
@@ -233,7 +233,7 @@ Steering references in this document:
 | `home.noCamera` | Try without camera |
 | `camera.why` | The camera follows your hands and head. Video stays on this device and is never recorded or sent anywhere. |
 | `label.simulated` | Simulated input |
-| `calibrate.edge` | Reach stops at the edge of the camera's view. |
+| `calibrate.edge` | Reach ends where the camera's view ends. |
 | `hint.light` | More light, face the window. |
 | `tracking.step` | Step back into view |
 | `lantern.first` | Hold your light on the lantern. |
