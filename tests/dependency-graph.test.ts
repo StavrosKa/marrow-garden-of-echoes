@@ -31,12 +31,21 @@ const ENTRY_POINTS = new Set([
   'world-view',
   'world-view/pixi',
 ]);
-const PURE_ZONES = [
-  ['marrow', 'src/core'],
-  ['marrow', 'src/challenges'],
-  ['marrow', 'src/sim'],
-  ['world-view', 'src/core'],
-] as const;
+interface PureZone {
+  readonly workspace: string;
+  readonly label: string;
+  readonly matches: (inWorkspace: string) => boolean;
+}
+const inFolder = (folder: string) => (inWorkspace: string) => inWorkspace.startsWith(folder + '/');
+const STAGE_RULES_FILE = /^src\/stages\/[^/]+\/rules\.ts$/;
+const PURE_ZONES: readonly PureZone[] = [
+  { workspace: 'marrow', label: 'src/core', matches: inFolder('src/core') },
+  { workspace: 'marrow', label: 'src/challenges', matches: inFolder('src/challenges') },
+  { workspace: 'marrow', label: 'src/sim', matches: inFolder('src/sim') },
+  { workspace: 'world-view', label: 'src/core', matches: inFolder('src/core') },
+  { workspace: 'garden-of-echoes', label: 'src/session', matches: inFolder('src/session') },
+  { workspace: 'garden-of-echoes', label: 'src/stages/*/rules.ts', matches: (p) => STAGE_RULES_FILE.test(p) },
+];
 const FORBIDDEN_IN_PURE = [/^react(\/|$)/, /^react-dom(\/|$)/, /^pixi\.js(\/|$)/, /^@pixi\//, /^@mediapipe\//];
 const PIXI = /^(pixi\.js|@pixi\/)/;
 // Keep in sync with DOM_GLOBALS in eslint.config.js.
@@ -166,7 +175,7 @@ function analyse(): { violations: Violation[]; filesScanned: number } {
     for (const file of sources) {
       filesScanned++;
       const inWs = path.relative(ws.abs, file).split(path.sep).join('/');
-      const zone = PURE_ZONES.find(([name, dir]) => name === ws.name && inWs.startsWith(dir + '/'));
+      const zone = PURE_ZONES.find((z) => z.workspace === ws.name && z.matches(inWs));
       const isWorldViewOutsidePixi = ws.name === 'world-view' && !inWs.startsWith('src/pixi/');
       const parsed = parse(file);
 
@@ -210,7 +219,7 @@ function analyse(): { violations: Violation[]; filesScanned: number } {
         }
 
         if (zone && FORBIDDEN_IN_PURE.some((re) => re.test(spec))) {
-          add('pure-zones', file, `"${spec}" is not allowed in ${ws.name}/${zone[1]}`);
+          add('pure-zones', file, `"${spec}" is not allowed in ${ws.name}/${zone.label}`);
         }
         if (isWorldViewOutsidePixi && PIXI.test(spec)) {
           add('pixi-only-in-pixi-folder', file, `"${spec}" is outside packages/world-view/src/pixi`);
@@ -219,7 +228,7 @@ function analyse(): { violations: Violation[]; filesScanned: number } {
 
       if (zone) {
         for (const name of parsed.domGlobals) {
-          add('pure-zones', file, `uses the DOM global "${name}" in ${ws.name}/${zone[1]}`);
+          add('pure-zones', file, `uses the DOM global "${name}" in ${ws.name}/${zone.label}`);
         }
       }
       if (ws.kind === 'package' && parsed.jsxText) {
