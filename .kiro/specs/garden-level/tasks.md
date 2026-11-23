@@ -1,10 +1,10 @@
 # Implementation plan: garden-level
 
-This plan builds the garden-level spec in eleven tasks. Each task is one commit, starts from finished and tested work, and leaves something playable where the task says so. Requirement numbers refer to `requirements.md`, and section numbers refer to `design.md` (both final at `b603065`; this plan does not change them).
+This plan builds the garden-level spec in twelve tasks. Each task is one commit, starts from finished and tested work, and leaves something playable where the task says so. Requirement numbers refer to `requirements.md`, and section numbers refer to `design.md` (both final at `b603065`; this plan does not change them).
 
 Rules for every task:
 
-- A task is done only when `npm run typecheck`, `npm run lint` and `npm test` pass. Tasks 10 and 11 also run `npm run test:e2e`. The task reports the output.
+- A task is done only when `npm run typecheck`, `npm run lint` and `npm test` pass. Tasks 11 and 12 also run `npm run test:e2e`. The task reports the output.
 - Tests use the test titles and files of `design.md` section 6. A test that has no title there gets a title that starts with the requirement ids it covers.
 - Tests read numbers from `TUNING` (marrow), `ATTENTION_TUNING`, `SIM_PROFILES`, `APP_SESSION_TUNING` or the world-view `TUNING`. A literal is allowed only when it is a row of a table in `requirements.md`.
 - Every stage task ships its `content.json`, its validator (`validateX`, `loadX`) and its contract test (`design.md` section 4.3).
@@ -63,9 +63,11 @@ Rules for every task:
   - 6.3 `stages/lantern-glade/rules.ts`: four lanterns in order, the first as the tutorial, one note and one colour patch per selection, the path lit after the fourth. Placement goes through `placeRound`. Tests in `rules.test.ts`.
   - 6.4 Light and flicker: `scene/flicker.ts`, `stages/lantern-glade/light.test.ts` (eased over at least 300 ms, steady in Reduced) and `scene/flicker.test.ts` (at most 15 % either way, cycles of 1.5 s or longer).
   - 6.5 Audio: `audio/pentatonic.ts`, `audio/tonePlayer.ts` (adds `playFrequency`; the playground tests stay as they are), and `audio/gardenAudio.ts`. Test `gardenAudio.test.ts`: `start` runs only from a user action, every note has a visual cue, and the game runs with the audio muted.
-  - 6.6 Scene: `scene/spriteSlot.ts` (placeholder shapes from the slot names of `art-and-motion.md`), `scene/sceneSetup.ts`, and `stages/lantern-glade/scene.ts`. Test `spriteSlot.test.ts`. The Lantern Glade title fades in and out. The stage completes into journey A and arrives at the placeholder Whisper Glade.
-  - Verification: typecheck, lint and test pass. Then `npm run dev` and a mouse play-through of Lantern Glade to Whisper Glade, reported in the commit body.
-  - _Requirements: 1.1, 2.1, 2.2, 2.3, 2.4, 2.6, 2.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 9.4, 17.1, 17.2, 17.3, 17.4, 18.1, 18.2, 18.4, 18.5, 22.1, 22.2, 22.3, 22.4_
+  - 6.6 `apps/garden-of-echoes/src/session/stageDriver.ts`: the per-frame glue of `design.md` section 3, steps 5 to 8. It places each round through `placeRound`, which reads the help levels once. It maps attention events to help events in this order: `roundStarted` with steps 1 when a presentation starts; `difficulty` with axis `motor` for a select window that ends without a dwell, and `cognitive` for a dwell on a let-pass stimulus; then `stepCompleted`, or `continueWithHelp` when help completed the presentation; then `roundEnded` with `motorStepAllowed`. On each frame it reads the suspension and tracking-hold flags, sets `playbackActive` during a demonstration, and sets `dwellActive` from `dwellView`. It keeps no timer of its own (7.7). Test `stageDriver.test.ts`: the event order for one presentation, the axis mapping, a round in progress keeps its snapshot when the help levels change (12.1), and a completion under a suspension flag reaches no stage rule (1.4).
+  - 6.7 Minimal `?start=<stage id>` entry in `main.tsx`: it calls `parseStartParam`, starts the stage in simulated input with the whole frame as reach, never requests the camera, and shows the existing placeholder `App` screen for an unknown id. It is the way to start the Lantern Glade play-through until task 10. Test `startEntry.test.ts`. Task 11.5 extends this entry and does not replace it.
+  - 6.8 Scene: `scene/spriteSlot.ts` (placeholder shapes from the slot names of `art-and-motion.md`), `scene/sceneSetup.ts`, and `stages/lantern-glade/scene.ts`. Test `spriteSlot.test.ts`. The Lantern Glade title fades in and out. The stage completes into journey A and arrives at the placeholder Whisper Glade.
+  - Verification: typecheck, lint and test pass. Then `npm run dev` and a mouse play-through of Lantern Glade to Whisper Glade, started with `?start=lantern-glade`, reported in the commit body.
+  - _Requirements: 1.1, 1.4, 2.1, 2.2, 2.3, 2.4, 2.6, 2.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 9.4, 17.1, 17.2, 17.3, 17.4, 7.7, 12.1, 18.1, 18.2, 18.4, 18.5, 20.1, 20.2, 20.3, 20.4, 22.1, 22.2, 22.3, 22.4_
 
 - [ ] 7. Simulator pieces and the app script, on the placeholder session (stop after plan)
   - 7.1 `packages/marrow/src/sim/tuning.ts` (`SIM_PROFILES` with the eight rows of requirement 19.6, and `validateSimTuning`), `invariants.ts` and `report.ts` (`formatReport`, `exitCodeFor`). Tests: `tuning.test.ts`, `invariants.test.ts` and `report.test.ts`.
@@ -89,23 +91,29 @@ Rules for every task:
   - Verification: typecheck, lint and test pass. The default invocation exits 0 on a clean run and 1 on a seeded violation.
   - _Requirements: 1.3, 7.6, 12.2, 19.3, 19.4, 19.5, 19.6, 19.7_
 
-- [ ] 10. Home, setup, pause, instructions, end card, titles, low-rate hint and motion
+- [ ] 10. Home, setup flow and calibration screen
   - 10.1 `ui/Home.tsx`: "Start" and "Try without camera" as DOM buttons with a visible focus ring and an accessible name. The camera is requested only after Start, and the explanation is shown first. "Try without camera" and a denied camera enter simulated input with the label "Simulated input". Test `Home.test.tsx` (jsdom).
-  - 10.2 Setup screens: camera permission, hand choice and calibration reuse `marrow/react` with `gardenMarrowCopy`. Escape opens Pause after Home. Enter and Space activate a focused control. Test `setup.test.tsx`.
+  - 10.2 Setup screens: camera permission, hand choice and calibration reuse `marrow/react` with `gardenMarrowCopy`. Escape is wired to open Pause once task 11 adds it. Enter and Space activate a focused control. Test `setup.test.tsx`.
   - 10.3 `ui/CalibrationExplainer.tsx`: the painted area, a progress ring with no number and no countdown, and the sentence `calibrate.edge`, with the accessible names and contrast of the steering. Test `CalibrationExplainer.test.tsx`.
-  - 10.4 `ui/InstructionLine.tsx` (one line, `aria-live="polite"`, the quiet light hint never replaces a required line) and `ui/PlayArea.tsx` (`touch-action: none`, asserted through the computed style). Tests `InstructionLine.test.tsx` and `PlayArea.test.tsx`.
-  - 10.5 `ui/PauseScreen.tsx`: resume, recalibrate, motion, sound, "Continue with help", restart without confirmation, and exit to Home. Every control is a DOM element with a focus ring and a name. Tests `PauseScreen.test.tsx` and `controls.test.tsx`.
-  - 10.6 `ui/EndCard.tsx` (test id `end-card`), the level titles that fade in and out (Lantern Garden at the start, Whisper Hall when the door opens), and the help offer "Want a hint?" next to "Continue with help". Test `EndCard.test.tsx`.
-  - 10.7 `session/lowRate.ts`: the delivered-rate watch, with its values in `session/tuning.ts`. It shows the hint once per session. The motion setting takes effect in the next frame. Tests `lowRate.test.ts` and `motion.test.ts`.
-  - 10.8 `?start=<stage id>` routing in `main.tsx`: it calls `parseStartParam`, enters simulated input with the whole frame as reach, never requests the camera, and shows the Home screen for an unknown id. Test `start.test.tsx`.
-  - Verification: typecheck, lint, test and `npm run test:e2e` pass. Then `npm run dev` and a keyboard-only walk through Home and Pause, reported in the commit body.
-  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 7.3, 7.5, 9.3, 9.4, 11.1, 11.2, 11.3, 11.4, 13.1, 15.1, 15.2, 15.3, 16.1, 16.2, 16.3, 17.4, 17.5, 18.3, 18.6, 20.1, 20.2, 20.3, 20.4, 20.5, 24.1, 24.2, 24.3, 24.4, 24.5_
+  - 10.4 The no-usable-slot screen (Requirement 10.6): when placement returns `none`, the app shows "Retry calibration" and "Try without camera", and it does not enlarge the comfort map. Retry restarts calibration through `retryCalibration`. Test `noUsableSlot.test.tsx`: both buttons appear, Retry calls `retryCalibration`, the comfort grids are unchanged, and "Try without camera" enters simulated input.
+  - Verification: typecheck, lint and test pass. Then `npm run dev` and a check of the camera-denied path into simulated input, reported in the commit body.
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 10.6, 11.1, 11.2, 11.3, 11.4_
 
-- [ ] 11. End to end, repo checks and the deploy check
-  - 11.1 `tests/e2e/garden-level.spec.ts`: Home to the end card in simulated input, with Reduced motion and audio muted. The test asserts the test id `end-card`, and it runs without a camera. The same file covers Escape and keyboard activation, the touch move on the play area, `?start=bloom`, and an unknown `?start` id.
-  - 11.2 Extend `tests/content-security-policy.test.ts`: parse the built CSP and assert `connect-src 'self'` (21.1, 21.3). Extend `tests/vendored-assets.test.ts` if the new files need it (21.2).
-  - 11.3 `tests/no-image-files.test.ts` (new): no PNG, SVG, JPG or WebP file is added under `apps/garden-of-echoes` by this spec. The allowlist is the image files already tracked at `9243e22`, read with `git ls-tree`.
-  - 11.4 Run `npm run simulate -- --seed 42 --runs 50` once more, and check that the dependency rules and the wall-clock test still pass. Check that `package.json` changes add no dependency (23.4).
-  - 11.5 Deploy check on the public URL. Steering requires the owner's approval before a deploy, so this task stops and asks before deploying. After approval, run the Home-to-end-card path on the built URL in simulated input.
+- [ ] 11. In-game interface, pause, end card, titles, low-rate hint and motion
+  - 11.1 `ui/InstructionLine.tsx` (one line, `aria-live="polite"`, the quiet light hint never replaces a required line) and `ui/PlayArea.tsx` (`touch-action: none`, asserted through the computed style). Tests `InstructionLine.test.tsx` and `PlayArea.test.tsx`.
+  - 11.2 `ui/PauseScreen.tsx`: resume, recalibrate, motion, sound, "Continue with help", restart without confirmation, and exit to Home. Every control is a DOM element with a focus ring and a name. Tests `PauseScreen.test.tsx` and `controls.test.tsx`.
+  - 11.3 `ui/EndCard.tsx` (test id `end-card`), the level titles that fade in and out (Lantern Garden at the start, Whisper Hall when the door opens), and the help offer "Want a hint?" next to "Continue with help". Test `EndCard.test.tsx`.
+  - 11.4 `session/lowRate.ts`: the delivered-rate watch, with its values in `session/tuning.ts`. It shows the hint once per session. The motion setting takes effect in the next frame. Tests `lowRate.test.ts` and `motion.test.ts`.
+  - 11.5 Extends the `?start=<stage id>` entry that task 6.7 added. This task adds the full test `start.test.tsx`, and an unknown id shows the Home screen from task 10 instead of the placeholder. The entry does not change: it still calls `parseStartParam`, uses simulated input with the whole frame as reach, and never requests the camera.
+  - Verification: typecheck, lint, test and `npm run test:e2e` pass. Then `npm run dev` and a keyboard-only walk through Home and Pause, reported in the commit body.
+  - _Requirements: 7.3, 7.5, 9.3, 9.4, 13.1, 15.1, 15.2, 15.3, 16.1, 16.2, 16.3, 17.4, 17.5, 18.3, 18.6, 20.1, 20.2, 20.3, 20.4, 20.5, 24.1, 24.2, 24.3, 24.4, 24.5_
+
+- [ ] 12. End to end, repo checks and the deploy check
+  - 12.1 `tests/e2e/garden-level.spec.ts`: Home to the end card in simulated input, with Reduced motion and audio muted. The test asserts the test id `end-card`, and it runs without a camera. The same file covers Escape and keyboard activation, the touch move on the play area, `?start=bloom`, and an unknown `?start` id.
+  - 12.2 Extend `tests/content-security-policy.test.ts`: parse the built CSP and assert `connect-src 'self'` (21.1, 21.3). Extend `tests/vendored-assets.test.ts` if the new files need it (21.2).
+  - 12.3 `tests/no-image-files.test.ts` (new): no PNG, SVG, JPG or WebP file is added under `apps/garden-of-echoes` by this spec. The allowlist is the image files already tracked at `9243e22`, read with `git ls-tree`.
+  - 12.4 Run `npm run simulate -- --seed 42 --runs 50` once more, and check that the dependency rules and the wall-clock test still pass. Check that `package.json` changes add no dependency (23.4).
+  - 12.5 Camera tracks: `apps/garden-of-echoes/src/ui/cameraTracks.test.tsx` (jsdom, with a fake `MediaStream` whose track `stop` calls are recorded). Exiting to Home stops every track, and unmounting the app stops every track, so no track outlives its screen (21.4).
+  - 12.6 Deploy check on the public URL. Steering requires the owner's approval before a deploy, so this task stops and asks before deploying. After approval, run the Home-to-end-card path on the built URL in simulated input.
   - Verification: typecheck, lint, test and `npm run test:e2e` pass locally. The public-URL check passes after the owner approves the deploy. The gate in `product.md` is met only when that check passes.
   - _Requirements: 3.1, 3.3, 9.3, 13.2, 18.5, 20.1, 20.2, 20.3, 20.4, 20.5, 21.1, 21.2, 21.3, 21.4, 22.1, 23.4_
