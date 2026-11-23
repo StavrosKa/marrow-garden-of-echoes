@@ -52,6 +52,7 @@ apps/garden-of-echoes/src/
   scene/
     spriteSlot.ts       Sprite-slot interface and placeholder source. Imports: world-view types only.
     sceneSetup.ts      Builds SceneManagerOptions. Imports: world-view/pixi.
+    flicker.ts         Lantern and candle brightness: at most 15% either way, cycles of 1.5 s or longer, steady in Reduced. Imports: none.
   audio/
     pentatonic.ts       Lantern notes and frequencies. Imports: none.
     tonePlayer.ts       Existing player, plus playFrequency(hz). Imports: marrow/core (TUNING).
@@ -120,7 +121,7 @@ export interface AttentionWindows {
   readonly offerAfter: number;
   readonly forceAfter: number;
 }
-export function attentionWindowsFor(motion: MotionLevel, t?: AttentionTuning): AttentionWindows; // reduced uses gentle values (open question 3)
+export function attentionWindowsFor(motion: MotionLevel, t?: AttentionTuning): AttentionWindows; // reduced uses gentle values (decision 3)
 export function blockProblems(block: readonly Presentation[]): string[];   // empty when the block has a select and a pass (Req 5.4)
 export function orderBlocks(blocks: readonly (readonly Presentation[])[], rng: Rng): { blocks: readonly (readonly Presentation[])[]; rng: Rng };
 
@@ -309,7 +310,7 @@ export function placeRound(input: {
 ### 2.9 `scene/spriteSlot.ts`
 
 ```ts
-export type SpriteName = 'lantern-unlit' | 'lantern-lit' | 'spirit-blue' | 'spirit-gold' | 'door-frame' | 'door-leaf' | 'hall-target' | 'bloom-target';
+export type SpriteName = 'lantern-unlit' | 'lantern-lit' | 'spirit-blue' | 'spirit-gold' | 'hall-door-frame' | 'hall-door-leaf';   // file names of art-and-motion.md
 export interface SpriteSlot { readonly name: SpriteName; readonly drawable: ShapeSpec[] }
 export function spriteSlot(name: SpriteName): SpriteSlot;   // placeholder shapes today; a PNG source later
 ```
@@ -497,7 +498,7 @@ Each gap is listed, not patched. The app works around each one as stated.
 
 **G1. Help levels can change mid-round (known gap).** `HelpState.motorLevel` and `cognitiveLevel` are plain fields, readable at any time. `stepHelp` applies a deferred change at the next event with no dwell and no playback (rule 19.8), and that event can fall inside a round. *App:* the level is read only in `snapshotRound`, called once when a round is placed. The test in `roundSnapshot.test.ts` changes both levels in the middle of a round and checks the snapshot.
 
-**G2. Help counts difficulties per round, and the spec counts per presentation.** Requirement 7.3 offers help after two mistakes on one presentation. `stepHelp` offers help after two difficulties in one round (rule 19.3). *App:* each presentation is one help round (`roundStarted` with steps 1). Side effect: rule 19.4 raises a level after any presentation with two mistakes. Open question 2.
+**G2. Help counts difficulties per round, and the spec counts per presentation.** Requirement 7.3 offers help after two mistakes on one presentation. `stepHelp` offers help after two difficulties in one round (rule 19.3). *App:* each presentation is one help round (`roundStarted` with steps 1). Side effect: rule 19.4 raises a level after any presentation with two mistakes. Decision 2.
 
 **G3. No forced completion.** `continueWithHelp` reveals one step on request. Nothing in the policy completes a step after a count of mistakes (Req 7.4). *App:* `attention.ts` counts mistakes and marks the third as `forced`. The driver then sends `continueWithHelp` to the policy.
 
@@ -515,9 +516,9 @@ Each gap is listed, not patched. The app works around each one as stated.
 
 **G10. `smootherstep` is not exported.** It is in `world-view/src/core/ease.ts`, but the entry point does not export it. *App:* `lightLevel` uses its own short smootherstep function over `TUNING.uiMinLightEaseMs`. The app does not import the deep path.
 
-**G11. `world-view/pixi` has no sprite or texture port.** `GraphicsLike` draws shapes only. *App:* `spriteSlot` returns `ShapeSpec` placeholders. Replacing them with PNG files needs a world-view change, which needs owner approval in a later spec.
+**G11** is in section 9.
 
-**G12. Repo tooling does not cover the new pure code.** `eslint.config.js` has pure-zone rules for `marrow/core`, `challenges`, `sim` and `world-view/core`, but none for `apps/garden-of-echoes/src/session`. `tests/core-no-wall-clock.test.ts` scans only the two `core` folders. *App:* add the session and stage-rule files to the pure zone, and extend the wall-clock test to `challenges`, `sim` and `session`. Open question 7.
+**G12. Repo tooling does not cover the new pure code.** `eslint.config.js` has pure-zone rules for `marrow/core`, `challenges`, `sim` and `world-view/core`, but none for `apps/garden-of-echoes/src/session`. `tests/core-no-wall-clock.test.ts` scans only the two `core` folders. *App:* add the session and stage-rule files to the pure zone, and extend the wall-clock test to `challenges`, `sim` and `session`. Decision 7.
 
 ### 7.2 Calls the app and the simulator make
 
@@ -537,13 +538,21 @@ Each gap is listed, not patched. The app works around each one as stated.
 
 Verified as used as written: `PoseSource.dispose()` stops every camera track (`cameraSource.ts`, the `getTracks().stop()` call). The scene manager sets `host.style.touchAction = 'none'` (`sceneManager.ts`, line 257). The travel engine's durations, Gentle multiplier and cross-fade come from `world-view` tuning: journeys 5000 to 7000 ms, doors 3000 ms, Gentle 1.3, cross-fade 1500 ms.
 
-## 8. Open questions
+## 8. Decisions
 
-1. **Where does the placement band wrapper live?** Recommendation: `marrow/challenges/placementBand.ts`. The core public API stays frozen either way, and the wrapper is content-free.
-2. **How do help events map to mistakes?** Recommendation: each presentation is one help round (G2). A select window that ends with no dwell counts as a `motor` difficulty, because the player did not reach in time. A dwell on a let-pass stimulus counts as `cognitive`. The cognitive level has no effect in this spec. Accept that a presentation with two mistakes raises a level (rule 19.4), since the policy is approved.
-3. **Which attention windows does Reduced motion use?** The requirements give Full and Gentle only. Recommendation: Gentle. Reduced is not faster.
-4. **Which line does the Bloom target show?** The copy table has no Bloom instruction. Recommendation: add `bloom.target`, "Hold your light on the bloom.", for owner approval. Reusing `hall.target` would name the wrong place.
-5. **How does `npm run simulate` start?** Recommendation: the Vite SSR loader in section 5.3, with no new dependency. The alternative, `tsx`, is a new dependency and needs your approval under `tech.md`.
-6. **Which owner holds the low-rate hint values?** The requirements table says `camera (marrow)`. Recommendation: `session/tuning.ts`, because the only consumer is the app, and a marrow home would need a new public function in `marrow/input` (G9).
-7. **Can the lint and wall-clock rules cover the new pure code?** Recommendation: yes. That means editing `eslint.config.js` and one line in `tests/core-no-wall-clock.test.ts` (G12). Both are tooling changes, not public API changes.
-8. **Are the draft copy keys final?** Requirements 14 says eight per-rule keys and `pause.help` need your review. The design uses them as drafted. Recommendation: keep them, and change only the copy file once you approve.
+Accepted: every recommendation in the previous version of this section. The details below are binding for `requirements.md` and this design.
+
+1. The placement band wrapper lives in `marrow/challenges/placementBand.ts`.
+2. Each presentation is one help round. A select window that ends without a dwell is a `motor` difficulty. A dwell on a let-pass stimulus is a `cognitive` difficulty, and the cognitive level has no effect in this spec. A presentation with two mistakes raises a level (marrow rule 19.4).
+3. Reduced motion uses the Gentle attention windows (Requirements 6.5 and 6.6).
+4. The copy key `bloom.target` is "Hold your light on the bloom.", used for the Bloom target (Requirements 9.2 and 14).
+5. `npm run simulate` runs through Vite's SSR loader (section 5.3). No new dependency.
+6. The low-rate hint values live in `session/tuning.ts` (Requirement 16.3 and the tuning table).
+7. The lint pure zone covers `apps/garden-of-echoes/src/session` and the stage rules. The wall-clock test covers `challenges`, `sim` and `session`.
+8. The eight per-rule copy keys and `pause.help` are approved.
+
+## 9. Handoff to the art and interface pass
+
+**G11. `world-view/pixi` has no texture port.** `GraphicsLike` draws shapes only, so the sprite slot returns `ShapeSpec` placeholders in this spec. Replacing a placeholder with the owner's PNG file needs a texture port in `world-view/pixi`. That is a public-API change to `world-view`. It needs the owner's approval in the art pass, and this spec does not make it.
+
+The owner's art arrives between 2026-11-26 and 2026-11-29. The slot names in section 2.9 are the file names of `art-and-motion.md`, so the files drop in by name.

@@ -120,8 +120,8 @@ Steering references in this document:
 2. Stimuli SHALL be opaque ids. The primitive SHALL NOT read or interpret them.
 3. Each presentation SHALL be marked as select or let-pass under the current rule, and that marking SHALL be an input to the round, not a result.
 4. Each presentation SHALL last at least 2.5 s. This is the 1.5 s dwell plus 1 s.
-5. A let-pass presentation SHALL last its let-pass window: 4 s in Full motion and 6 s in Gentle motion. The round SHALL advance on its own after the window. No player action is needed.
-6. A select presentation SHALL stay on screen until it is selected with a completed dwell, or until its select window ends. The select window is 10 s in Full motion and 15 s in Gentle motion. When the window ends with no selection, that is a mistake.
+5. A let-pass presentation SHALL last its let-pass window: 4 s in Full motion and 6 s in Gentle motion. Reduced motion uses the Gentle window. The round SHALL advance on its own after the window. No player action is needed.
+6. A select presentation SHALL stay on screen until it is selected with a completed dwell, or until its select window ends. The select window is 10 s in Full motion and 15 s in Gentle motion. Reduced motion uses the Gentle window. When the window ends with no selection, that is a mistake.
 7. A mistake SHALL repeat the presentation with a hint and SHALL remove nothing from the player's progress.
 8. The primitive SHALL have a rule-switch step between blocks, and the demonstration SHALL be a separate phase.
 9. No countdown, timer or seconds count SHALL be shown in any attention round.
@@ -164,7 +164,7 @@ Steering references in this document:
 #### Acceptance criteria
 
 1. Whisper Hall SHALL have one target. Its single dwell SHALL open the way to Bloom. The target SHALL show the instruction "Hold your light on the hall lantern."
-2. Bloom SHALL have one target. Its single dwell SHALL lead to the end card.
+2. Bloom SHALL have one target. Its single dwell SHALL lead to the end card. The target SHALL show the instruction "Hold your light on the bloom."
 3. The end card SHALL read "The garden waits. Bloom is not built yet." Its container SHALL have the test id `end-card`. Tests SHALL assert the test id, not the text.
 4. The title "Whisper Hall" SHALL fade in when the hall door has opened, and "Lantern Garden" SHALL fade in at the start.
 
@@ -251,6 +251,7 @@ Steering references in this document:
 | `help.offer` | Want a hint? |
 | `help.continue` | Continue with help |
 | `hall.target` | Hold your light on the hall lantern. |
+| `bloom.target` | Hold your light on the bloom. |
 | `title.lantern` | Lantern Garden |
 | `title.hall` | Whisper Hall |
 | `end.card` | The garden waits. Bloom is not built yet. |
@@ -284,7 +285,7 @@ Steering references in this document:
 
 1. Dwell timing SHALL run on `dt` from the presence clock. No target size SHALL change because of frame rate.
 2. WHEN the median delivered inference rate is below 5 per second over 10 s, THE app SHALL show "More light, face the window." once per session. The hint SHALL be quiet and never block play.
-3. The tuning values for the rate threshold and the window SHALL be in the tuning module.
+3. The tuning values for the rate threshold and the window SHALL be in `session/tuning.ts` of the app.
 
 *Verification:* a simulation profile with slow delivery (Requirement 19) that asserts the hint appears once and the stage still completes.
 
@@ -436,7 +437,7 @@ One test SHALL complete Home to the end card in simulated-input mode, with Reduc
 | Help offer after mistakes | 2 | 2 | attention (`marrow`) |
 | Forced completion after mistakes | 3 | 3 | attention (`marrow`) |
 | Resting band (normalized y) | 0.75 | 0.75 | placement (`marrow`) |
-| Low-rate hint threshold | 5 per s over 10 s | same | camera (`marrow`) |
+| Low-rate hint threshold | 5 per s over 10 s | same | app session (`session/tuning.ts`) |
 | Synthetic wrong-answer rates | per profile, Requirement 19 | same | simulator (`marrow`) |
 
 Travel durations and the parallax values come from steering and are not repeated here.
@@ -449,6 +450,6 @@ Listed, not patched. This is the first gap found. The review of the public API i
 
 ## Owner confirmation
 
-1. Copy approved, except the keys changed in this revision: the eight per-rule whisper and mistake keys, and `pause.help`. Those keys are not approved yet and need your review.
+1. Copy approved in full: the eight per-rule whisper and mistake keys, `pause.help`, and `bloom.target` (added in this revision).
 2. Restart without confirmation: approved.
 3. Forced completion after 3 mistakes and the help offer after 2: approved.
