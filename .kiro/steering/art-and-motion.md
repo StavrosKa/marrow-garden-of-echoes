@@ -89,14 +89,14 @@ The user delivers these as PNG with transparency (sRGB) in `art/incoming/` at th
 - Whisper Hall: `hall-wall` (3840x1440, opaque), `hall-columns` (600x1800), `hall-furniture` (1200x900), `hall-arch` (3840x1440, open centre), `hall-drape-left`, `hall-drape-right` (900x2160), `hall-backdoor-frame`, `hall-backdoor-leaf` (1000x1400), `candle-unlit`, `candle-lit` (256x512).
 - Bloom: `bloom-backdrop` (3840x1440, opaque), `bloom-ground` (3840x900, no plants).
 
-**Uncoloured versions.** The user also delivers the uncoloured version of every forest, journey and hall file above, named with a `-grey` suffix (`forest-sky-grey`, `hall-wall-grey`, ...): same canvas size and the same geometry pixel for pixel, painted only with the grey ramp plus a faint `night2` wash. The colour reveal blends between the two files. Targets, candles (they already have unlit and lit files) and the Bloom files have no grey version. Kiro never derives a grey version in code; if a `-grey` file is missing, the placeholder is used.
+**Uncoloured versions (changed 2026-11-23).** The user delivers only the coloured file of every forest, journey and hall piece above. The code derives the uncoloured version once, when the file is loaded: it takes the luminance of each pixel and maps it onto the grey ramp (plus a faint `night2` wash), keeping the alpha channel unchanged. The two versions therefore always match pixel for pixel. The colour reveal blends between them. This is the one exception to "Kiro never derives art": it is a transform of the user's own file, run in code, never saved as a file, and never applied to anything the user did not deliver. Targets, candles (they already have unlit and lit files) and the Bloom files have no grey version. If the coloured file is missing, the placeholder is used and no grey is derived. The mapping must keep the shapes readable; the user checks the first derived pair by eye before the rest of the art is made. Total: 42 files, no `-grey` files.
 
 Anything that moves (foliage, grass, fog, drapes, door leaves) is its own file. The middle band where slots sit stays clear of foreground pieces. Pieces that touch a screen edge extend past it. Sizes may be rescaled in the app; they are not redrawn.
 
 ## Colour reveal
 
 - Core: each completed target fades in a coloured patch around itself (pre-coloured region, eased alpha). In the hall, each completed echo lights more candles and warms the room. Progress, once revealed, never goes back.
-- Stretch: low-resolution reveal mask between an uncoloured and a coloured render of the same geometry, updated only when progress changes, never redrawn per frame while idle.
+- Stretch: low-resolution reveal mask between the code-derived uncoloured version and the coloured file of the same geometry, updated only when progress changes, never redrawn per frame while idle.
 
 ## Travel
 
