@@ -92,7 +92,7 @@ Steering references in this document:
 2. Each selection SHALL play one note of the C major pentatonic scale, one note per lantern, in order. It SHALL light the lantern and reveal one colour patch.
 3. The light change SHALL be eased over at least 300 ms. In Reduced motion, the light SHALL be steady.
 4. After the fourth selection, the path SHALL light up and journey A SHALL begin.
-5. Each lantern SHALL be placed into a usable slot by Requirement 9 (placement) and the rules in steering 4.
+5. Each lantern SHALL be placed into a usable slot by Requirement 10 (placement) and the rules in steering 4.
 6. Every selection SHALL have a visual cue, and the sound cue SHALL be optional.
 
 ### Requirement 5: Whisper Glade
@@ -108,6 +108,7 @@ Steering references in this document:
 5. The order of presentations within each block SHALL be chosen from a seeded generator passed in as input. The order SHALL satisfy Requirement 5.4.
 6. Each spirit SHALL pair colour with shape: blue with a drop, gold with a leaf. Colour SHALL NEVER be the only signal.
 7. The stage SHALL use the attention primitive of Requirement 6. Stimulus ids SHALL be opaque. The blue and gold mapping SHALL live in the app, not in the package.
+8. The instruction and mistake lines SHALL use the copy keys for the rule active in the current block. In block one, select lines use the `blueDrop` keys and pass lines use the `goldLeaf` keys. In block two, select lines use the `goldLeaf` keys and pass lines use the `blueDrop` keys. The line shown SHALL always match the rule active in the current block.
 
 ### Requirement 6: Attention round primitive
 
@@ -135,8 +136,8 @@ Steering references in this document:
 #### Acceptance criteria
 
 1. There are exactly two mistakes in an attention round: a select presentation whose select window ends without a completed dwell, and a dwell on a let-pass stimulus during its window.
-2. A mistake SHALL repeat the presentation with the hint copy from Requirement 14. No mistake SHALL remove progress.
-3. After the second mistake on one presentation, the help offer "Want a hint?" / "Continue with help" SHALL appear.
+2. A mistake SHALL repeat the presentation with the hint copy from Requirement 14 for the active rule (Requirement 5.8). No mistake SHALL remove progress.
+3. "Continue with help" SHALL be reachable at any time during an attention round and from Pause. After the second mistake on one presentation, the help offer "Want a hint?" SHALL also appear, next to "Continue with help".
 4. After the third mistake on one presentation, the presentation SHALL complete with help and the round SHALL continue. These values (2 and 3) are proposed starting values in the tuning module.
 5. "Continue with help" SHALL reveal the next step and count it complete.
 6. Every help path SHALL reach completion in a bounded number of steps. A round of six presentations, with at most three attempts each, completes in at most 18 presentations.
@@ -154,7 +155,7 @@ Steering references in this document:
 2. Any active pointer SHALL be able to select either target. The choice SHALL NOT be tied to one hand.
 3. Both options SHALL use the same journey B geometry, and both SHALL arrive at the hall door.
 4. The choice SHALL change only the dressing along journey B. Candles SHALL stand beside the path. Glowing dots SHALL be static, and fireflies are not in this spec.
-5. The dwell and slot rules of Requirements 9 and 10 apply to both targets.
+5. The placement rules of Requirement 10 and the dwell rules of marrow-input apply to both targets.
 
 ### Requirement 9: Placeholder stages and the end card
 
@@ -175,13 +176,13 @@ Steering references in this document:
 
 1. Each target SHALL be placed from the reach calibration of the wrist that serves it. There is no side rule: any active wrist may serve any slot. In one-hand play, only the active wrist counts.
 2. A slot is usable when its hit circle, expanded by the maximum interaction-layer parallax offset, lies on valid comfort cells of the serving wrist (steering 4).
-3. THE bottom quarter of the camera frame (normalized y of 0.75 or more) SHALL contain no target and no part of a target hit area.
+3. A slot is in the resting band when any part of its hit circle lies in the bottom quarter of the camera frame (normalized y of 0.75 or more). Placement SHALL NOT use a slot in the resting band, except as criterion 5 allows.
 4. A hand in that band SHALL still be a valid pointer. Its dwell rules are the rules of steering 5, unchanged.
-5. If the resting band leaves too few usable slots for a player's reach, placement SHALL fall back to the nearest usable positions outside the band. The stage SHALL remain completable.
+5. If the resting band leaves too few usable slots for a player's reach, placement MAY use slots that are in the band. It SHALL take the slots nearest the band's upper edge first, and SHALL use only as many as needed. The stage SHALL remain completable.
 6. If no slot is usable at all, the app SHALL show "Retry calibration" and "Try without camera". It SHALL NOT enlarge the comfort map.
 7. Dwell ownership and re-entry SHALL use the existing marrow-input rules. This spec SHALL NOT write a new dwell reducer.
 
-*Verification:* property test over random comfort grids and reach values that asserts every placed target and its full hit area lies inside the reachable region for every allowed head offset (steering 10, item 2), and that no target lies in the resting band.
+*Verification:* property test over random comfort grids and reach values that asserts two things. First, every placed target and its full hit area lies inside the reachable region for every allowed head offset (steering 10, item 2). Second, no slot in the resting band is used unless the band left too few usable slots. In that case the slots used in the band are exactly the nearest to the upper edge, and no more of them are used than needed.
 
 ### Requirement 11: Calibration explains itself
 
@@ -222,7 +223,7 @@ Steering references in this document:
 #### Acceptance criteria
 
 1. All player-facing text SHALL live in `apps/garden-of-echoes/src/copy`. Shared components SHALL receive their text through the typed `MarrowCopy` object.
-2. Every line SHALL be English, present tense, about eight words or fewer, and one instruction at a time.
+2. Every line SHALL be English, present tense, about eight words or fewer, and one instruction at a time. The one exception is `camera.why`. Its wording comes from steering "Camera and privacy wording", and it may run longer than eight words. The copy test SHALL exempt only that key from the word limit.
 3. The banned-word list of `accessibility-and-copy.md` SHALL NOT appear in any player-facing string. A test SHALL check every string in `src/copy` and in `MarrowCopy`.
 4. The copy below is the draft for review. Lines are final only after the owner approves them.
 
@@ -238,11 +239,15 @@ Steering references in this document:
 | `lantern.first` | Hold your light on the lantern. |
 | `lantern.next` | Light the next lantern. |
 | `path.choose` | Follow the fireflies or the candles. |
-| `whisper.select` | Reach for the blue drop. |
-| `whisper.pass` | Let the gold leaf pass. |
+| `whisper.select.blueDrop` | Reach for the blue drop. |
+| `whisper.select.goldLeaf` | Reach for the gold leaf. |
+| `whisper.pass.blueDrop` | Let the blue drop pass. |
+| `whisper.pass.goldLeaf` | Let the gold leaf pass. |
 | `whisper.demo` | Watch. Now reach for the gold leaf. |
-| `mistake.select` | Let's watch again. Reach for the blue drop. |
-| `mistake.pass` | Let's watch again. Let the gold leaf pass. |
+| `mistake.select.blueDrop` | Let's watch again. Reach for the blue drop. |
+| `mistake.select.goldLeaf` | Let's watch again. Reach for the gold leaf. |
+| `mistake.pass.blueDrop` | Let's watch again. Let the blue drop pass. |
+| `mistake.pass.goldLeaf` | Let's watch again. Let the gold leaf pass. |
 | `help.offer` | Want a hint? |
 | `help.continue` | Continue with help |
 | `hall.target` | Hold your light on the hall lantern. |
@@ -253,8 +258,11 @@ Steering references in this document:
 | `pause.recalibrate` | Recalibrate |
 | `pause.motion` | Motion |
 | `pause.sound` | Sound |
+| `pause.help` | Continue with help |
 | `pause.restart` | Restart |
 | `pause.exit` | Exit |
+
+*Key naming:* the suffix of a select or pass key names the spirit that line refers to. Under block one's rule, the select key is `blueDrop` and the pass key is `goldLeaf`. Under block two's rule, the select key is `goldLeaf` and the pass key is `blueDrop` (Requirement 5.8).
 
 5. Copy SHALL NOT claim therapy, rehabilitation, diagnosis or clinical benefit.
 
@@ -311,8 +319,8 @@ Steering references in this document:
 
 #### Acceptance criteria
 
-1. The simulator SHALL live in `packages/marrow/src/sim` and SHALL drive the same pure session and stage logic that the app uses.
-2. The root script `simulate` SHALL run `npm run simulate -- --seed 42 --runs 50`. The flags are `--seed` and `--runs`.
+1. The simulator SHALL be split in two. `packages/marrow/src/sim` SHALL provide only content-free pieces: synthetic player profiles, seeded synthetic pointer and answer generation, and invariant reporting. A script in `apps/garden-of-echoes` SHALL wire those pieces to the real session machine and stage logic. The exact file location of that script is decided in the design. The `marrow` package SHALL import nothing from the app.
+2. The root script `simulate` SHALL run the app script, and `npm run simulate -- --seed 42 --runs 50` SHALL be the default invocation. The flags are `--seed` and `--runs`.
 3. Each run SHALL cover every synthetic profile below.
 4. The output SHALL print: completion, help steps used, invariant violations and the seed.
 5. The process SHALL exit with a non-zero code when any invariant is violated, and when any run does not complete.
@@ -377,6 +385,7 @@ Steering references in this document:
 4. No new dependency SHALL be added. Web Audio is built into the browser. Vitest, fast-check and Playwright are already installed.
 5. The public APIs of `marrow-input` and `world-view` SHALL NOT change.
 6. Throwaway files SHALL go under `.scratch/` at the repository root.
+7. The `packages/marrow` package SHALL import nothing from `apps/garden-of-echoes`.
 
 ### Requirement 24: Accessibility of controls
 
@@ -387,10 +396,10 @@ Steering references in this document:
 1. Every menu, overlay and settings control SHALL be a real DOM element with a visible focus ring and an accessible name.
 2. Nothing essential SHALL exist only inside the canvas.
 3. Interactive text and buttons SHALL meet WCAG AA contrast against their actual background. UI text SHALL be at least 16 px.
-4. The Pause screen SHALL offer: resume, recalibrate, motion setting, audio setting, restart, and exit.
+4. The Pause screen SHALL offer: resume, recalibrate, motion setting, audio setting, "Continue with help" (copy key `pause.help`), restart, and exit. "Continue with help" from Pause behaves as in Requirement 7.5.
 5. Restart SHALL begin again at `lantern-glade` with no confirmation, because no progress is saved in this spec. Exit SHALL return to Home.
 
-*Assumption, to confirm at review:* restart needs no confirmation, since nothing is saved.
+*Owner-approved:* restart needs no confirmation, since nothing is saved.
 
 ## Acceptance tests
 
@@ -413,6 +422,8 @@ One test SHALL complete Home to the end card in simulated-input mode, with Reduc
 - Test that no timing literal appears in attention logic (Requirement 6).
 - Test that the CSP keeps `connect-src 'self'` (Requirement 21).
 - Test that copy contains no banned word (Requirement 14).
+- Test that copy lines other than `camera.why` are eight words or fewer (Requirement 14.2).
+- Test over seeded rounds that, for every presentation in Whisper Glade, the select and pass lines use the keys for the rule active in that block, and that each of the eight per-rule keys exists and is used (Requirement 5.8).
 - `npm run typecheck`, `npm run lint` and `npm test` pass. The results are reported with their output.
 
 ## Tuning values introduced by this spec
@@ -436,8 +447,8 @@ Listed, not patched. This is the first gap found. The review of the public API i
 
 1. **Mid-round help change.** marrow-input 19.8 defers a help change to the next event. Nothing in the public API stops a consumer from reading the level in the middle of a round. This spec enforces the rule in the app (Requirement 12). A public-API fix belongs in marrow-input, in a later change the owner approves.
 
-## Items for the owner to confirm
+## Owner confirmation
 
-1. The draft copy in Requirement 14.
-2. Restart with no confirmation (Requirement 24, assumption).
-3. The forced-completion value of 3 mistakes and the help offer after 2 (Requirement 7, proposed starting values).
+1. Copy approved, except the keys changed in this revision: the eight per-rule whisper and mistake keys, and `pause.help`. Those keys are not approved yet and need your review.
+2. Restart without confirmation: approved.
+3. Forced completion after 3 mistakes and the help offer after 2: approved.
