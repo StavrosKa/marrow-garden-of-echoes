@@ -24,12 +24,12 @@ Rules for every task:
   - Verification: typecheck, lint and test pass. The two probe files fail lint, and then the probe files are deleted.
   - _Requirements: 23.1, 23.2, 23.3_
 
-- [ ] 2. Attention round (stop after plan)
-  - 2.1 `packages/marrow/src/challenges/rng.ts`: `seedRng`, `nextUnit`, `shuffle`, the value-type generator of `design.md` section 2.1. Unit tests: the same seed gives the same sequence, values lie in [0, 1), and `shuffle` is a permutation.
-  - 2.2 `challenges/tuning.ts`: `ATTENTION_TUNING` with its labels, and `validateAttentionTuning(t, core)`. Tests: `tuning shipped valid`, and one rejection test per rule (including `offerHelpAfterMistakes` must equal core `difficultiesBeforeHelp`).
-  - 2.3 `challenges/attention.ts`: `attentionWindowsFor`, `blockProblems`, `orderBlocks`, `createAttentionRound`, `stepAttention`, `currentPresentation`, with the rules of `design.md` section 2.3. The `dtMs` is the session delta. Unit tests in `attention.test.ts`: Reduced uses the Gentle windows, the demonstration does not count as a presentation, a select dwell before the minimum is kept, the mistake kinds, and the help reveal.
-  - 2.4 Property tests in `attention.properties.test.ts`: every block has a select and a let-pass presentation; each presentation lasts at least 2.5 s; a mistake never lowers `completed`; there are exactly two mistake kinds; with a wrong-answer rate of 1.0, every round completes within 18 presentations; the order depends only on the seed.
-  - 2.5 `challenges/noTimingLiterals.test.ts`: parses `attention.ts` and `placementBand.ts` with the TypeScript parser and allows only the numbers 0 and 1.
+- [x] 2. Attention round (stop after plan)
+  - [x] 2.1 `packages/marrow/src/challenges/rng.ts`: `seedRng`, `nextUnit`, `shuffle`, the value-type generator of `design.md` section 2.1. Unit tests: the same seed gives the same sequence, values lie in [0, 1), and `shuffle` is a permutation.
+  - [x] 2.2 `challenges/tuning.ts`: `ATTENTION_TUNING` with its labels, and `validateAttentionTuning(t, core)`. Tests: `tuning shipped valid`, and one rejection test per rule (including `offerHelpAfterMistakes` must equal core `difficultiesBeforeHelp`).
+  - [x] 2.3 `challenges/attention.ts`: `attentionWindowsFor`, `blockProblems`, `orderBlocks`, `createAttentionRound`, `stepAttention`, `currentPresentation`, with the rules of `design.md` section 2.3. The `dtMs` is the session delta. Unit tests in `attention.test.ts`: Reduced uses the Gentle windows, the demonstration does not count as a presentation, a select dwell before the minimum is kept, the mistake kinds, and the help reveal.
+  - [x] 2.4 Property tests in `attention.properties.test.ts`: every block has a select and a let-pass presentation; each presentation lasts at least 2.5 s; a mistake never lowers `completed`; there are exactly two mistake kinds; with a wrong-answer rate of 1.0, every round completes within 18 presentations; the order depends only on the seed.
+  - [x] 2.5 `tests/noTimingLiterals.test.ts`: parses `attention.ts` and `placementBand.ts` with the TypeScript parser and allows only the numbers 0 and 1.
   - Mutation check, once, on the properties of 2.4: 3 to 5 mutations, each reported as killed or survived.
   - Verification: typecheck, lint and test pass. The mutation results are in the commit body.
   - _Requirements: 5.4, 5.5, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7_

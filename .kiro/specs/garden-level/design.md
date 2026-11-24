@@ -130,12 +130,13 @@ export interface AttentionState {
   readonly blocks: readonly (readonly Presentation[])[];
   readonly block: number;
   readonly index: number;
-  readonly phase: 'demonstration' | 'presenting' | 'finished';
+  readonly phase: 'starting' | 'demonstration' | 'presenting' | 'finished';  // "starting" lasts one step, which announces the first presentation
   readonly elapsedMs: number;       // session time in the current phase or presentation
   readonly mistakes: number;        // on the current presentation
   readonly selectedEarly: boolean;  // a select dwell finished before presentationMinMs
   readonly completed: number;       // presentations completed; never decreases (Req 6.7)
   readonly hint: boolean;
+  readonly pending: 'forced' | 'help' | null;  // a completion waiting for presentationMinMs (see the rules)
 }
 export type AttentionInput =
   | { readonly kind: 'dwellSelected'; readonly stimulusId: string }  // from marrow dwell
@@ -159,7 +160,9 @@ Rules inside `stepAttention`:
 - A let-pass presentation completes when `letPassMs` passes with no `dwellSelected`. A `dwellSelected` on it during the window is a mistake with reason `dwellOnPass`.
 - A mistake repeats the same presentation with `hint` set. `completed` does not change.
 - The mistake that reaches `offerAfter` sets `offerHelp`. The mistake that reaches `forceAfter` sets `forced`, completes the presentation with `byHelp`, and the round continues.
-- `helpRequested` completes the current presentation with `byHelp`.
+- `helpRequested` completes the current presentation with `byHelp`, once `presentationMinMs` has passed.
+- A forced completion (the third mistake) and a help completion wait for `presentationMinMs`, measured from the last mistake or from the start of the presentation. While they wait, `pending` is set, and `dwellSelected` and `helpRequested` are ignored and add no mistake. Then the presentation completes with `byHelp` set.
+- The phase `starting` lasts one step. That step emits `presentationStarted` for the first presentation, and its `dtMs` is not counted.
 
 Must not: read the stimulus id, use the rule, read the clock or call the help policy. The caller maps the events to help events (section 3).
 
@@ -468,7 +471,7 @@ Test files are new unless marked "extended" or "existing". Paths are relative to
 | 3 | ui/Home.tsx, marrow/react | Unit, Playwright | apps/garden-of-echoes/src/ui/Home.test.tsx; tests/e2e/garden-level.spec.ts |
 | 4 | stages/lantern-glade/rules.ts | Unit, simulation | stages/lantern-glade/rules.test.ts; dev/simulate/runSession.test.ts |
 | 5 | stages/whisper-glade/rules.ts | Property | stages/whisper-glade/rules.properties.test.ts (seeded checks for 5.4, 5.5, 5.8) |
-| 6 | challenges/attention.ts | Property, grep | packages/marrow/src/challenges/attention.properties.test.ts; challenges/noTimingLiterals.test.ts |
+| 6 | challenges/attention.ts | Property, grep | packages/marrow/src/challenges/attention.properties.test.ts; tests/noTimingLiterals.test.ts |
 | 7 | challenges/attention.ts, stageDriver.ts | Property, simulation | attention.properties.test.ts (adversarial bound); dev/simulate/runSession.test.ts |
 | 8 | stages/whisper-glade/pathChoice.ts | Unit | stages/whisper-glade/pathChoice.test.ts |
 | 9 | stages/whisper-hall, bloom, ui/EndCard.tsx | Unit, Playwright | stages/whisper-hall/rules.test.ts; stages/bloom/rules.test.ts; ui/EndCard.test.tsx; tests/e2e/garden-level.spec.ts |

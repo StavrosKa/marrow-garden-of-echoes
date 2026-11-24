@@ -1995,3 +1995,30 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `npm test`: exit 0. `Test Files 98 passed (98)`, `Tests 1400 passed (1400)`. The changed test files pass, including `core_no_wall_clock`, the wall-clock scan test, and both `tuning_labels_garden` tests.
   - Encoding: no changed file has a BOM or mojibake.
 - No mutation check, as the task did not ask for one.
+## 2026-11-23 - garden-level task 2, attention round (2.1 to 2.5)
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5), task 2 of `.kiro/specs/garden-level/tasks.md`. Before the plan I read the task and its rules, requirements 5.4, 5.5, 6, 7, design sections 2.1 to 2.3, 3 and 6, `help.ts`, marrow-input requirement 19, `challenges/index.ts`, the tuning files and `tests/tuning-labels.test.ts`. The owner approved the plan with changes, recorded below.
+- Commits, each run through typecheck, lint and the full suite, and pushed after its check:
+  - `e79a23a` Cover the garden-level pure zones in the dependency test (approved preparation). The session and stage-rule files join the pure zones in `tests/dependency-graph.test.ts`. The stage rule needs a file-name match, so the zone list now holds matcher functions.
+  - `8c983ce` Add seeded generator (2.1)
+  - `a8564fa` Add attention tuning (2.2)
+  - `1ddc458` Add attention round (2.3)
+  - `0355d8f` Add attention property tests (2.4). The mutation check is in the commit body.
+  - `22e213d` Add timing-literal test (2.5). The same commit exports rng, tuning and attention from `challenges/index.ts`, for task 6.
+  - Journal commit: this entry, the design and tasks edits below, and the tasks tick.
+- Decisions, and where each is recorded:
+  - A forced completion (third mistake) and a help completion wait for `presentationMinMs`, measured from the last mistake or from the start. Inputs during the wait are ignored and add no mistake. The owner chose this (option A). Recorded in design 2.3 and in the `pending` state field.
+  - `phase: 'starting'`: the first step announces the first presentation. Recorded in design 2.3.
+  - Not in the design text: a mistake restarts the clock for its repeat and emits no `presentationStarted`. Each step advances the clock, runs the timeouts, judges the input at the new clock time, then completes a held select dwell or a pending completion. A step that ends a presentation drops its leftover time. A dwell in the step that ends a let-pass window is ignored, so a dwell at the exact window end is not a mistake.
+  - `validateAttentionTuning` requires `presentationMinMs` to be at least `dwellMs` plus `PRESENTATION_EXTRA_MS` (1000, labelled rule).
+  - The timing-literal test lives in `tests/`, not in `packages/marrow/src/challenges/`. `packages/marrow` is type-checked without Node types, so the test could not compile there. Design 6 and tasks 2.5 now give the new path. The test skips `placementBand.ts` until task 5 creates it. It has a fixture test, which the plan did not list.
+  - `helpRequested` during a demonstration ends the demonstration and counts nothing. A `helpRequested` after a held select dwell completes with `byHelp` set.
+  - The attention events are not yet mapped to help events. That mapping is task 6's.
+- Mutation check on the six properties of 2.4, run once with five mutations, all killed:
+  - M1, select dwell without the minimum: killed by "each presentation lasts at least 2.5 s".
+  - M2, a mistake lowers `completed`: killed by "a mistake never lowers completed" and by the 18-attempt bound.
+  - M3, no forced completion: killed by the 18-attempt bound, and by the block-marks property because the round never reaches its second block.
+  - M4, a dwell on a let-pass ignored: killed by "there are exactly two mistake kinds".
+  - M5, `orderBlocks` returns its input: killed by "the order depends only on the seed".
+  - `attention.ts` was restored after each run and matches its commit.
+- Observed flake, no fix: `packages/marrow/src/react/overlays.test.tsx`, "PauseOverlay changes the motion setting and mute from inside the overlay", took 7.9 s and failed once in the full-suite runs made during this task, under full-suite load. It passed on the next full run and when run alone. Not investigated further.
+- Evidence, at commit 5 (the code of this commit is the same): typecheck and lint exit 0. `npx vitest run` gives 103 files and 1445 tests, exit 0. No changed file has a BOM, a CR, or a non-ASCII byte.
