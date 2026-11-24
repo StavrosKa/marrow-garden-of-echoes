@@ -2171,4 +2171,5 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - None of the three is in tasks.md. Nothing was added there.
 - Tool notes: the dev server was started with the process tool, since the shell refuses `npm run dev`. Probe and scan files were in `.scratch` and were deleted before each lint run. A seed scan file was created inside the package and deleted after use.
 - Follow-up: design 2.10 `playNote` now returns `VisualCue`, as the code does, so every note has a visual cue (Req 18.4).
+- Planning, no code: tasks.md gained 8.5 (Whisper Glade arrival background) and 11.6 to 11.8 (flicker on lit lanterns, head view in simulated input, head view with camera input after 10.2). Design 3 steps 6 and 10 and section 4 gained one sentence each, for the head view, the flicker and the per-stage layer sets.
 

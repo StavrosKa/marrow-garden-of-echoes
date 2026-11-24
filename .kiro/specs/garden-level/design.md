@@ -371,13 +371,15 @@ One animation frame runs these steps in order. `[HELP READ]` and `[BAND]` mark t
 3. **Pointers.** In camera mode: `stepPointerFilter`, then `makeMapping` with the calibration transform. In simulated mode the pointer source already gives the frame, and the whole-screen transform applies.
 4. **View.** `stepHeadView` (presence dt), `stepGlide`, then `stepLock` with `lockRequested` taken from `dwellView`. The travel distance comes from `stepTravel` (session dt) when the phase is `TRAVELLING`.
 5. **Placement at round start.** `placeRound` runs when a round starts, after the event that starts it reaches the help policy. It calls `snapshotRound`. `[HELP READ]` happens here and nowhere else. `planPlacement` applies the resting band. `[BAND]`
-6. **Targets.** A target is active only when the phase is `PLAYING` or `BLOOM`, and travel has arrived. The scene receives active ids through `FrameData.active`. `sceneManager.hitCircles()` gives the screen circles.
+6. **Targets.** A target is active only when the phase is `PLAYING` or `BLOOM`, and travel has arrived. The scene receives active ids through `FrameData.active`. `sceneManager.hitCircles()` gives the screen circles. `drawnTargetsOf` takes the head view, so the hit centres and the drawn discs use the same view.
 7. **Dwell.** `stepDwell(state, {dt: presenceDt, pointers, hitAreas})` returns `selected` events. A dwell on a let-pass stimulus is a mistake for the attention round, not a dwell fact.
 8. **Stage rules.** The stage rule takes the selected ids and `sessionDt`. The attention round also turns events into help events, in this order: `roundStarted` (steps 1) when the presentation starts, `difficulty` for each mistake, then `stepCompleted` or `continueWithHelp`, then `roundEnded` with `motorStepAllowed`. `playbackActive` is true during a demonstration.
 9. **Session machine.** A stage that reports completion sends `stageCompleted`. `stepSession` decides the transition, which the suspension flags can block.
-10. **View.** React shows the one instruction line and the help offer from `offerHelp` outputs. Pixi draws the frame data. Nothing in the view writes to the state.
+10. **View.** React shows the one instruction line and the help offer from `offerHelp` outputs. Pixi draws the frame data. Nothing in the view writes to the state. Only lit lanterns flicker: each frame their colour is set through `setTargetColour` to the lantern light level times `flickerFactor`, and it stays steady in Reduced motion.
 
 ## 4. Stage content
+
+Each stage has its own layer set, and the scene switches to the next stage's layers when journey A arrives.
 
 ### 4.1 Shapes
 
