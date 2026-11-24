@@ -343,11 +343,11 @@ export const LANTERN_NOTES = ['C4', 'D4', 'E4', 'G4'] as const;   // one per lan
 export function noteHz(name: (typeof LANTERN_NOTES)[number]): number;
 
 // gardenAudio.ts
-export interface GardenAudio { start(): void; playNote(index: number): void; setMuted(muted: boolean): void; setVolume(volume: number): void; dispose(): void }
+export interface GardenAudio { start(gesture: UserGesture | null): void; playNote(index: number): void; setMuted(muted: boolean): void; setVolume(volume: number): void; dispose(): void }
 export function createGardenAudio(player: TonePlayer): GardenAudio;
 ```
 
-`start()` is called only from the Start handler (Req 18.2). `tonePlayer.ts` gets `playFrequency(hz)` next to `playTarget`. The playground keeps its tones and its tests.
+`start(gesture)` is called only from a UI handler, with the `UserGesture` of that handler's event; with `null` it starts nothing (Req 18.2). `tonePlayer.ts` gets `playFrequency(hz)` next to `playTarget`. The playground keeps its tones and its tests.
 
 ### 2.11 Copy
 
