@@ -3,17 +3,23 @@
 // Every change of the master gain is a ramp of RAMP_MS, never a jump (Req 27.4).
 //
 // The app values below live here, beside the code that uses them (Appendix B, app values). None is in tuning.ts.
+// playFrequency(hz) is the garden's note player (garden-level design 2.10). The playground's playTarget uses the
+// same sound, so its tones and its tests are unchanged.
 import { TUNING } from 'marrow/core';
 
 /** The three pentatonic tones of a round, C5, E5 and G5 in equal temperament, one per target (Req 27.3). */
 export const TONES_HZ: readonly number[] = [523.25, 659.25, 783.99];
+
 /** How long one tone sounds (Req 27.3: about 400 ms). */
 export const TONE_MS = 400;
+
 /** The soft attack and release of one tone. They lie inside TONE_MS. Chosen for this spec; not in Appendix B. */
 export const ATTACK_MS = 40;
 export const RELEASE_MS = 120;
+
 /** The master gain is volume times this cap (Req 27.4). */
 export const MASTER_FACTOR = 0.5;
+
 /** Every change of the master gain, from volume or mute, takes this long (Req 27.4). */
 export const RAMP_MS = 100;
 
@@ -57,6 +63,8 @@ export interface TonePlayer {
   start(): void;
   /** Plays the tone of target `index` (wrapped by the number of tones). Does nothing before `start()`. */
   playTarget(index: number): void;
+  /** Plays one sine tone of `hz` for TONE_MS. Does nothing before `start()`. */
+  playFrequency(hz: number): void;
   /** The volume, 0..1, from the settings. The master gain becomes volume times MASTER_FACTOR. */
   setVolume(volume: number): void;
   setMuted(muted: boolean): void;
@@ -96,6 +104,26 @@ export function createTonePlayer(createContext: () => ToneContext): TonePlayer {
     level = target();
   }
 
+  /** One sine tone with a soft attack and release, into the master gain. Silent before start and after dispose. */
+  function sound(hz: number): void {
+    if (disposed || context === null || master === null) return;
+    const now = context.currentTime;
+    const end = now + TONE_MS / MS_PER_SECOND;
+    const oscillator = context.createOscillator();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = hz;
+    // The envelope shapes one tone: silence, a soft attack, a hold, and a soft release to silence at the end.
+    const envelope = context.createGain();
+    envelope.gain.setValueAtTime(0, now);
+    envelope.gain.linearRampToValueAtTime(1, now + ATTACK_MS / MS_PER_SECOND);
+    envelope.gain.setValueAtTime(1, end - RELEASE_MS / MS_PER_SECOND);
+    envelope.gain.linearRampToValueAtTime(0, end);
+    oscillator.connect(envelope);
+    envelope.connect(master);
+    oscillator.start(now);
+    oscillator.stop(end);
+  }
+
   return {
     start(): void {
       if (disposed) return;
@@ -110,24 +138,12 @@ export function createTonePlayer(createContext: () => ToneContext): TonePlayer {
       ramp();
     },
     playTarget(index: number): void {
-      if (disposed || context === null || master === null) return;
       const count = TONES_HZ.length;
       const tone = TONES_HZ[((index % count) + count) % count] ?? 0;
-      const now = context.currentTime;
-      const end = now + TONE_MS / MS_PER_SECOND;
-      const oscillator = context.createOscillator();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = tone;
-      // The envelope shapes one tone: silence, a soft attack, a hold, and a soft release to silence at the end.
-      const envelope = context.createGain();
-      envelope.gain.setValueAtTime(0, now);
-      envelope.gain.linearRampToValueAtTime(1, now + ATTACK_MS / MS_PER_SECOND);
-      envelope.gain.setValueAtTime(1, end - RELEASE_MS / MS_PER_SECOND);
-      envelope.gain.linearRampToValueAtTime(0, end);
-      oscillator.connect(envelope);
-      envelope.connect(master);
-      oscillator.start(now);
-      oscillator.stop(end);
+      sound(tone);
+    },
+    playFrequency(hz: number): void {
+      sound(hz);
     },
     setVolume(next: number): void {
       volume = clampUnit(next);
