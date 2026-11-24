@@ -2170,6 +2170,42 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - Whisper Glade arrival background: design has no text on a background or backdrop for Whisper Glade. Tasks 8.1 to 8.4 do not name one. Task 6.8 says the stage "arrives at the placeholder Whisper Glade" and the scene keeps the lantern backdrop. Open item.
   - None of the three is in tasks.md. Nothing was added there.
 - Tool notes: the dev server was started with the process tool, since the shell refuses `npm run dev`. Probe and scan files were in `.scratch` and were deleted before each lint run. A seed scan file was created inside the package and deleted after use.
+
+## 2026-11-25 - garden-level task 7: simulator, profiles, invariants and the placeholder session
+
+- Kiro feature used: task 7 after the plan was approved, with the decisions of the owner (model: Claude Haiku 5.5). Commits, each pushed to origin/main:
+  - `d115399` Align design 2.5, 5 and 6 with the simulator plan (spec edits, and the 7.3 wording in tasks.md).
+  - `6ed5d72` Add the simulator profile table, invariant log and report (7.1).
+  - `c1936a1` Add the seeded player choices and the calibration sweep (7.2).
+  - `5e3c3ea` Add the simulate script and the headless placeholder session (7.3).
+  - This commit: the journal entry and the tick of task 7.
+- Gates: typecheck, lint and the full suite (134 files, 1698 tests) passed on the final tree, before the 7.3 commit. The three code commits were split from that one tree. The later files were untracked when the earlier commits were made, so each intermediate commit tree was not gated on its own. Each commit's imports were checked by hand: `index.ts` exports only the modules committed at that point.
+- Verification: `npm run simulate -- --seed 42 --runs 50` exits 0 in about 10 seconds (400 sessions). Every run completes, with no violation. The output is in the 7.3 commit body.
+- Decisions taken from the plan:
+  - Placeholder stages complete through a `stageCompleted` event sent through `stepSession`, once the stage is active and its targets are active. `stageDriver.ts` is unchanged, and its test that a placeholder has no hit area still holds. Lantern Glade completes through `stepGarden` and its dwell. The help column prints 0 until task 8, because only attention rounds ask for help.
+  - `stepFrameDriver` (dev/frameDriver.ts) was not reused. It runs its own dwell at step 7 and returns dwell events that `GardenFrame` cannot carry, so `stepGarden`'s dwell and the driver's would both run on the same pointers. The frame is built the way `ui/GardenStage.tsx` builds it: `stepClocks` for the deltas and the pointer mapping for the right wrist.
+  - No `session/frame.ts`. The environment of `runSession` repeats about ten lines of `GardenStage.tsx` (the aspect 16:9, the pointer mapping, the whole-frame reach, the scene scale 1). `ASPECT` is a constant of a React file, so it is written again in `runSession.ts`, and `ui/*.tsx` is not imported. `reachShare` changes only the calibration sweep. Placement uses the whole-frame reach until reach comes from calibration.
+  - Calibration runs in camera mode with a still valid head, so the calm hold runs. The calibration result is not used for placement (see the point above).
+  - Each step is one frame. The raw delta is `frameIntervalMs`, through `stepClocks`, so the slow profile (143 ms) is clamped to 100 ms of presence time per frame, as the app clamps it.
+  - The pause probe fires once, on the first lantern, when its dwell progress reaches half the dwell time. The probe pauses one frame and sends a `stageCompleted` with it. The check requires the session to refuse the event with reason `suspended` and no lantern to be lit.
+  - Profile table: the rows of section 3 of the plan, as approved. The labels are `rule` for `name`, `wrongAnswerRate` and `oneHand`, and `tune` for the rest. The `name` member is labelled in code, which the design's interface did not list.
+  - The statistics tests use `seedRng(42 + profileIndex)`, a 4 sigma bound, and exact counts at rates 0 and 1. The generators are `fc.integer`, `nextUnit` or literals. No ranged `fc.double`, and no import of `core/testgen.ts`.
+  - CLI: defaults seed 42 and 50 runs. Invalid arguments (non-integers, a seed above 2^32 - 1, `--runs 0`, unknown flags) exit 2 before any run. An invalid profile table exits 2. A run that throws is a violation, and it exits 1. Zero runs in `exitCodeFor` exit 1.
+  - Step budget 20 000 per run. The observed runs need 650 to 1 320 steps, so the budget is not close.
+  - Checked invariants: the five of design 5.2 step 5 (one transition per stage, no completion under a pause, no target active before travel stops, no band slot unless needed, help levels unchanged in a round) and the pause probe. The steering 10 items 2, 3, 5, 6 and 8 wait for task 9.
+- Observed wrong-answer counts over 10 000 draws, seeds 42 to 49 (`.scratch` script, mulberry32, alternating select and pass): baseline 0, limited-reach 987, jitter 981, slow 1992, one-hand 1015, tracking-gaps 977, incorrect-answers 5038, adversarial 10000. The largest |z| is 0.77.
+- Mutation check, all on committed files, each reverted, with the SHA-256 of each original compared before and after:
+  - M1 to M5 and M10 (7.2): all six killed. M10 (sweep ignores reachShare) is killed by the covered-square test only. The quarter statistics test also passes under M10, because a full square splits evenly into quarters.
+  - M6 to M9 (7.1): all four killed, by 2 or 3 tests each.
+- Problems found while building task 7:
+  - `tests/garden-tuning-labels.test.ts` checks every object property in a tuning file. The `trackingGap` row needed its own label on its closing line.
+  - `tests/help-levels-at-placement.test.ts` matches property names, not types. An invariant that read `.motorLevel` in `runSession.ts` failed it. The check now compares `snapshotRound(help, TUNING)` with the placed snapshot as JSON, and does not read the levels.
+  - `packages/` may not contain the words lantern, glade, hall, bloom, echo, forest, whisper, candle, firefl or spirit, in any text file or comment. `apps/garden-of-echoes` (the folder name, "echo") was in a comment, and "bloom" was in two test strings. Both were reworded.
+  - Redirected PowerShell output (`>`) wrote three `.scratch-*.log` files into the repository root during the spec gate. They were deleted before the spec commit, and nothing was committed. From then on, output was captured in variables.
+  - Two mutation restores were checked in a parallel call, so a hash ran before the restore was written. The hashes were read again in sequence and matched the recorded values.
+  - Debug output sent to stderr is cut at the PowerShell error width. Debug lines were sent to stdout.
+- Open items for later tasks: the help column is 0 until task 8. The tracking hold (steering 10 item 5), the reduced-motion and placement-reach checks (items 6 and 8), and the placement reachability and render checks (items 2 and 3) are task 9.
+
 - Follow-up: design 2.10 `playNote` now returns `VisualCue`, as the code does, so every note has a visual cue (Req 18.4).
 - Planning, no code: tasks.md gained 8.5 (Whisper Glade arrival background) and 11.6 to 11.8 (flicker on lit lanterns, head view in simulated input, head view with camera input after 10.2). Design 3 steps 6 and 10 and section 4 gained one sentence each, for the head view, the flicker and the per-stage layer sets.
 
