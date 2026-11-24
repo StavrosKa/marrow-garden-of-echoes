@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { INTERACTION_LAYER } from '../../scene/forestLayers';
 import { registerContract, type ContractMutation } from '../shared/contract';
 import shipped from './content.json';
-import { loadLanternGlade, validateLanternGlade } from './content';
+import { LANTERN_COUNT, loadLanternGlade, validateLanternGlade } from './content';
+import { createLanternGlade, stepLanternGlade, targetIdOf } from './rules';
+import { placedFor } from './testPlaced';
 
 type Json = Record<string, unknown>;
 
@@ -76,6 +78,17 @@ registerContract({
   shipped: shipped as Json,
   mutations,
   copyKeys: (content) => [content.copy.first, content.copy.next],
+  // Case 4: the rule, run from the content, selects the four lanterns in order and reaches completed.
+  rule: (content) => {
+    let state = createLanternGlade(content, placedFor(content), 'full');
+    let completed = false;
+    for (let index = 0; index < LANTERN_COUNT; index++) {
+      const step = stepLanternGlade(state, [targetIdOf(index)], 0);
+      state = step.state;
+      completed = step.completed;
+    }
+    return completed && state.completed;
+  },
 });
 
 describe('lantern-glade content shape', () => {
