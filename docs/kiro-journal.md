@@ -2151,4 +2151,23 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - The mutation harness sets `$ErrorActionPreference` to Stop, so vitest's stderr output aborted the run before its results printed. The fix sets it to Continue for the test run only.
   - The dependency-graph test rejects the identifier `window` in `session/`, even as a local variable name. I renamed one variable.
   - Copy-Item was used to copy the originals and restore them. It is not one of the banned cmdlets, and the mutated copies were written with the editor tool.
+## 2026-11-24 - garden-level review fixes: Lantern Glade on screen, design 2.10, travel test bound
+- Kiro feature used: review fixes in three commits, each through typecheck, lint and the full suite, each pushed (model: Claude Haiku 5.5, Medium). Before the work the tree was clean and main was at f312b4b, equal to origin/main.
+- Commits:
+  - `f29e9cd` Show the Lantern Glade scene on screen (6.8). Gates: typecheck exit 0, lint exit 0 (0 errors), npm test 126 files and 1642 tests passed, test:e2e 15 passed.
+  - `220ba60` Match design 2.10 to gardenAudio.start(gesture). Gates: typecheck exit 0, lint exit 0, npm test 126 files and 1642 tests passed.
+  - `4b13049` Bound the segment duration in the travel step property. Gates: typecheck exit 0, lint exit 0, npm test 126 files and 1643 tests passed (one regression test added).
+- Fix 1, what the play-through showed. Headless Playwright and a headed run with SwiftShader WebGL both draw the four lanterns. The canvas was 1264x799, and each lantern's Pixi container held one draw instruction. The pixel at each lantern's Pixi position was (154,160,178). The play-through report of no discs was not reproduced. Two real faults were found:
+  - The play area was not 16:9 at runtime. The Pixi canvas in normal flow forced the host taller, so the drawn lanterns were off their hit centres. Offsets, drawn minus hit centre in CSS pixels, from `tests/e2e/lantern-frame.spec.ts`: before, wide host 1264x747: x 14.4, 42.6, 24.0, 33.6; tall host 784x497: x 23.4, 69.2, 39.0, 54.6; y about 1.5 in both. After, wide host 938.7x528.0: x at most 0.021, y at most 0.018; tall host 784x441: x at most 0.014, y at most 0.010.
+  - Every forest layer had `shapes: []`, so the backdrop was one flat colour. Each layer now has placeholder shapes from `spriteSlot` in the grey ramp, named from the art-and-motion.md file list. Pixel colours at the start frame, 1280x720 window: sky #12151f, mid #2e3344, ground #474d61, left trunk edge #0a0c14.
+  - The scene's aspect is the host's measured aspect. It is 16:9 within integer-pixel rounding, so the world-view API did not change.
+  - Files changed beyond the approved list: `spriteSlot.ts` and `spriteSlot.test.ts`. The six layer slot names had to be added there, and the names test list was extended. No assertion was loosened.
+- Fix 2: design 2.10 changed in two places only, the interface line and the sentence below it. Still open: the code's `playNote` returns a `VisualCue` and the design says `void`. Not changed, because the approval covered `start` only.
+- Fix 3: the 7.11 property draws segments with `durationMs >= TUNING.doorMs`. Its assertions are unchanged. The seed that fails is 871. It is the first of seeds 1 to 871 that fails with the unbounded generator, because the seed of the original failing run was never logged. The shrunk counterexample is `{ from: 0, to: 1, durationMs: 3.1763735522036268e-19 }`, `full`, share 0.5. With the bound, seeds 1 to 2000 (50 runs each) gave no failure. The entry is in `docs/bugs-found.md`.
+- Tasks 7 to 12 check, no code. Tasks.md and design.md were searched for the three items:
+  - Flicker of 6.4 and the Lantern Glade light: design 2.8 lists `flicker.ts` (line 55), and its test mapping is at line 502. `lightLevel` (line 288) does not use it. No task in 7 to 12 connects them. Open item: wire `flicker.ts` to the lantern light in the scene.
+  - Head view of the scene: design section 3 step 4 runs `stepHeadView`, and step 10 gives the frame data to Pixi. No task in 7 to 12 wires it. The scene's head is fixed at (0, 0) today (`sceneSetup.ts`). Open item.
+  - Whisper Glade arrival background: design has no text on a background or backdrop for Whisper Glade. Tasks 8.1 to 8.4 do not name one. Task 6.8 says the stage "arrives at the placeholder Whisper Glade" and the scene keeps the lantern backdrop. Open item.
+  - None of the three is in tasks.md. Nothing was added there.
+- Tool notes: the dev server was started with the process tool, since the shell refuses `npm run dev`. Probe and scan files were in `.scratch` and were deleted before each lint run. A seed scan file was created inside the package and deleted after use.
 
