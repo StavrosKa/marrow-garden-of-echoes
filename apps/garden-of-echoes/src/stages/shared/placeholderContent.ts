@@ -33,7 +33,7 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 /** Reads one slot. Each field that is not a finite number adds an issue, and the slot is then null. */
-function readSlot(value: unknown, path: string, issues: ContentIssue[]): SlotSpec | null {
+export function readSlot(value: unknown, path: string, issues: ContentIssue[]): SlotSpec | null {
   if (!isRecord(value)) {
     issues.push({ path, message: `${path} must be an object` });
     return null;

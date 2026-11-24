@@ -1,8 +1,15 @@
 {
   "version": 1,
   "id": "lantern-glade",
-  "target": {
-    "slots": [{ "x": 1, "y": 0.5, "depth": 6, "anchor": 1 }],
-    "copy": "lantern.first"
-  }
+  "lanterns": 4,
+  "notes": ["C4", "D4", "E4", "G4"],
+  "slots": [
+    { "x": 0.45, "y": 0.42, "depth": 24, "anchor": 0 },
+    { "x": 1.33, "y": 0.42, "depth": 24, "anchor": 0 },
+    { "x": 0.6, "y": 0.55, "depth": 24, "anchor": 0 },
+    { "x": 1.18, "y": 0.55, "depth": 24, "anchor": 0 },
+    { "x": 0.75, "y": 0.36, "depth": 24, "anchor": 0 },
+    { "x": 1.05, "y": 0.36, "depth": 24, "anchor": 0 }
+  ],
+  "copy": { "first": "lantern.first", "next": "lantern.next" }
 }
