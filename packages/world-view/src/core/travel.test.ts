@@ -37,6 +37,18 @@ const STEP_COUNT_SHORT = 4;
 /** The progress of the example at which the cross-fade floor binds (Req 8.4). */
 const NEAR_END = 0.9;
 
+/**
+ * A segment whose duration is at least doorMs, the shortest duration the travel is meant for: a door lasts doorMs and
+ * a journey at least journeyMinMs. The generator also draws fractions of doorMs close to 0, and a segment of about
+ * 3e-19 ms leaves no step in the middle band, so Math.max over that band is -Infinity.
+ */
+function segmentAtLeastDoor(): fc.Arbitrary<TravelSegment> {
+  return genSegment().filter((segment) => segment.durationMs >= TUNING.doorMs);
+}
+
+/** The fast-check seed that drew such a segment and failed the 7.11 property (docs/bugs-found.md). */
+const FAILING_SEED = 871;
+
 function segmentOf(durationMs: number): TravelSegment {
   return { from: UNIT_FROM, to: UNIT_TO, durationMs };
 }
@@ -146,9 +158,10 @@ describe('travel arrives exactly once and never while paused', () => {
 });
 
 describe('travel constant level', () => {
-  it('travel across motion level changes: constant Full and Gentle are monotone, in range and ease in and out (7.11)', () => {
+  /** The 7.11 property, run with the fast-check options given. Its segments are bounded below by doorMs (docs/bugs-found.md). */
+  const constantLevelRunProperty = (options: fc.Parameters<unknown>): void => {
     fc.assert(
-      fc.property(genSegment(), fc.constantFrom<MotionLevel>('full', 'gentle'), genSpread(HALF, ONE), (segment, level, share) => {
+      fc.property(segmentAtLeastDoor(), fc.constantFrom<MotionLevel>('full', 'gentle'), genSpread(HALF, ONE), (segment, level, share) => {
         const started = startTravel(createTravel(segment), level);
         // A delta of up to R / 20 (Req 7.11).
         const dtMs = (started.part!.remainingMs / STEP_DIVISOR) * share;
@@ -176,8 +189,16 @@ describe('travel constant level', () => {
         expect(moveAt(ZERO)).toBeLessThan(middle);
         expect(moveAt(last - ONE)).toBeLessThan(middle);
       }),
-      { numRuns: LONG_RUNS },
+      { numRuns: LONG_RUNS, ...options },
     );
+  };
+
+  it('travel across motion level changes: constant Full and Gentle are monotone, in range and ease in and out (7.11)', () => {
+    constantLevelRunProperty({});
+  }, LONG_TIMEOUT_MS);
+
+  it('travel across motion level changes: regression seed 871, a segment of 3e-19 ms (7.11, docs/bugs-found.md)', () => {
+    constantLevelRunProperty({ seed: FAILING_SEED });
   }, LONG_TIMEOUT_MS);
 
   it('travel across motion level changes: constant Reduced holds from until the fade midpoint, then to', () => {
