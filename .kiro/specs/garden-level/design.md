@@ -343,7 +343,7 @@ export const LANTERN_NOTES = ['C4', 'D4', 'E4', 'G4'] as const;   // one per lan
 export function noteHz(name: (typeof LANTERN_NOTES)[number]): number;
 
 // gardenAudio.ts
-export interface GardenAudio { start(gesture: UserGesture | null): void; playNote(index: number): void; setMuted(muted: boolean): void; setVolume(volume: number): void; dispose(): void }
+export interface GardenAudio { start(gesture: UserGesture | null): void; playNote(index: number): VisualCue; setMuted(muted: boolean): void; setVolume(volume: number): void; dispose(): void }
 export function createGardenAudio(player: TonePlayer): GardenAudio;
 ```
 

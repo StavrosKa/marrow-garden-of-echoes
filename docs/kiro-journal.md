@@ -2170,4 +2170,5 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - Whisper Glade arrival background: design has no text on a background or backdrop for Whisper Glade. Tasks 8.1 to 8.4 do not name one. Task 6.8 says the stage "arrives at the placeholder Whisper Glade" and the scene keeps the lantern backdrop. Open item.
   - None of the three is in tasks.md. Nothing was added there.
 - Tool notes: the dev server was started with the process tool, since the shell refuses `npm run dev`. Probe and scan files were in `.scratch` and were deleted before each lint run. A seed scan file was created inside the package and deleted after use.
+- Follow-up: design 2.10 `playNote` now returns `VisualCue`, as the code does, so every note has a visual cue (Req 18.4).
 
