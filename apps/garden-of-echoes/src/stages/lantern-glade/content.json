@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "id": "lantern-glade",
+  "target": {
+    "slots": [{ "x": 1, "y": 0.5, "depth": 6, "anchor": 1 }],
+    "copy": "lantern.first"
+  }
+}
