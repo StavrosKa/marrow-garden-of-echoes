@@ -196,25 +196,30 @@ Must not: change `placeTargets`. The caller gets `none` when no slot can be used
 export type ProfileName = 'baseline' | 'limited-reach' | 'jitter' | 'slow' | 'one-hand' | 'tracking-gaps' | 'incorrect-answers' | 'adversarial';
 export interface SimProfile {
   readonly name: ProfileName;
-  readonly wrongAnswerRate: number;        // per presentation: 0, 0.1, 0.1, 0.2, 0.1, 0.1, 0.5, 1.0 (Req 19.6)
-  readonly reachShare: number;             // share of the frame the synthetic reach covers
-  readonly jitterShare: number;            // amplitude of pointer noise, share of the frame
-  readonly frameIntervalMs: number;        // about 50 ms, or about 143 ms for slow
-  readonly oneHand: boolean;
-  readonly trackingGap: { readonly everyMs: number; readonly lengthMs: number } | null;
+  readonly wrongAnswerRate: number;        // 0 rule: change only with the user's approval (requirements 19.6, the rate of each profile)
+  readonly reachShare: number;             // 1 tune (design 2.5; 0.5 for limited-reach)
+  readonly jitterShare: number;            // 0 tune (design 2.5; 0.02 for jitter)
+  readonly frameIntervalMs: number;        // 50 tune (design 5.2; 143 for slow)
+  readonly oneHand: boolean;               // false rule: change only with the user's approval (requirements 19.3)
+  readonly trackingGap: TrackingGap | null; // null tune (steering 6)
+}
+export interface TrackingGap {
+  readonly everyMs: number;                // 8000 tune (steering 6; a gap every 8 s)
+  readonly lengthMs: number;               // 400 tune (steering 6; longer than trackingHoldAfterMs)
 }
 export const SIM_PROFILES: readonly SimProfile[];
 export function validateSimTuning(profiles: readonly SimProfile[]): string[];
 
-// player.ts
+// player.ts. Imports the type Mark from ../challenges/attention.
 export function chooseFor(profile: SimProfile, rng: Rng, mark: Mark): { readonly dwell: boolean; readonly wrong: boolean; readonly rng: Rng };
-export function framesFor(profile: SimProfile, rng: Rng, slotCamera: Vec2 | null, span: { readonly startMs: number; readonly endMs: number }): { readonly frames: readonly PoseFrame[]; readonly rng: Rng };
+export function framesFor(profile: SimProfile, rng: Rng, slotCamera: Vec2 | null, dwell: boolean, aspect: number, span: { readonly startMs: number; readonly endMs: number }): { readonly frames: readonly PoseFrame[]; readonly rng: Rng };
 
 // calibrationSweep.ts
 export function sweepSamples(profile: SimProfile, rng: Rng, count: number): { readonly samples: readonly Vec2[]; readonly rng: Rng };
 
 // invariants.ts
 export interface InvariantLog { readonly checks: number; readonly violations: readonly string[] }
+export function startInvariantLog(): InvariantLog;
 export function checkInvariant(log: InvariantLog, name: string, holds: boolean, detail: () => string): InvariantLog;
 
 // report.ts
@@ -460,9 +465,9 @@ The pieces that do not depend on the game live in `packages/marrow/src/sim`: pro
 `runSession(profile, seed, { maxSteps })` does this:
 
 1. Creates a calibration with `createCalibration`, then feeds `sweepSamples` through `stepCalibration` until `completed`. The real calibration code runs. With `reachShare` below 1, the sweep covers only part of the frame.
-2. Runs `startAt` or the normal route through `stepSession`, with `dtMs` set to 50 for each step and `motion` set to full.
+2. Each step is one simulated frame. The raw delta is the profile's `frameIntervalMs`, passed through `stepClocks`, which clamps it at `maxClockStepMs`. The session delta it returns is the step's `sessionDt`. The run starts on the normal route, with `motion` set to full.
 3. For each presentation, `chooseFor` decides on dwell and wrong answer. `framesFor` builds frames. The frames go to a `PoseSource` object whose `latest()` returns the current one.
-4. Calls `planPlacement`, `stepDwell`, `stepAttention` and `stepHelp` through the same `stageDriver` that the app uses.
+4. Calls `stepGarden`, the function the app uses, once per frame. `placeRound` inside it calls `planPlacement`, and its help events go through `stepHelp`. `stepAttention` is not used until Whisper Glade has its rules (task 8). Lantern Glade completes through its own dwell. The placeholder stages (Whisper Glade, Whisper Hall, Bloom) have no hit area in this spec, so runSession completes each one with a `stageCompleted` event sent through `stepSession` once the stage is active and its targets are active. One pause probe sets the paused flag for one frame during a dwell on the first lantern, and sends a `stageCompleted` with it, so invariant 2 can fail.
 5. Checks invariants after each step with `checkInvariant`: one transition per stage, no completion under a suspension flag, no target active before travel stops, no slot in the band unless needed, and help levels unchanged between round start and round end.
 6. Stops at `maxSteps`. A run that does not reach `SAVED` counts as not completed.
 
@@ -481,7 +486,7 @@ The app package gets the same script, `"simulate": "node src/dev/simulate/run.mj
 ## 6. Traceability
 
 Test files are new unless marked "extended" or "existing". Paths are relative to the repo root.
-Property tests run 300 cases each (`numRuns: 300`, with a fixed seed where the test sets one). Each property test that needs cases of a given kind asserts a minimum count of those cases, so that it cannot pass vacuously.
+Property tests run 300 cases each (`numRuns: 300`, with a fixed seed where the test sets one). The runSession property is the exception: it runs 20 cases (`numRuns: 20`), because each case is a whole session. Each property test that needs cases of a given kind asserts a minimum count of those cases, so that it cannot pass vacuously.
 
 | Req | Module | Test type | Test file |
 |---|---|---|---|
@@ -503,7 +508,9 @@ Property tests run 300 cases each (`numRuns: 300`, with a fixed seed where the t
 | 16 | session/lowRate.ts | Property, simulation | apps/garden-of-echoes/src/session/lowRate.test.ts; dev/simulate/runSession.test.ts (slow) |
 | 17 | stages/lantern-glade/rules.ts, scene/flicker | Unit | stages/lantern-glade/light.test.ts; scene/flicker.test.ts; ui/PauseScreen.test.tsx |
 | 18 | audio/gardenAudio.ts, pentatonic.ts | Unit, Playwright | audio/gardenAudio.test.ts; tests/e2e/garden-level.spec.ts (muted run) |
-| 19 | marrow/sim, dev/simulate | Simulation, unit | apps/garden-of-echoes/src/dev/simulate/runSession.test.ts; cli.test.ts; packages/marrow/src/sim/report.test.ts |
+| 19 | marrow/sim/tuning.ts, invariants.ts, report.ts | Unit, property | packages/marrow/src/sim/tuning.test.ts; invariants.test.ts; report.test.ts |
+| 19 | marrow/sim/player.ts, calibrationSweep.ts | Unit, property, statistics | packages/marrow/src/sim/player.test.ts; player.stats.test.ts; calibrationSweep.test.ts |
+| 19 | dev/simulate | Simulation, unit | apps/garden-of-echoes/src/dev/simulate/runSession.test.ts; cli.test.ts |
 | 20 | session/stageOrder.ts | Unit, Playwright | apps/garden-of-echoes/src/session/stageOrder.test.ts; tests/e2e/garden-level.spec.ts |
 | 21 | ui/Home.tsx, index.html | Unit, repo test | ui/Home.test.tsx (camera not requested before Start); tests/content-security-policy.test.ts (extended) |
 | 22 | scene/spriteSlot.ts | Unit, repo check | apps/garden-of-echoes/src/scene/spriteSlot.test.ts; tests/no-image-files.test.ts (new) |
