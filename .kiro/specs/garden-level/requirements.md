@@ -182,7 +182,7 @@ Steering references in this document:
 6. If no slot is usable at all, the app SHALL show "Retry calibration" and "Try without camera". It SHALL NOT enlarge the comfort map.
 7. Dwell ownership and re-entry SHALL use the existing marrow-input rules. This spec SHALL NOT write a new dwell reducer.
 
-*Verification:* property test over random comfort grids and reach values that asserts two things. First, every placed target and its full hit area lies inside the reachable region for every allowed head offset (steering 10, item 2). Second, no slot in the resting band is used unless the band left too few usable slots. In that case the slots used in the band are exactly the nearest to the upper edge, and no more of them are used than needed.
+*Verification:* property test over random comfort grids and reach values that asserts two things. First, for every placed target, its hit circle lies inside the reachable region at every allowed head offset, and the circle of radius r + m around its rest position lies inside it too (steering 10, item 2). The margin m covers the parallax displacement, so the hit circle at any allowed head offset lies within the rest circle of radius r + m. Second, no slot in the resting band is used unless the band left too few usable slots. In that case the slots used in the band are exactly the nearest to the upper edge, and no more of them are used than needed.
 
 ### Requirement 11: Calibration explains itself
 

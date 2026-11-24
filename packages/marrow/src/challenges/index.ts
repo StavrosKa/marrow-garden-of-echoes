@@ -1,6 +1,7 @@
 // The entry point marrow/challenges (design section 1.2). The attention round and its generator and
-// tuning. placementBand joins this list in task 5.
+// tuning, and the placement with the resting band.
 export { seedRng, nextUnit, shuffle, type Rng } from './rng';
+export { inRestingBand, planPlacement, type BandInput, type BandPlacement } from './placementBand';
 export { ATTENTION_TUNING, validateAttentionTuning, type AttentionTuning } from './tuning';
 export {
   attentionWindowsFor,

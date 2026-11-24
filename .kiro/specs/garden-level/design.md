@@ -184,7 +184,8 @@ Algorithm:
 
 1. Split the slots into out-of-band slots and band slots. A band slot is one whose lowest hit-circle point, `mapping.toCamera({x, y + r}).y`, is at least `bandY`.
 2. Run `placeTargets` on the out-of-band slots. If the result is `simultaneous`, use it and `bandSlotsUsed` is 0.
-3. Otherwise add band slots one at a time, nearest to the band's upper edge first (smallest camera y of the slot's top point). Stop at the first count that gives `simultaneous`. If none does, use all of them.
+3. Otherwise add band slots one at a time, nearest to the band's upper edge first (smallest camera y of the slot's top point, ties by caller index). For each count k, run `placeTargets` on the out-of-band slots and the first k band slots. The first k that gives `simultaneous` is used, and `bandSlotsUsed` counts the band slots in its result.
+4. If no count gives `simultaneous`: when the out-of-band result is `sequential`, use it with `bandSlotsUsed` 0. A sequential result is completable, and Req 10.5 allows band slots only as many as needed to reach n targets at once. When the out-of-band result is `none`, use the result for the smallest k that is not `none`, or `none` if no band slot is usable. This uses the fewest band slots that give a usable slot.
 
 Must not: change `placeTargets`. The caller gets `none` when no slot can be used at all, and then shows "Retry calibration" (Req 10.6).
 
@@ -312,16 +313,17 @@ export function placeRound(input: {
   readonly n: number;
   readonly help: HelpState;                      // read only through snapshotRound
   readonly grids: WristGrids;
+  readonly activeWrists: readonly WristId[];     // one hand: only these wrists' grids count; grids are filtered to them
   readonly mapping: Mapping;
   readonly view: View;
   readonly frame: ProjectionFrame;
-  readonly layer: LayerRef;
+  readonly layer: LayerRef;                      // the interaction layer; its factor must be TUNING.interactionFactor
   readonly bandY: number;
   readonly core: Tuning;
 }): PlacedRound;
 ```
 
-`placeRound` projects slots with `worldToScreen`, calls `planPlacement`, and maps the chosen screen objects back to their world points by object identity. The placement result keeps the caller's objects, so no inverse projection is needed.
+`placeRound` projects slots with `worldToScreen` at head (0, 0), so the rest positions are what `planPlacement` checks and the parallax margin `m` covers every head offset. Its screen radius is `snapshot.radius * depthScale(layer, view.travel)`, the radius `targetScreen` gives. It filters `grids` to `activeWrists`, and it throws when `layer.factor` differs from `TUNING.interactionFactor`, because `parallaxMargin` assumes that factor. It calls `planPlacement`, and maps the chosen screen objects back to their world points by object identity. The placement result keeps the caller's objects, so no inverse projection is needed.
 
 ### 2.9 `scene/spriteSlot.ts`
 
@@ -477,6 +479,7 @@ The app package gets the same script, `"simulate": "node src/dev/simulate/run.mj
 ## 6. Traceability
 
 Test files are new unless marked "extended" or "existing". Paths are relative to the repo root.
+Property tests run 300 cases each (`numRuns: 300`, with a fixed seed where the test sets one). Each property test that needs cases of a given kind asserts a minimum count of those cases, so that it cannot pass vacuously.
 
 | Req | Module | Test type | Test file |
 |---|---|---|---|

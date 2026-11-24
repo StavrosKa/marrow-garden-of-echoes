@@ -18,6 +18,9 @@ kiro-playbook.md
 # Throwaway files
 .scratch/
 
+# Art files not yet reviewed or licensed for publication
+art/incoming/
+
 # OS files
 .DS_Store
 Thumbs.db
