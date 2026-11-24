@@ -1,0 +1,238 @@
+// The per-frame glue (design 3 steps 5 to 8; requirements 1.3, 1.4, 2.7, 4, 7, 10, 12.1, 19). The tests run the real
+// session machine, the real lantern rule and the real placeRound, with whole-frame simulated reach. Time is given as
+// frame deltas of marrow's maxClockStepMs, so the dwell and the entry title take their real number of frames.
+import { helpRadiusForMotorLevel, TUNING, type PointerInput } from 'marrow/core';
+import type { AttentionEvent } from 'marrow/challenges';
+import { describe, expect, it } from 'vitest';
+import { loadSegments } from '../journeys/journeys';
+import segmentsJson from '../journeys/segments.json';
+import { loadLanternGlade } from '../stages/lantern-glade/content';
+import lanternJson from '../stages/lantern-glade/content.json';
+import { loadWhisperGlade } from '../stages/whisper-glade/content';
+import whisperGladeJson from '../stages/whisper-glade/content.json';
+import { loadWhisperHall } from '../stages/whisper-hall/content';
+import whisperHallJson from '../stages/whisper-hall/content.json';
+import { loadBloom } from '../stages/bloom/content';
+import bloomJson from '../stages/bloom/content.json';
+import {
+  activeHitAreas,
+  applyHelp,
+  createGarden,
+  helpEventsOf,
+  instructionKeyOf,
+  playbackAfter,
+  stepGarden,
+  type GardenEffect,
+  type GardenEnv,
+  type GardenFrame,
+  type GardenState,
+} from './stageDriver';
+import { SIMULATED_WRISTS, wholeFrameReach } from './wholeFrame';
+
+const ASPECT = 16 / 9;
+const FRAME_MS = TUNING.maxClockStepMs;
+const reach = wholeFrameReach(ASPECT);
+const env: GardenEnv = {
+  content: {
+    lantern: loadLanternGlade(lanternJson),
+    placeholders: {
+      'whisper-glade': loadWhisperGlade(whisperGladeJson),
+      'whisper-hall': loadWhisperHall(whisperHallJson),
+      bloom: loadBloom(bloomJson),
+    },
+  },
+  reach: { grids: reach.grids, activeWrists: SIMULATED_WRISTS, mapping: reach.mapping, frame: { aspect: ASPECT, sceneScale: 1 } },
+};
+const segments = loadSegments(segmentsJson);
+const NO_SUSPENSION = { paused: false, holdActive: false } as const;
+const PAUSED = { paused: true, holdActive: false } as const;
+const HELD = { paused: false, holdActive: true } as const;
+
+function frame(over: Partial<GardenFrame> = {}): GardenFrame {
+  return { event: null, presenceDt: FRAME_MS, sessionDt: FRAME_MS, motion: 'full', suspension: NO_SUSPENSION, pointers: [], ...over };
+}
+
+/** The state after the session starts Lantern Glade and its entry title has run out. */
+function lanternInPlay(): GardenState {
+  let state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'lantern-glade' } })).state;
+  while (state.session.phase === 'ENTERING') state = stepGarden(env, state, frame()).state;
+  return state;
+}
+
+/** The pointer that dwells on the one active lantern, or none when no lantern is active. */
+function pointerOnActive(state: GardenState): PointerInput[] {
+  const area = activeHitAreas(state, env.reach.frame)[0];
+  return area === undefined ? [] : [{ wrist: 'right', valid: true, pos: area.centre }];
+}
+
+/** The active lantern is selected by a dwell. Returns the state and every effect of the frames it took. */
+function selectActiveLantern(state: GardenState): { state: GardenState; effects: GardenEffect[] } {
+  const before = state.stage?.kind === 'lantern' ? state.stage.rule.next : -1;
+  let current = state;
+  const effects: GardenEffect[] = [];
+  for (let i = 0; i < 100; i++) {
+    const step = stepGarden(env, current, frame({ pointers: pointerOnActive(current) }));
+    effects.push(...step.effects);
+    current = step.state;
+    const after = current.stage?.kind === 'lantern' ? current.stage.rule.next : before;
+    if (after !== before) return { state: current, effects };
+  }
+  throw new Error('the active lantern was not selected');
+}
+
+/** The number of reward effects in a list. A stage completes into exactly one reward (Req 1.3). */
+function rewardsIn(effects: readonly GardenEffect[]): number {
+  return effects.filter((effect) => effect.kind === 'session' && effect.effect.kind === 'rewardStarted').length;
+}
+
+/** An attention event for the tests of the help mapping. */
+const presented: AttentionEvent = { kind: 'presentationStarted', block: 0, index: 0, stimulusId: 'blue-drop', mark: 'select' };
+
+describe('the help events of an attention round', () => {
+  const flags = { dwellActive: false, playbackActive: false };
+
+  it('7 9.1: one presentation maps to roundStarted, the mistake, stepCompleted and roundEnded, in that order', () => {
+    const events: AttentionEvent[] = [
+      presented,
+      { kind: 'mistake', stimulusId: 'blue-drop', count: 1, reason: 'windowEnded', offerHelp: false, forced: false },
+      { kind: 'presentationCompleted', stimulusId: 'blue-drop', byHelp: false },
+    ];
+    const kinds = events.flatMap((event) => helpEventsOf(event, flags)).map((event) => event.kind);
+    expect(kinds).toEqual(['roundStarted', 'difficulty', 'stepCompleted', 'roundEnded']);
+  });
+
+  it('7.5 19.9: a presentation completed with help sends continueWithHelp, and then roundEnded', () => {
+    const kinds = helpEventsOf({ kind: 'presentationCompleted', stimulusId: 'blue-drop', byHelp: true }, flags).map((event) => event.kind);
+    expect(kinds).toEqual(['continueWithHelp', 'roundEnded']);
+  });
+
+  it('7.3 19.2: a select window that ends without a dwell is a motor difficulty, and a dwell on a let-pass is a cognitive one', () => {
+    const selectWindow = helpEventsOf({ kind: 'mistake', stimulusId: 'blue-drop', count: 1, reason: 'windowEnded', offerHelp: false, forced: false }, flags);
+    const pass = helpEventsOf({ kind: 'mistake', stimulusId: 'gold-leaf', count: 1, reason: 'dwellOnPass', offerHelp: false, forced: false }, flags);
+    expect(selectWindow).toEqual([{ kind: 'difficulty', axis: 'motor', ...flags }]);
+    expect(pass).toEqual([{ kind: 'difficulty', axis: 'cognitive', ...flags }]);
+  });
+
+  it('19.1: every help event of a frame carries that frame flags', () => {
+    const live = { dwellActive: true, playbackActive: true };
+    const events = [presented, { kind: 'presentationCompleted', stimulusId: 'blue-drop', byHelp: false } as const].flatMap((event) =>
+      helpEventsOf(event, live),
+    );
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(event).toMatchObject(live);
+    }
+  });
+
+  it('5.3 19.1: a demonstration turns playback on, and the next presentation turns it off', () => {
+    let playback = false;
+    const trace: boolean[] = [];
+    const sequence: AttentionEvent[] = [{ kind: 'demonstrationStarted', block: 1 }, presented, { kind: 'roundFinished' }];
+    for (const event of sequence) {
+      playback = playbackAfter(event, playback);
+      trace.push(playback);
+    }
+    expect(trace).toEqual([true, false, false]);
+  });
+
+  it('7.2 19.3: the policy gets the events in order, and it offers help after two difficulties in one round', () => {
+    const fresh = createGarden(segments).help;
+    const mistakes = [
+      { kind: 'mistake', stimulusId: 'blue-drop', count: 1, reason: 'windowEnded', offerHelp: false, forced: false },
+      { kind: 'mistake', stimulusId: 'blue-drop', count: 2, reason: 'windowEnded', offerHelp: true, forced: false },
+    ] as const;
+    const trace = [...helpEventsOf(presented, flags), ...mistakes.flatMap((event) => helpEventsOf(event, flags))];
+    expect(applyHelp(fresh, trace).outputs.map((output) => output.kind)).toEqual(['offerHelp']);
+  });
+});
+
+describe('the garden session on Lantern Glade', () => {
+  it('4.5 10.1: the four lanterns are placed through placeRound at the start of the stage, one slot each', () => {
+    const state = lanternInPlay();
+    expect(state.placed?.kind).toBe('simultaneous');
+    expect(state.placed?.points).toHaveLength(4);
+  });
+
+  it('2.7 9.4: no target is active during the entry title, and the first lantern is active in play', () => {
+    let state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'lantern-glade' } })).state;
+    expect(state.session.phase).toBe('ENTERING');
+    expect(activeHitAreas(state, env.reach.frame)).toEqual([]);
+    while (state.session.phase === 'ENTERING') state = stepGarden(env, state, frame()).state;
+    expect(activeHitAreas(state, env.reach.frame).map((area) => area.targetId)).toEqual(['lantern-0']);
+  });
+
+  it('4.1 14.2: the instruction is the tutorial line for the first lantern, then the next line', () => {
+    let state = lanternInPlay();
+    expect(instructionKeyOf(state)).toBe('lantern.first');
+    state = selectActiveLantern(state).state;
+    expect(instructionKeyOf(state)).toBe('lantern.next');
+  });
+
+  it('1.3 4.4: four selections light the path, and the stage completes into exactly one reward', () => {
+    let state = lanternInPlay();
+    const effects: GardenEffect[] = [];
+    for (let i = 0; i < 4; i++) {
+      const step = selectActiveLantern(state);
+      state = step.state;
+      effects.push(...step.effects);
+    }
+    expect(effects.filter((effect) => effect.kind === 'lanternLit').map((effect) => (effect.kind === 'lanternLit' ? effect.index : -1))).toEqual([0, 1, 2, 3]);
+    expect(state.session.phase).toBe('CELEBRATING');
+    expect(state.session.done).toEqual(['lantern-glade']);
+    expect(rewardsIn(effects)).toBe(1);
+  });
+
+  it('1.3: a late selection after the stage completes starts no second reward and changes no done list', () => {
+    let state = lanternInPlay();
+    for (let i = 0; i < 4; i++) state = selectActiveLantern(state).state;
+    const late = stepGarden(env, state, frame({ pointers: [{ wrist: 'right', valid: true, pos: { x: 0, y: 0 } }] }));
+    expect(rewardsIn(late.effects)).toBe(0);
+    expect(late.state.session.done).toEqual(['lantern-glade']);
+    expect(late.state.session.phase).toBe('CELEBRATING');
+  });
+
+  it('1.4: a selection under a pause or a tracking hold reaches no stage rule', () => {
+    for (const suspension of [PAUSED, HELD]) {
+      let state = lanternInPlay();
+      const effects: string[] = [];
+      for (let i = 0; i < 40; i++) {
+        const step = stepGarden(env, state, frame({ suspension, pointers: pointerOnActive(state) }));
+        effects.push(...step.effects.map((effect) => effect.kind));
+        state = step.state;
+      }
+      expect(state.stage?.kind === 'lantern' ? state.stage.rule.next : -1).toBe(0);
+      expect(effects).not.toContain('lanternLit');
+      expect(state.session.done).toEqual([]);
+    }
+  });
+
+  it('12.1: a round in progress keeps its placement when the help levels change', () => {
+    const state = lanternInPlay();
+    const before = activeHitAreas(state, env.reach.frame)[0];
+    const raised = { ...state, help: { ...state.help, motorLevel: TUNING.helpMaxLevel } };
+    const later = stepGarden(env, raised, frame()).state;
+    expect(helpRadiusForMotorLevel(TUNING.helpMaxLevel, TUNING)).not.toBe(before?.radius);
+    expect(later.placed).toEqual(state.placed);
+    expect(activeHitAreas(later, env.reach.frame)[0]?.radius).toBe(before?.radius);
+  });
+
+  it('7.7: a frame with no time changes no stage state', () => {
+    const state = lanternInPlay();
+    const next = stepGarden(env, state, frame({ presenceDt: 0, sessionDt: 0 })).state;
+    expect(next.stage).toEqual(state.stage);
+    expect(next.session).toEqual(state.session);
+  });
+
+  it('14.2 20.4: a placeholder stage shows its own copy key and has no target to dwell on', () => {
+    const state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'whisper-glade' } })).state;
+    expect(instructionKeyOf(state)).toBe('whisper.select.blueDrop');
+    expect(activeHitAreas(state, env.reach.frame)).toEqual([]);
+  });
+});
+
+describe('simulated reach (requirement 20.3)', () => {
+  it('20.3: the simulated reach gives grids for the one mouse wrist, and nothing for the other', () => {
+    expect(SIMULATED_WRISTS).toEqual(['right']);
+    expect(Object.keys(reach.grids)).toEqual(['right']);
+  });
+});
