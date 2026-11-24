@@ -18,7 +18,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "simulate": "npm run simulate -w marrow"
+    "simulate": "node apps/garden-of-echoes/src/dev/simulate/run.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
