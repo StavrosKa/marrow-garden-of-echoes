@@ -230,6 +230,9 @@ Owns: profile data, seeded choices, synthetic frames, invariant bookkeeping, rep
 export type StageId = 'lantern-glade' | 'whisper-glade' | 'whisper-hall' | 'bloom';   // stageOrder.ts
 export type JourneyId = 'journeyA' | 'journeyB' | 'doorHall' | 'doorGarden';
 export const ROUTE: readonly RouteStep[]; // stage, journey, stage, journey, door, stage, door, stage
+export type JourneySegments = Readonly<Record<JourneyId, TravelSegment>>;
+export type TitleId = 'lantern' | 'hall';
+export const TITLE_OF: Readonly<Partial<Record<StageId, TitleId>>>; // stageOrder.ts: lantern-glade has the lantern title, whisper-hall the hall title
 export type Phase = 'SETUP' | 'CALIBRATING' | 'ENTERING' | 'PLAYING' | 'CELEBRATING' | 'TRAVELLING' | 'BLOOM' | 'SAVED';
 export interface Suspension { readonly paused: boolean; readonly holdActive: boolean }
 
@@ -240,10 +243,12 @@ export interface SessionState {
   readonly step: number;              // index into ROUTE
   readonly timerMs: number;           // session time left in ENTERING or CELEBRATING
   readonly travel: TravelState | null;
+  readonly segments: JourneySegments;  // given to createSession; the state stays plain data
 }
 export type SessionEvent =
+  | { readonly kind: 'setupDone' }                           // SETUP to CALIBRATING
   | { readonly kind: 'calibrated' }
-  | { readonly kind: 'startAt'; readonly stage: StageId }     // ?start shortcut, simulated mode
+  | { readonly kind: 'startAt'; readonly stage: StageId }     // ?start shortcut, simulated mode; accepted in SETUP and CALIBRATING
   | { readonly kind: 'stageCompleted'; readonly stage: StageId }
   | { readonly kind: 'endCardShown' };
 export interface SessionInput { readonly dtMs: number; readonly motion: MotionLevel; readonly suspension: Suspension }
@@ -252,19 +257,24 @@ export type SessionEffect =
   | { readonly kind: 'rewardStarted'; readonly stage: StageId }
   | { readonly kind: 'travelStarted'; readonly journey: JourneyId }
   | { readonly kind: 'titleShown'; readonly title: 'lantern' | 'hall' }
-  | { readonly kind: 'ignored'; readonly reason: string };   // completions rejected by the rules below
-export function createSession(): SessionState;
+  | { readonly kind: 'ignored'; readonly reason: 'phase' | 'stage' | 'done' | 'suspended' };   // events rejected by the rules below
+export function createSession(segments: JourneySegments): SessionState;
 export function stepSession(state: SessionState, event: SessionEvent | null, input: SessionInput): { state: SessionState; effects: readonly SessionEffect[] };
+export function targetsActive(state: SessionState): boolean;   // true only in PLAYING and BLOOM, after travel has arrived
 ```
 
 Rules:
 
-- `stageCompleted` is accepted only in `PLAYING` or `BLOOM`, for the active stage, with no suspension flag set, and only if the stage is not in `done`. Anything else is an `ignored` effect with no state change (Req 1.3, 1.4).
+- `stageCompleted` is accepted only in `PLAYING` or `BLOOM`, for the active stage, with no suspension flag set, and only if the stage is not in `done`. Anything else is an `ignored` effect with no state change (Req 1.3, 1.4). The reason is the first failed check, in this order: `phase`, `stage`, `done`, `suspended`.
 - Suspension flags are read from `input` each step. They never change `stage` (Req 1.5).
+- Time: a step first checks its event. A step that makes a transition adds no time. Otherwise the `ENTERING` and `CELEBRATING` timers and the travel advance by `dtMs`, unless a suspension flag is set. A `dtMs` that is not finite or is 0 or less adds no time to the timers, the same rule as `stepTravel`. The machine applies the flags itself, so it does not depend on the driver sending zero.
 - `CELEBRATING` lasts `rewardToTravelMs`, then `TRAVELLING` starts its journey. The `travel` field is a world-view `TravelState`, advanced with `stepTravel(travel, { dtMs, paused, motion }, worldViewTuning)`.
-- `PLAYING` starts when travel arrives. Targets become active only in `PLAYING` (Req 2.7).
+- `PLAYING` or `BLOOM` starts when travel arrives. Targets become active only in `PLAYING` and `BLOOM`, and only when travel has arrived (`targetsActive`, Req 2.7).
 - `BLOOM` completion moves to `SAVED`, which shows the end card (Req 9.3).
-- `startAt` skips `CALIBRATING` and uses simulated input with the whole frame as reach (Req 20.2, 20.3).
+- `setupDone` moves `SETUP` to `CALIBRATING`. `startAt` is accepted in `SETUP` and in `CALIBRATING`, skips calibration, and uses simulated input with the whole frame as reach (Req 20.2, 20.3).
+- `createSession(segments)` stores the segments in the state. `stepSession` reads `segments[journey]` when a travel starts.
+- `ENTERING` lasts `entryTitleMs` (the app value in `session/tuning.ts`) and holds lantern-glade until its entry title has faded. The whisper-hall title does not hold back play.
+- `titleShown` is emitted in the same step as `stageActivated`, for a stage that has an entry in `TITLE_OF`. The title is not a gate: only the lantern-glade entry waits for its title.
 
 Must not: call travel with wall-clock time, read the session or presence clock itself, or know what the stages contain.
 
@@ -281,8 +291,8 @@ export function startWhisperGlade(content: WhisperGladeContent, rng: Rng, motion
 export function stepWhisperGlade(state: WhisperState, selectedTargetIds: readonly string[], dtMs: number): { state: WhisperState; events: readonly AttentionEvent[]; completed: boolean };
 export function pathChoice(state: WhisperState, option: 'fireflies' | 'candles'): WhisperState;
 
-// whisper-hall, bloom (placeholders)
-export function createPlaceholder(content: PlaceholderContent, placed: PlacedRound): PlaceholderState;
+// whisper-hall, bloom (placeholders; placement is wired by the driver in a later task, so no PlacedRound here)
+export function createPlaceholder(content: PlaceholderContent): PlaceholderState;
 export function stepPlaceholder(state: PlaceholderState, selectedTargetIds: readonly string[]): { state: PlaceholderState; completed: boolean };
 ```
 
@@ -358,7 +368,7 @@ One animation frame runs these steps in order. `[HELP READ]` and `[BAND]` mark t
 3. **Pointers.** In camera mode: `stepPointerFilter`, then `makeMapping` with the calibration transform. In simulated mode the pointer source already gives the frame, and the whole-screen transform applies.
 4. **View.** `stepHeadView` (presence dt), `stepGlide`, then `stepLock` with `lockRequested` taken from `dwellView`. The travel distance comes from `stepTravel` (session dt) when the phase is `TRAVELLING`.
 5. **Placement at round start.** `placeRound` runs when a round starts, after the event that starts it reaches the help policy. It calls `snapshotRound`. `[HELP READ]` happens here and nowhere else. `planPlacement` applies the resting band. `[BAND]`
-6. **Targets.** A target is active only when the phase is `PLAYING` and travel has arrived. The scene receives active ids through `FrameData.active`. `sceneManager.hitCircles()` gives the screen circles.
+6. **Targets.** A target is active only when the phase is `PLAYING` or `BLOOM`, and travel has arrived. The scene receives active ids through `FrameData.active`. `sceneManager.hitCircles()` gives the screen circles.
 7. **Dwell.** `stepDwell(state, {dt: presenceDt, pointers, hitAreas})` returns `selected` events. A dwell on a let-pass stimulus is a mistake for the attention round, not a dwell fact.
 8. **Stage rules.** The stage rule takes the selected ids and `sessionDt`. The attention round also turns events into help events, in this order: `roundStarted` (steps 1) when the presentation starts, `difficulty` for each mistake, then `stepCompleted` or `continueWithHelp`, then `roundEnded` with `motorStepAllowed`. `playbackActive` is true during a demonstration.
 9. **Session machine.** A stage that reports completion sends `stageCompleted`. `stepSession` decides the transition, which the suspension flags can block.
@@ -399,7 +409,7 @@ Content holds ids, positions and counts. It never holds text: each line is a key
 
 The copy key for a line is built from the stem: `whisper.select.<select stem>`, `whisper.pass.<pass stem>`, `mistake.select.<select stem>`, `mistake.pass.<pass stem>`. Block one uses blueDrop as select, and block two uses goldLeaf (Req 5.8).
 
-The whisper-hall and bloom files have one `target` with `slots` and a `copy` key. Journey segments sit in `journeys/segments.json`:
+The whisper-hall and bloom files have one `target` with `slots` and a `copy` key. Placeholder copy keys (task 3): `lantern.first` for lantern-glade, `whisper.select.blueDrop` for whisper-glade, `hall.target` for whisper-hall and `bloom.target` for bloom. All four are in requirements section 14. Journey segments sit in `journeys/segments.json`:
 
 ```json
 { "version": 1, "segments": [
