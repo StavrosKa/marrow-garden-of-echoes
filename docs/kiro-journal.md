@@ -2022,3 +2022,41 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `attention.ts` was restored after each run and matches its commit.
 - Observed flake, no fix: `packages/marrow/src/react/overlays.test.tsx`, "PauseOverlay changes the motion setting and mute from inside the overlay", took 7.9 s and failed once in the full-suite runs made during this task, under full-suite load. It passed on the next full run and when run alone. Not investigated further.
 - Evidence, at commit 5 (the code of this commit is the same): typecheck and lint exit 0. `npx vitest run` gives 103 files and 1445 tests, exit 0. No changed file has a BOM, a CR, or a non-ASCII byte.
+## 2026-11-24 - garden-level task 3, session machine, stage order and placeholder stages (3.1 to 3.5)
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5), task 3 of `.kiro/specs/garden-level/tasks.md`. Before the plan I read the task and its rules, requirements 1, 2.7, 9.1 to 9.3, 20.1 and 20.5, design sections 1.2, 2.6, 2.7, 4 and 6, steering 7 and 10, the world-view travel API and its tuning, marrow's MotionLevel, and the playground round controller. The owner approved the plan with changes, recorded below.
+- Commits, each through typecheck, lint and the full suite, and pushed after its check:
+  - `bc13084` Record two attention rules in the garden-level design (approved preparation; design 2.3).
+  - `b052e7d` Record the task 3 session decisions in the garden-level design (owner-approved; design 2.6, 2.7, 3 step 6, 4.1).
+  - `8890d66` Add stage order and route (3.1).
+  - `13dc398` Add app session tuning (3.2).
+  - `54179f0` Add session machine with unit tests (3.3).
+  - `bf98d19` Add session machine property tests (3.4). The mutation results are in the commit body.
+  - `719e3b6` Add placeholder stages with content contract (3.5).
+  - The commit that adds this entry and the task 3 ticks.
+- Checks: typecheck and lint exit 0 at every code commit. The full suite passed at each one: 104 files and 1450 tests after 3.1, 113 files and 1530 tests after 3.5. The counts grow by the new test files.
+- Decisions the owner approved (design 2.6, 2.7, 3 step 6 and 4.1 record them):
+  - `setupDone` moves SETUP to CALIBRATING. `startAt` is accepted in SETUP and in CALIBRATING, for "Try without camera" on the calibration and no-usable-slot screens.
+  - `createSession(segments)` stores the segments in the state. `ignored` reasons are the union `phase`, `stage`, `done`, `suspended`, checked in that order.
+  - Targets are active in PLAYING and BLOOM, and only after travel has arrived (`targetsActive`).
+  - Lantern Glade waits in ENTERING for `entryTitleMs` (4000 ms, new tune value). The Whisper Hall title does not hold back play.
+  - `titleShown` is emitted in the same step as `stageActivated`, for a stage with a `TITLE_OF` entry.
+  - Journey B ends in front of the hall door, and the door travel starts from there, with no stop and no target.
+  - A `dtMs` that is not finite or is 0 or less adds no time to the ENTERING and CELEBRATING timers. The machine also freezes time under a pause or a tracking hold, so it does not rely on the driver sending zero.
+  - Placeholder copy keys: `lantern.first`, `whisper.select.blueDrop`, `hall.target`, `bloom.target` (all in requirements section 14).
+- Deviations from the plan, and why:
+  - P7 checks that `done` is a contiguous run in stage order, not a prefix from lantern-glade. `startAt` can begin at whisper-glade, so `done` can be `['whisper-glade']` with lantern-glade never done. The owner should confirm this reading.
+  - `createSession` throws when a journey is missing, and when `validateSegment` (world-view, shipped TUNING) rejects a segment. The signature has room for this, so the check is the validator and not only a finite-number check. The test fixture `testSegments.ts` passes that validator, and a test checks it.
+  - Files added beyond the task list: `session/testSegments.ts` (test-only fixture), `stages/shared/stageTypes.ts` (design 1.2), `stages/shared/placeholderRule.ts` (one rule for both placeholder stages, re-exported by each stage's `rules.ts`), and `stages/whisper-hall/rules.ts` and `stages/bloom/rules.ts` (decision 8).
+  - The placeholder validator checks the copy key's shape only. The `GARDEN_COPY` check waits for task 4, which creates that table. Contract case 4 (the rule reaches completed) runs for whisper-hall and bloom now, and for lantern-glade and whisper-glade in tasks 6 and 8.
+  - The `done` guard in `complete` (row 5) is defence in depth. In PLAYING a stage is never already in `done`, because completion moves the phase on. So a mutation that removes that guard alone changes no behaviour. It was not used as a mutation.
+- Tests: `stageOrder.test.ts` 5, `tuning.test.ts` 4, `machine.test.ts` 25 (unit, including the hand-built `done` case, the scripted run to SAVED, and the segment checks), `machine.properties.test.ts` 9 (P1 to P8 and the phase coverage check; P1 to P7 at 300 runs, P8 at 100), and the stage contract and rule tests (42 cases over the four stages and the two rule stages). `tuning_labels_garden` passes for `session/tuning.ts`.
+- Mutation check, once, on the machine properties, five mutations of `machine.ts`, each run against `machine.properties.test.ts`:
+  - M1, a completion accepted under a suspension flag: killed by P2.
+  - M2, time advances while paused: killed by P4.
+  - M3, a completion accepted in CELEBRATING: killed by P2 and P3.
+  - M4, targets active while travelling: killed by P6.
+  - M5, a hold clears the stage: killed by P4.
+  - `machine.ts` was restored from a copy and matches the commit.
+- Tool incident: the first mutation harness stopped after M2 was applied and before its restore. The file still held M2. It was restored from the saved copy, then checked against HEAD (zero diff) before any other step. The results above come from a second harness run that restores the file in a `finally` block and checks it afterwards.
+- Git prints an LF-to-CRLF warning on each add. The tracked TypeScript blobs are LF, and the staged diffs contain no CR lines.
+- Open for later tasks: task 4 adds `GARDEN_COPY` and the copy check. Tasks 6 and 8 replace the Lantern Glade and Whisper Glade placeholders, and add their rules and contract case 4. Task 5 wires placement into the driver, not into the placeholder rules.

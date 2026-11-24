@@ -34,12 +34,12 @@ Rules for every task:
   - Verification: typecheck, lint and test pass. The mutation results are in the commit body.
   - _Requirements: 5.4, 5.5, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7_
 
-- [ ] 3. Session machine, stage order and placeholder stages (stop after plan)
-  - 3.1 `apps/garden-of-echoes/src/session/stageOrder.ts`: `STAGE_IDS`, `ROUTE`, `parseStartParam`. Tests in `stageOrder.test.ts`: the four ids are accepted, an unknown id gives `null`, and no input throws.
-  - 3.2 `session/tuning.ts`: `APP_SESSION_TUNING` with `rewardToTravelMs` (1500, range 1000 to 2000) and `entryTitleMs`, and its validator. Test in `session/tuning.test.ts`.
-  - 3.3 `session/machine.ts`: `createSession`, `stepSession`, with the types of `design.md` section 2.6. The machine takes the journey segments as an argument. A test fixture supplies them until task 6 loads `segments.json`. Unit tests in `machine.test.ts`: stage order, rejected completions, suspension flags that do not change the stage, and the target flag that turns on only at arrival.
-  - 3.4 Property tests in `machine.properties.test.ts`: over random event sequences with repeated and late completions, each stage makes exactly one transition, and no completion is accepted under any flag. The machine reads no clock and no randomness.
-  - 3.5 Placeholder stages: `stages/shared/placeholderContent.ts`, `content.json` for all four stage ids (one target each), `content.ts` validators, `stages/shared/contract.ts`, and a `content.test.ts` contract test per stage. Lantern Glade and Whisper Glade keep placeholder content until tasks 6 and 8 replace it.
+- [x] 3. Session machine, stage order and placeholder stages (stop after plan)
+  - [x] 3.1 `apps/garden-of-echoes/src/session/stageOrder.ts`: `STAGE_IDS`, `ROUTE`, `parseStartParam`. Tests in `stageOrder.test.ts`: the four ids are accepted, an unknown id gives `null`, and no input throws.
+  - [x] 3.2 `session/tuning.ts`: `APP_SESSION_TUNING` with `rewardToTravelMs` (1500, range 1000 to 2000) and `entryTitleMs`, and its validator. Test in `session/tuning.test.ts`.
+  - [x] 3.3 `session/machine.ts`: `createSession`, `stepSession`, with the types of `design.md` section 2.6. The machine takes the journey segments as an argument. A test fixture supplies them until task 6 loads `segments.json`. Unit tests in `machine.test.ts`: stage order, rejected completions, suspension flags that do not change the stage, and the target flag that turns on only at arrival.
+  - [x] 3.4 Property tests in `machine.properties.test.ts`: over random event sequences with repeated and late completions, each stage makes exactly one transition, and no completion is accepted under any flag. The machine reads no clock and no randomness.
+  - [x] 3.5 Placeholder stages: `stages/shared/placeholderContent.ts`, `content.json` for all four stage ids (one target each), `content.ts` validators, `stages/shared/contract.ts`, and a `content.test.ts` contract test per stage. Lantern Glade and Whisper Glade keep placeholder content until tasks 6 and 8 replace it.
   - Verification: typecheck, lint and test pass. A scripted run in the test reaches `SAVED` through all four stages.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.7, 9.1, 9.2, 9.3, 20.1, 20.5, 23.2_
 
