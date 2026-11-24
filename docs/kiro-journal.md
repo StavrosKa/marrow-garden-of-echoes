@@ -2104,3 +2104,51 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - `dev/world/placementSetup.ts` is unchanged. `placeRound` may replace its `placeStops` later, which is the owner's decision.
   - The heading of task 5 still reads "(stop after plan)". Remove it when the owner wants.
 - Tool notes: in the 5.1 mutation run, one test was started in parallel with its edit, so that first result came from unmutated code. It was rerun after the edit, and the rerun is the result recorded above.
+## 2026-11-24 - garden-level task 6, Lantern Glade end to end, with journey A and audio (6.1 to 6.8)
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5, Medium), task 6 of `.kiro/specs/garden-level/tasks.md`, in six commits, each through typecheck, lint and the full suite, each pushed after its check. Before the work I checked that the tree was clean and main was at origin/main 3790327, and I read the spec, steering, bugs-found and the journal's last three entries. The owner approved the scope in advance, so the work went through without a stop.
+- Commits:
+  - `712f875` Add journeys and Lantern Glade content (6.1, 6.2).
+  - `6e710a9` Add Lantern Glade rule and light, with flicker limits (6.3, 6.4).
+  - `fb6ff6f` Add garden audio over the tone player (6.5).
+  - `aa4422f` Add the stage driver and the ?start entry (6.6, 6.7).
+  - `1e27fd7` Add the Lantern Glade scene and the play-through (6.8).
+  - The commit that adds this entry and the ticks.
+- Gate output, real counts: commit A, 119 files and 1583 tests. B, 122 files and 1606 tests. C, 123 files and 1615 tests. D, 125 files and 1636 tests on the rerun (see the flake below). E, 126 files and 1642 tests. Typecheck and lint exited 0 at every gate. Lint failed once at C, because a mutant copy in `.scratch` had an unused parameter, and ESLint lints `.scratch`. I deleted the copies and it passed.
+- Decisions:
+  - The forest layer table has no layer at depth 15 or below. The door segments run to depth 18, so a nearer layer would be out of view there. The table still passes `checkDepthScaling` for every segment.
+  - Lantern Glade is one help round of four steps. Its placement is one `placeRound` call with n = 4. The driver keeps that placement, so a level change mid-round does not reach it.
+  - `lightLevel` eases in every motion level (17.1). Reduced motion only turns the flicker off, which I read as "steady" in 17.3.
+  - `start` in `gardenAudio.ts` takes a `UserGesture` (or null). The design text says `start(): void`. The gesture argument is how the no-gesture rule is enforced and tested. The owner should confirm this signature change.
+  - The design 4.1 example shows two lantern slots, and the validator needs at least as many slots as lanterns. I authored six slots and read the example as illustrative. This is an inconsistency in the design text, and I did not stop for it.
+  - The help axis for each attention mistake maps as design 3 step 8 gives it. `motorStepAllowed` is true in every round.
+  - The `?start` plan is a pure function (`session/startEntry.ts`). The camera ban is checked by a source scan of the entry files.
+- Mutation check, once per property, each copy made in `.scratch`, copied over the file, tested, and restored with a SHA-256 check in a `finally` block. All eight restores matched. No survivors, so no reruns. Eight of the ten allowed mutations were used.
+  - (a) flicker amplitude 0.2: killed by two flicker tests in `scene/flicker.test.ts`.
+  - (b) flicker cycle 1000 ms: killed by "17.2: a cycle lasts at least 1.5 s", and by the sample count.
+  - (c1) light eased over 100 ms: killed by three light tests in `light.test.ts`.
+  - (c2) Reduced motion flickers: killed by "17.3: in Reduced motion the brightness does not change at any time".
+  - (d) roundEnded before stepCompleted: killed by "7 9.1: one presentation maps to ... in that order", and by "7.5 19.9".
+  - (e) a round reads the help level for its hit radius: killed by "12.1: a round in progress keeps its placement when the help levels change".
+  - (f) no suspension gate: killed by "1.4: a selection under a pause or a tracking hold reaches no stage rule".
+  - (g) audio start without the gesture check: killed by "18.2: start with no user action starts nothing".
+- The 6.8 play-through, Playwright in simulated input on `npm run dev`, started with `?start=lantern-glade`:
+  - Each lantern lit after its dwell, in order. The line changed to "Light the next lantern." and then "Reach for the blue drop.", the placeholder Whisper Glade line. The stage completed into journey A and arrived.
+  - Camera calls: 0. Page errors: none. Chromium printed GPU warnings.
+  - Visually, the captures show the label, the title, and the tutorial line. The lantern discs are not visible in any capture, and the play area is a flat backdrop. So the on-screen lantern drawing is not verified. The lit states and the arrival are verified through the DOM markers and the text. Task 6.8 should not be called complete until someone checks the Pixi targets on screen.
+  - The script is in `.scratch` and is deleted at the end. It is not committed.
+- Open for later tasks:
+  - The lantern discs need a visual check, as above.
+  - The placeholder Whisper Glade keeps the lantern backdrop on arrival.
+  - Audio is tested with a fake tone player and a muted run. Nothing has been heard in a browser.
+  - The flicker module is not wired to the lantern light, because the scene's shapes have no alpha.
+  - The head view and parallax are not wired (the head is at rest).
+  - Task 8 replaces the Whisper Glade placeholder and task 10 adds the no-slot screen. `stepGarden` returns a `noSlot` effect that nothing shows yet.
+- Flake, not fixed: `packages/world-view/src/core/travel.test.ts`, "travel across motion level changes: constant Full and Gentle are monotone, in range and ease in and out (7.11)", failed once in a full run at commit D. It is a fast-check property with no fixed seed. The counterexample had a segment of 3.2e-19 ms, and the ease check finds no sample in the middle band, so its `Math.max` over an empty list is `-Infinity`. It passed on the next full run. world-view is outside task 6, so the test is unchanged, and the owner should decide on a bounded generator.
+- Tool notes that mattered:
+  - The shell tool rejects here-strings and `cd`. Commit messages were written with the editor tool to `.scratch` and passed to `git commit -F`.
+  - `npm run dev` is refused by the shell tool. It ran under `control_pwsh_process` with `action: start`.
+  - `str_replace` needs a `path` argument. Two calls failed without it.
+  - The mutation harness sets `$ErrorActionPreference` to Stop, so vitest's stderr output aborted the run before its results printed. The fix sets it to Continue for the test run only.
+  - The dependency-graph test rejects the identifier `window` in `session/`, even as a local variable name. I renamed one variable.
+  - Copy-Item was used to copy the originals and restore them. It is not one of the banned cmdlets, and the mutated copies were written with the editor tool.
+
