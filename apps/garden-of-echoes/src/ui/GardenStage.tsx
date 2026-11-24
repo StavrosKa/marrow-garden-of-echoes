@@ -40,6 +40,8 @@ import { textOf } from './copyLookup';
 
 /** The play area is 16:9, as the playground's is. The scene's aspect and the pointer's aspect are both this. */
 const ASPECT = 16 / 9;
+/** The space above the play area (the label, the heading and the instruction line), in rem. The box fits the window below it. */
+const HEADER_REM = 12;
 const CENTRE_Y = 0.5;
 const NOT_VALID_POINTER = { wrist: 'right', valid: false } as const;
 const REDUCED_QUERY = '(prefers-reduced-motion:reduce)';
@@ -204,7 +206,16 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
       <div
         ref={playRef}
         className="garden-play"
-        style={{ position: 'relative', width: '100%', aspectRatio: `${ASPECT}`, touchAction: 'none' }}
+        // A true 16:9 box, centred, at most the window's height below the header. overflow hidden stops the canvas
+        // (which the Scene Manager sizes from this box) from making the box taller than 16:9.
+        style={{
+          position: 'relative',
+          width: `min(100%, calc((100dvh - ${HEADER_REM}rem) * ${ASPECT}))`,
+          aspectRatio: `${ASPECT}`,
+          margin: '0 auto',
+          overflow: 'hidden',
+          touchAction: 'none',
+        }}
         onPointerDown={() => audioRef.current?.start({ kind: 'pointerdown' })}
       >
         {targets.map((target) =>

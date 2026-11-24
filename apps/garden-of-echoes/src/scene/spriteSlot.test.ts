@@ -21,6 +21,12 @@ describe('sprite slots', () => {
       'spirit-gold',
       'hall-door-frame',
       'hall-door-leaf',
+      'forest-sky',
+      'forest-hills',
+      'forest-fartrees-a',
+      'glade1-ground',
+      'glade1-trunk-left',
+      'glade1-trunk-right',
     ]);
   });
 

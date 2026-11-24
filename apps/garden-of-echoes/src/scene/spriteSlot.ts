@@ -13,6 +13,12 @@ export const SPRITE_NAMES = [
   'spirit-gold',
   'hall-door-frame',
   'hall-door-leaf',
+  'forest-sky',
+  'forest-hills',
+  'forest-fartrees-a',
+  'glade1-ground',
+  'glade1-trunk-left',
+  'glade1-trunk-right',
 ] as const;
 
 export type SpriteName = (typeof SPRITE_NAMES)[number];
@@ -31,6 +37,12 @@ const COLOUR: Readonly<Record<SpriteName, ThemeToken>> = {
   'spirit-gold': 'lanternWarm',
   'hall-door-frame': 'grey3',
   'hall-door-leaf': 'grey2',
+  'forest-sky': 'grey1',
+  'forest-hills': 'grey2',
+  'forest-fartrees-a': 'grey3',
+  'glade1-ground': 'grey4',
+  'glade1-trunk-left': 'grey0',
+  'glade1-trunk-right': 'grey0',
 };
 
 /** The shape of each placeholder: a lantern is a rounded body, and a door is a plain frame. */
@@ -41,6 +53,12 @@ const KIND: Readonly<Record<SpriteName, ShapeSpec['kind']>> = {
   'spirit-gold': 'ellipse',
   'hall-door-frame': 'rect',
   'hall-door-leaf': 'rect',
+  'forest-sky': 'rect',
+  'forest-hills': 'ellipse',
+  'forest-fartrees-a': 'roundRect',
+  'glade1-ground': 'rect',
+  'glade1-trunk-left': 'rect',
+  'glade1-trunk-right': 'rect',
 };
 
 /**
