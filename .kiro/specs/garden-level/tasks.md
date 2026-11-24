@@ -50,10 +50,10 @@ Rules for every task:
   - Verification: typecheck, lint and test pass. The copy test lists the number of keys it checked.
   - _Requirements: 3.4, 5.8, 14.1, 14.2, 14.3, 14.4, 14.5_
 
-- [ ] 5. Placement, help snapshot and placed rounds (stop after plan)
-  - 5.1 `packages/marrow/src/challenges/placementBand.ts`: `inRestingBand` and `planPlacement`, with the algorithm of `design.md` section 2.4. Property tests in `placementBand.properties.test.ts`: every placed slot and its full hit area lie in the reachable region for every allowed head offset; no band slot is used unless the out-of-band slots are not enough; the band slots used are the nearest to the edge and no more than needed. The generators are written inside the test file from marrow's public API only.
-  - 5.2 `apps/garden-of-echoes/src/session/roundSnapshot.ts`: `snapshotRound`. Test `roundSnapshot.test.ts`: both levels change in the middle of a round, and the round's snapshot does not change until the next placement. A repo test scans the app for `motorLevel` and `cognitiveLevel` reads, and allows them only in `roundSnapshot.ts` and its test.
-  - 5.3 `stages/shared/placeRound.ts`: `placeRound`. It maps the chosen screen objects back to their world points by identity. Test `placeRound.test.ts`: the returned points are the authored slots, and the band rule and the snapshot are both applied.
+- [x] 5. Placement, help snapshot and placed rounds (stop after plan)
+  - [x] 5.1 `packages/marrow/src/challenges/placementBand.ts`: `inRestingBand` and `planPlacement`, with the algorithm of `design.md` section 2.4. Property tests in `placementBand.properties.test.ts`: every placed slot and its full hit area lie in the reachable region for every allowed head offset; no band slot is used unless the out-of-band slots are not enough; the band slots used are the nearest to the edge and no more than needed. The generators are written inside the test file from marrow's public API only.
+  - [x] 5.2 `apps/garden-of-echoes/src/session/roundSnapshot.ts`: `snapshotRound`. Test `roundSnapshot.test.ts`: both levels change in the middle of a round, and the round's snapshot does not change until the next placement. A repo test scans the app for `motorLevel` and `cognitiveLevel` reads, and allows them only in `roundSnapshot.ts` and its test.
+  - [x] 5.3 `stages/shared/placeRound.ts`: `placeRound`. It maps the chosen screen objects back to their world points by identity. Test `placeRound.test.ts`: the returned points are the authored slots, and the band rule and the snapshot are both applied.
   - Verification: typecheck, lint and test pass. The property tests run at least the number of cases in the test parameters of `design.md` section 6.
   - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 12.1, 12.2, 12.3_
 

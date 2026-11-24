@@ -2076,3 +2076,31 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Wording note: the steering file's example is "Let's watch the lights again." The requirements draft, which this task uses, is "Let's watch again." The draft text was used. The owner should check which one is meant when the copy is approved.
 - Tests: `copy.test.ts` keeps the playground tests and adds nine garden tests. They check the ten mapped fields, the reused fields, the banned words, the 8-word limit with `camera.why` and `camera.explanation` exempt, the no-claims list, the table match, the `TITLE_OF` title keys, and the two counts.
 - Tool notes: a few tool results showed a stray character before a command name. The command still ran, and each commit was checked after it ran (log, status, diff stat, and the pushed hash).
+## 2026-11-24 - garden-level task 5, placement, help snapshot and placed rounds (5.1 to 5.3)
+- Kiro feature used: spec task execution (model: Claude Haiku 5.5), task 5 of `.kiro/specs/garden-level/tasks.md`. The task was planned first, with no code written, and the plan was approved before any file was changed.
+- Commits, each through typecheck, lint and the full suite, and pushed after its check:
+  - `b4384a9` Add resting-band placement (5.1): `planPlacement` and `inRestingBand` in `marrow/challenges`, with the property tests and a unit test file. The same commit changes design 2.4 (the band fallback), design 2.8 (the `placeRound` projection, radius, active wrists and layer guard), the Requirement 10 verification line, and design section 6 (300 cases per property). It also stages `.gitignore` (the `art/incoming/` line), which the owner asked for.
+  - `9555abf` Snapshot help levels once per round (5.2): `snapshotRound`, its unit test, and the repo scan `tests/help-levels-at-placement.test.ts`.
+  - `0ed343f` Place a round from world slots (5.3): `placeRound` and its unit tests.
+  - This commit: the journal entry and the task 5 ticks.
+- Decisions:
+  - Band fallback. When no count of band slots gives `simultaneous`, and the out-of-band slots alone are `sequential`, no band slot is used. The earlier design text ("use all of them") put every band slot in whenever `n` exceeded the usable slots. Requirement 10.5 allows only as many band slots as needed.
+  - Slots are projected at head (0, 0). The margin `m` covers the parallax displacement only from the rest position.
+  - The screen radius is `snapshot.radius * depthScale(layer, travel)`, the radius `targetScreen` returns. `placeRound` throws unless `layer.factor` is `TUNING.interactionFactor`, because `parallaxMargin` assumes that factor.
+  - `placeRound` takes `activeWrists` and filters the grids to them, so the other hand's grid never counts.
+  - `RoundSnapshot` keeps the two level fields for the tests and the scan. Consumers read `snapshot.radius` only.
+- Non-vacuity counts, 300 cases with seed 20260101: 45 cases with placed slots, 18 with band slots, 5 with a band choice. The minimums in the test are 20, 9 and 2. The band choice count is low. The nearest-first order is also pinned by a fixed unit test.
+- Generator finding: `fc.double` with a range gives almost only values near 0. `fc.sample` showed it, and the first version placed nothing. The generators now scale integers to each range.
+- Mutation checks, each run against the named test:
+  - 5.1 M1, `>` for `>=` in `inRestingBand`: killed by the exact-edge unit test.
+  - 5.1 M2, band slots sorted farthest first: killed by the nearest-first unit test and the nearest-first property.
+  - 5.1 M3, planner margin `m = 0`: killed by the placed-slot property with the failure "the disc of radius r + m at rest is not reachable". The counterexample has `m` = 1.26e-6, so the margin is the cause.
+  - 5.1 M4, band slots first with the out-of-band early return removed: the first version survived. The unit test "returns the out-of-band result unchanged when it is simultaneous" was added, along with a property check for the same case, and then M4 failed.
+  - 5.2: a probe read of `motorLevel` in an app file failed the repo scan. The probe was deleted.
+  - 5.3 M5, map back by equal coordinates: killed by "keeps two authored points at the same screen position apart by identity".
+- Scan rules (5.2): the TypeScript parser flags property access, element access with a string key, and destructuring. It ignores comments, strings, type positions and object-literal fixtures. A write through a property access is flagged. A computed key that is not a literal is not found. The scan matches names, so `RoundSnapshot.motorLevel` read outside `roundSnapshot.ts` is also flagged.
+- Open for later tasks:
+  - `placeRound` is not yet wired into the stage driver (design 3, step 5).
+  - `dev/world/placementSetup.ts` is unchanged. `placeRound` may replace its `placeStops` later, which is the owner's decision.
+  - The heading of task 5 still reads "(stop after plan)". Remove it when the owner wants.
+- Tool notes: in the 5.1 mutation run, one test was started in parallel with its edit, so that first result came from unmutated code. It was rerun after the edit, and the rerun is the result recorded above.
