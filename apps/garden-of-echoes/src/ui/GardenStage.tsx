@@ -1,11 +1,13 @@
-// The stage screen of the ?start shortcut (garden-level design 2.7, 3; requirements 4, 18, 20). Simulated input over
+// The stage screen of the ?start shortcut (garden-level design 2.7, 3; requirements 4, 18, 20, 22). Simulated input over
 // the whole frame, and no camera. The frame loop does three things: marrow's clocks give the time, marrow's Pointer
-// Source gives the pointer, and stepGarden does the rest. The lanterns are drawn as DOM circles here. The Pixi scene
-// (task 6.8) draws the same circles from the same drawnTargetsOf.
+// Source gives the pointer, and stepGarden does the rest. The Scene Manager (Pixi, loaded when the screen starts) draws
+// the forest and the lanterns, and the DOM draws the one instruction line, the label and the entry title. Each lantern
+// also has a transparent DOM marker at its position, so a test can aim at it.
 import { useEffect, useReducer, useRef, type ReactElement } from 'react';
 import { makeMapping, stepClocks, TUNING as MARROW_TUNING, type MotionLevel, type PointerInput } from 'marrow/core';
 import { createPointerSource, type PoseSource } from 'marrow/input';
 import { TUNING as WORLD_TUNING } from 'world-view';
+import type { SceneManager } from 'world-view/pixi';
 import { createGardenAudio, type GardenAudio } from '../audio/gardenAudio';
 import { createTonePlayer } from '../audio/tonePlayer';
 import { loadSegments } from '../journeys/journeys';
@@ -13,12 +15,15 @@ import segmentsJson from '../journeys/segments.json';
 import { APP_SESSION_TUNING } from '../session/tuning';
 import { loadLanternGlade } from '../stages/lantern-glade/content';
 import lanternJson from '../stages/lantern-glade/content.json';
+import { lanternSceneKey, lanternSceneTargets } from '../stages/lantern-glade/scene';
 import { loadWhisperGlade } from '../stages/whisper-glade/content';
 import whisperGladeJson from '../stages/whisper-glade/content.json';
 import { loadWhisperHall } from '../stages/whisper-hall/content';
 import whisperHallJson from '../stages/whisper-hall/content.json';
 import { loadBloom } from '../stages/bloom/content';
 import bloomJson from '../stages/bloom/content.json';
+import { colourNumber } from './theme';
+import { COVER_TOKEN, forestSceneLayers, frameDataOf, TARGET_VISUAL_RATIO } from '../scene/sceneSetup';
 import {
   createGarden,
   drawnTargetsOf,
@@ -38,6 +43,7 @@ const ASPECT = 16 / 9;
 const CENTRE_Y = 0.5;
 const NOT_VALID_POINTER = { wrist: 'right', valid: false } as const;
 const REDUCED_QUERY = '(prefers-reduced-motion:reduce)';
+const PERCENT = 100;
 
 function motionNow(): MotionLevel {
   return typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_QUERY).matches ? 'reduced' : 'full';
@@ -45,7 +51,7 @@ function motionNow(): MotionLevel {
 
 /**
  * The opacity of the entry title over its time (Req 9.4, art-and-motion.md). It fades in and out over the world-view
- * fade length, and it is held in between. The timer is the session's time left in ENTERING.
+ * fade length and is held in between. The timer is the session's time left in ENTERING.
  */
 export function titleOpacity(timerMs: number): number {
   const fade = WORLD_TUNING.minFadeMs;
@@ -83,8 +89,9 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
   const { stage } = props;
   const playRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GardenState | null>(null);
-  const audioRef = useRef<GardenAudio | null>(null);
   const envRef = useRef<GardenEnv | null>(null);
+  const audioRef = useRef<GardenAudio | null>(null);
+  const sceneRef = useRef<SceneManager | null>(null);
   const [, redraw] = useReducer((count: number) => count + 1, 0);
 
   useEffect(() => {
@@ -92,7 +99,8 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
     if (area === null) return undefined;
     const env = environment();
     envRef.current = env;
-    gameRef.current = createGarden(loadSegments(segmentsJson));
+    const segments = loadSegments(segmentsJson);
+    gameRef.current = createGarden(segments);
     const audio = createGardenAudio(createTonePlayer(() => new AudioContext()));
     audioRef.current = audio;
     const source = createPointerSource({ playArea: area, requestFrame: browserFrames.request, cancelFrame: browserFrames.cancel });
@@ -102,6 +110,9 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
     let first = true;
     let handle = 0;
     let alive = true;
+    let sceneKey = '';
+
+    const frameTargets = (state: GardenState) => drawnTargetsOf(state, env.reach.frame);
     const tick = (now: number): void => {
       if (!alive) return;
       const current = gameRef.current;
@@ -123,15 +134,56 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
       for (const effect of step.effects) {
         if (effect.kind === 'lanternLit') audio.playNote(effect.index);
       }
+      const scene = sceneRef.current;
+      const key = lanternSceneKey(step.state);
+      if (scene !== null && key !== sceneKey) {
+        sceneKey = key;
+        scene.setTargets(lanternSceneTargets(step.state));
+      }
       redraw();
       handle = browserFrames.request(tick);
     };
+
+    // The longest travel ends at the last segment's `to`, which bounds the backdrop of the scene (Req 2.4).
+    const travelTo = Math.max(...Object.values(segments).map((segment) => segment.to));
+    const idleSession = createGarden(segments).session;
+
+    void import('world-view/pixi').then(async (pixi) => {
+      if (!alive) return;
+      const scene = pixi.createSceneManager({
+        host: area,
+        layers: forestSceneLayers(),
+        targets: [],
+        sceneScale: 1,
+        travelRange: { from: 0, to: travelTo },
+        coverColour: colourNumber(COVER_TOKEN),
+        targetVisualRatio: TARGET_VISUAL_RATIO,
+        getFrame: () => {
+          const state = gameRef.current;
+          if (state === null) return frameDataOf({ session: idleSession, active: [], shown: [] });
+          const targets = frameTargets(state);
+          return frameDataOf({
+            session: state.session,
+            active: targets.filter((target) => target.active).map((target) => target.id),
+            shown: targets.map((target) => target.id),
+          });
+        },
+      });
+      await scene.start();
+      if (!alive) {
+        scene.dispose();
+        return;
+      }
+      sceneRef.current = scene;
+    });
     handle = browserFrames.request(tick);
     return () => {
       alive = false;
       browserFrames.cancel(handle);
       source.dispose();
       audio.dispose();
+      sceneRef.current?.dispose();
+      sceneRef.current = null;
       audioRef.current = null;
     };
   }, [stage]);
@@ -162,16 +214,16 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
               data-target={target.id}
               data-lit={target.lit ? 'yes' : 'no'}
               data-active={target.active ? 'yes' : 'no'}
+              aria-hidden="true"
               style={{
                 position: 'absolute',
-                left: `${(target.centre.x / ASPECT) * 100}%`,
-                top: `${target.centre.y * 100}%`,
-                width: `${(target.radius * 2 * 100) / ASPECT}%`,
-                height: `${target.radius * 2 * 100}%`,
+                left: `${(target.centre.x / ASPECT) * PERCENT}%`,
+                top: `${target.centre.y * PERCENT}%`,
+                width: `${(target.radius * 2 * PERCENT) / ASPECT}%`,
+                height: `${target.radius * 2 * PERCENT}%`,
                 transform: 'translate(-50%, -50%)',
                 borderRadius: '50%',
-                border: '2px solid currentColor',
-                opacity: target.active || target.lit ? 1 : 0.4,
+                opacity: 0,
               }}
             />
           ),
