@@ -43,10 +43,10 @@ Rules for every task:
   - Verification: typecheck, lint and test pass. A scripted run in the test reaches `SAVED` through all four stages.
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.7, 9.1, 9.2, 9.3, 20.1, 20.5, 23.2_
 
-- [ ] 4. Copy
-  - 4.1 `apps/garden-of-echoes/src/copy/garden.ts`: `GARDEN_COPY` with every key of the requirements table in section 14, plus `bloom.target`, the eight per-rule keys, and `pause.help`.
-  - 4.2 `copy/gardenMarrowCopy.ts`: `gardenMarrowCopy`, a complete `MarrowCopy` filled from `GARDEN_COPY`. A missing field fails typecheck.
-  - 4.3 Extend `copy/copy.test.ts`: the banned words are absent from every string in `GARDEN_COPY` and `gardenMarrowCopy`; every line is eight words or fewer except `camera.why`; the copy never claims therapy, rehabilitation, diagnosis or clinical benefit; and every key that a stage uses exists.
+- [x] 4. Copy
+  - [x] 4.1 `apps/garden-of-echoes/src/copy/garden.ts`: `GARDEN_COPY` with every key of the requirements table in section 14, plus `bloom.target`, the eight per-rule keys, and `pause.help`.
+  - [x] 4.2 `copy/gardenMarrowCopy.ts`: `gardenMarrowCopy`, a complete `MarrowCopy` filled from `GARDEN_COPY`. A missing field fails typecheck.
+  - [x] 4.3 Extend `copy/copy.test.ts`: the banned words are absent from every string in `GARDEN_COPY` and `gardenMarrowCopy`; every line is eight words or fewer except `camera.why`; the copy never claims therapy, rehabilitation, diagnosis or clinical benefit; and every key that a stage uses exists.
   - Verification: typecheck, lint and test pass. The copy test lists the number of keys it checked.
   - _Requirements: 3.4, 5.8, 14.1, 14.2, 14.3, 14.4, 14.5_
 
