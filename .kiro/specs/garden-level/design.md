@@ -59,7 +59,7 @@ apps/garden-of-echoes/src/
     gardenAudio.ts      Start on a user action, mute, volume. Imports: ./tonePlayer, ./pentatonic.
   copy/
     garden.ts           GARDEN_COPY: every key of the requirements table. Imports: none.
-    gardenMarrowCopy.ts MarrowCopy filled from GARDEN_COPY. Imports: marrow/react (type), ./garden.
+    gardenMarrowCopy.ts MarrowCopy filled from GARDEN_COPY and, for fields with no key, from copy.marrow. Imports: marrow/react (type), ./garden, ./index (the existing playground copy).
     index.ts            Existing playground copy, plus re-exports.
   ui/                   Home, PauseScreen, EndCard, PlayArea, InstructionLine, CalibrationExplainer. Imports: marrow/react, copy, session.
   dev/simulate/
@@ -358,6 +358,7 @@ export const gardenMarrowCopy: MarrowCopy;   // fills camera.explanation from ca
 ```
 
 The copy test reads `GARDEN_COPY` and `gardenMarrowCopy`. Content files name keys. They hold no text.
+Fields with no Requirement 14 key reuse the infrastructure strings of `copy.marrow`; only fields with a key come from `GARDEN_COPY`.
 
 ## 3. Data flow in one frame
 
