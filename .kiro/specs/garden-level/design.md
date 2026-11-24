@@ -164,6 +164,9 @@ Rules inside `stepAttention`:
 - A forced completion (the third mistake) and a help completion wait for `presentationMinMs`, measured from the last mistake or from the start of the presentation. While they wait, `pending` is set, and `dwellSelected` and `helpRequested` are ignored and add no mistake. Then the presentation completes with `byHelp` set.
 - The phase `starting` lasts one step. That step emits `presentationStarted` for the first presentation, and its `dtMs` is not counted.
 
+- A repeat after a mistake emits no `presentationStarted`. The `mistake` event marks the repeat.
+- Time model. One step makes at most one transition, in this order: (1) the clock advances by `dtMs`, and a negative or non-finite `dtMs` counts as 0; (2) timeouts run: a let-pass whose window has ended completes, and a select whose window has ended with no dwell held is a `windowEnded` mistake; (3) the input is judged at the clock time after step 2, and a `dwellSelected` on the current let-pass inside its window is a `dwellOnPass` mistake; (4) a held select dwell, or a help or forced completion, completes once the clock is at or past `presentationMinMs`. A timeout or mistake that ends the step ignores the input of that step. Time left over after a transition is dropped, and the next presentation starts at zero.
+- A `dwellSelected` in the step that ends a let-pass window is ignored, so a dwell at the exact end of the window is not a mistake.
 Must not: read the stimulus id, use the rule, read the clock or call the help policy. The caller maps the events to help events (section 3).
 
 ### 2.4 `marrow/challenges/placementBand.ts`
