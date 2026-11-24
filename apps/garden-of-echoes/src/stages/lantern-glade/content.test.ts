@@ -10,4 +10,5 @@ registerContract({
   load: loadLanternGlade,
   shipped,
   mutations: placeholderMutations('bloom'),
+  copyKeys: (content) => [content.target.copy],
 });

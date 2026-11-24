@@ -1,14 +1,12 @@
 // Placeholder content for a one-target stage (design 4.1, 4.2; task 3.5). Whisper Hall and Bloom keep this shape.
 // Lantern Glade and Whisper Glade use it until tasks 6 and 8 replace their content. Content holds ids, positions and
-// counts, and each line is a copy key. The validator checks the key's shape here. Task 4 adds the GARDEN_COPY check.
+// counts, and each line is a copy key. The validator checks that the key exists in GARDEN_COPY (design 4.2).
+import { hasCopyKey } from '../../copy/garden';
 import type { StageId } from '../../session/stageOrder';
 import type { ContentIssue, ContentResult } from './stageTypes';
 
 /** A one-target stage has one target, and so needs at least one slot. */
 const TARGETS = 1;
-
-/** A copy key: a lower-case first word and at least one more part after a dot, as in `hall.target`. */
-const COPY_KEY = /^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9]+)+$/;
 
 const SLOT_FIELDS = ['x', 'y', 'depth', 'anchor'] as const;
 
@@ -58,7 +56,7 @@ function readSlot(value: unknown, path: string, issues: ContentIssue[]): SlotSpe
 
 /**
  * Checks placeholder content for the stage `id`. It never throws. The checks: version 1, the stage id, one target
- * with at least one slot, each slot with finite numbers, and a copy key of the right shape.
+ * with at least one slot, each slot with finite numbers, and a copy key that exists in GARDEN_COPY.
  */
 export function validatePlaceholder(json: unknown, id: StageId): ContentResult<PlaceholderContent> {
   if (!isRecord(json)) return { ok: false, issues: [{ path: '', message: 'content must be a JSON object' }] };
@@ -88,8 +86,8 @@ export function validatePlaceholder(json: unknown, id: StageId): ContentResult<P
       });
     }
     const rawCopy = target.copy;
-    if (typeof rawCopy !== 'string' || !COPY_KEY.test(rawCopy)) {
-      issues.push({ path: 'target.copy', message: `target.copy = ${String(rawCopy)} must be a copy key such as hall.target` });
+    if (typeof rawCopy !== 'string' || !hasCopyKey(rawCopy)) {
+      issues.push({ path: 'target.copy', message: `target.copy = ${String(rawCopy)} must be a key of GARDEN_COPY, such as hall.target` });
     } else {
       copy = rawCopy;
     }

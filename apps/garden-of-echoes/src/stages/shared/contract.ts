@@ -1,7 +1,8 @@
 // Helper for the stage content contract tests (design 4.3). Test files only: it imports vitest. Each stage's
-// content.test.ts calls registerContract once. Cases 1 to 4 of design 4.3 are registered here. Case 5 (copy keys
-// in GARDEN_COPY) comes with task 4.
+// content.test.ts calls registerContract once. Cases 1 to 5 of design 4.3 are registered here. Case 5 checks that every
+// copy key of the stage exists in GARDEN_COPY.
 import { describe, expect, it } from 'vitest';
+import { hasCopyKey } from '../../copy/garden';
 import type { ContentResult } from './stageTypes';
 
 /** One broken copy of the shipped content. `path` is the field the validator must name. */
@@ -17,6 +18,8 @@ export interface ContractOptions<T> {
   readonly load: (json: unknown) => T;
   readonly shipped: Record<string, unknown>;
   readonly mutations: readonly ContractMutation[];
+  /** The copy keys the stage uses (case 5 of design 4.3). */
+  readonly copyKeys: (content: T) => readonly string[];
   /** Case 4 of design 4.3, for a stage that has its rule. True when the rule reaches completed. */
   readonly rule?: (content: T) => boolean;
 }
@@ -67,10 +70,10 @@ export function placeholderMutations(otherStage: string): ContractMutation[] {
       },
     },
     {
-      name: 'a copy key of the wrong shape',
+      name: 'a copy key that is not in GARDEN_COPY',
       path: 'target.copy',
       mutate: (json) => {
-        targetOf(json).copy = 'no spaces here';
+        targetOf(json).copy = 'nothing.here';
       },
     },
   ];
@@ -101,6 +104,12 @@ export function registerContract<T>(options: ContractOptions<T>): void {
       const json = structuredClone(options.shipped);
       first.mutate(json);
       expect(() => options.load(json)).toThrow(first.path);
+    });
+
+    it('case 5: every copy key of the stage exists in GARDEN_COPY', () => {
+      const keys = options.copyKeys(options.load(options.shipped));
+      expect(keys.length).toBeGreaterThan(0);
+      expect(keys.filter((key) => !hasCopyKey(key))).toEqual([]);
     });
 
     if (options.rule !== undefined) {

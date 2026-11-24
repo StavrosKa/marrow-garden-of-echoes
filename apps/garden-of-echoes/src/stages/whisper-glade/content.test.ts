@@ -10,4 +10,5 @@ registerContract({
   load: loadWhisperGlade,
   shipped,
   mutations: placeholderMutations('whisper-hall'),
+  copyKeys: (content) => [content.target.copy],
 });

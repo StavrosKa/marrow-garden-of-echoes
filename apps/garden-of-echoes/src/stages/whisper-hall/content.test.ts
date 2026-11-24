@@ -10,5 +10,6 @@ registerContract({
   load: loadWhisperHall,
   shipped,
   mutations: placeholderMutations('bloom'),
+  copyKeys: (content) => [content.target.copy],
   rule: (content) => stepPlaceholder(createPlaceholder(content), [targetIdOf(content)]).completed,
 });
