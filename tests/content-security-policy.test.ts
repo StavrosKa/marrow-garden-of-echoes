@@ -4,11 +4,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { build } from 'vite';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const INDEX_HTML = 'apps/garden-of-echoes/index.html';
 const PIXI_PORTS = 'packages/world-view/src/pixi/pixiPorts.ts';
+const APP_ROOT = 'apps/garden-of-echoes';
+/** The build of the app under the public base path. It is written to .scratch, which git ignores. */
+const BUILT_DIR = '.scratch/csp-build';
+/** A cold Vite build of the app. */
+const BUILD_TIMEOUT_MS = 180_000;
 
 /** The module specifier of the first import statement of a source file, comments removed. */
 function firstImportOf(source: string): string | undefined {
@@ -36,6 +42,26 @@ function directiveSources(policy: string, name: string): string[] | undefined {
   const found = directives.filter((d) => d[0]?.toLowerCase() === name);
   return found.length === 1 ? (found[0] as string[]).slice(1) : undefined;
 }
+
+describe('content security policy of the built app page (requirements 21.1, 21.3)', () => {
+  let builtHtml = '';
+  beforeAll(async () => {
+    // The build is the one the public site serves, so the policy is the one that ships, not the source text.
+    await build({
+      root: path.join(repoRoot, APP_ROOT),
+      base: '/garden/',
+      logLevel: 'silent',
+      build: { outDir: path.join(repoRoot, BUILT_DIR), emptyOutDir: true },
+    });
+    builtHtml = fs.readFileSync(path.join(repoRoot, BUILT_DIR, 'index.html'), 'utf8');
+  }, BUILD_TIMEOUT_MS);
+
+  it("the built page declares exactly one policy, and its connect-src is 'self'", () => {
+    const policies = cspMetaContents(builtHtml);
+    expect(policies, `${BUILT_DIR}/index.html must have exactly one Content-Security-Policy meta tag`).toHaveLength(1);
+    expect(directiveSources(policies[0] as string, 'connect-src')).toEqual(["'self'"]);
+  });
+});
 
 describe('content security policy of the app page', () => {
   it('content_security_policy_blocks_other_hosts', () => {
