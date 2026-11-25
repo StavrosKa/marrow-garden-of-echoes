@@ -2345,4 +2345,49 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Est. Credits Used: not measured in this session, so it is not given here.
 - Elapsed time: not measured in this session, so it is not given here.
 
+## 2026-11-25 - garden-level task 12, end to end: 12.1 to 12.5 (12.6 not run)
+
+- Commits, each pushed to origin main: step 0 (tasks.md: task 11 and 11.1 to 11.7 ticked, 11.8 deferred) `8227da1`; 12.1 `7d783aa`, with a focus fix `234374a`; 12.2 `aa75c8f`; 12.3 `783bc8a`; 12.5 `fd896d6`. 12.4 changed no file, so it has no commit. This entry is the last commit of the task. Task 12 and 12.6 stay unticked.
+- Step 0: the 11.8 line starts with "DEFERRED:" and ends with the sentence about camera play. The verification line of task 11 says "(11.8 deferred)".
+- 12.1 (`tests/e2e/garden-level.spec.ts`, 7 tests):
+  - Home to the end card in simulated input, with Reduced motion and audio muted (the mute is set in the stored settings). The pointer holds each target's DOM marker at its current position, read again every 50 ms, so the head view does not leave it behind. The stages reached are exactly lantern-glade, whisper-glade, whisper-hall and bloom. The run takes about 2.5 min, under a 10 min test timeout.
+  - Decision: a whisper spirit is held only on a select line. The DOM has no select or let-pass attribute, so the test reads the instruction text ("Reach for" marks a select, and the spirit named in the line gives the colour). If the copy changes, this test must change with it. A data attribute on the stage would remove that link. That is a source change, so it is not made here.
+  - Escape opens and closes Pause. Enter on Start reaches the permission screen with no camera request. Space on "Try without camera" enters the stage. Touch: the play area computes `touch-action: none`, a touch move (sent with CDP touch events) reaches the play area as a touch pointer move, with no pointercancel and no page scroll. `?start=bloom` starts Bloom with the label. An unknown `?start` id shows Home.
+  - Every test replaces getUserMedia with a counter that refuses. Each test checks that the spy is installed and that the count is zero.
+- 12.2 (`tests/content-security-policy.test.ts`): Vite builds the app into `.scratch/csp-build`, which git ignores. The built page has one Content-Security-Policy meta tag, and its connect-src is 'self'. The source-file check stays. `tests/vendored-assets.test.ts` is unchanged, because no file under `apps/garden-of-echoes/public` was added since 9243e22 (21.2).
+- 12.3 (`tests/no-image-files.test.ts`): no PNG, SVG, JPG, JPEG or WebP file under `apps/garden-of-echoes` beyond the list at 9243e22, read with `git ls-tree`. The app had no image file at 9243e22 and has none now, so the allowlist is empty. The current list comes from `git ls-files` (cached and not ignored).
+- 12.4: `npm run simulate -- --seed 42 --runs 50` exits 0 in about 17 s. Output:
+  - baseline 50 of 50, help steps 0, violations 0
+  - limited-reach 50 of 50, help steps 1, violations 0
+  - jitter 50 of 50, help steps 1, violations 0
+  - slow 50 of 50, help steps 5, violations 0
+  - one-hand 50 of 50, help steps 1, violations 0
+  - tracking-gaps 50 of 50, help steps 1, violations 0
+  - incorrect-answers 50 of 50, help steps 30, violations 0
+  - adversarial 50 of 50, help steps 300, violations 0
+  - Seeds 42 to 91. The output ends "Exit 0: every run completed and no invariant was violated."
+  - The dependency-graph, world-view-dependencies and core-no-wall-clock tests pass, with the noTimingLiterals test and the marrow core tests (25 files, 545 tests).
+  - package.json changes since 9243e22: the root `simulate` script now runs the app script (it was `npm run simulate -w marrow`); the app package gains a `simulate` script; `packages/marrow` loses its `simulate` stub; two files gain a trailing newline. No dependency or devDependency changed (23.4).
+- 12.5 (`apps/garden-of-echoes/src/ui/cameraTracks.test.tsx`, jsdom, 3 tests): the real App runs with a fake stream of two tracks, and each track records its stop calls.
+  - Exit to Home: every track is stopped and not live.
+  - Unmount: every track is stopped and not live.
+  - A camera request that resolves after unmount: every track is still stopped.
+  - Finding: the real code stops each track as soon as the request resolves (`cameraAccess.ts`), and the app keeps no stream. So the first two tests pass on the stops made by the request itself. No path found leaves a track running. The third test covers the one order in which a stream arrives after its screen is gone. The test header says this. No STOP was needed.
+- Gates:
+  - Typecheck and lint passed before every commit.
+  - The unit suite, after the 12.5 commit and the focus fix, passed clean: 157 files and 1903 tests.
+  - `npm run test:e2e` with the default workers ran after the 12.5 commit. The rule asked for it before the last code commit, and it did not run in that order. It gave 24 passed and 2 failed. The failures were lantern-frame "wide window" (the wait for Pixi, 20 s inside a 30 s test) and playground-simulated "(b)" (a target class, 10 s). Both pass when run alone. The first run of my keyboard tests failed on focus, and the fix is `234374a`.
+  - `npx playwright test --workers=1` passed 26 of 26, on the fixed tree before the fix commit.
+  - Unit-suite timeouts under load: three full runs had 5 s timeouts in unrelated tests: `glide.test.ts` (world-view), two tests in `testgen.test.ts`, and `tests/help-levels-at-placement.test.ts`. Each passes alone, and each later full run passed.
+- Open items for the owner:
+  1. 12.6, the deploy check on the public URL, needs owner approval. It has not run.
+  2. 11.8 stays deferred (step 0).
+  3. The whisper route test reads instruction copy to tell select from let-pass (see 12.1).
+  4. Two pre-existing e2e tests (lantern-frame wide window, the playground "(b)" drag) have 30 s and 10 s budgets, and time out when the e2e workers run in parallel. They are outside the allowed files, so they are not changed.
+  5. The unit-suite timeouts under load (above). The tests pass alone.
+  6. From task 11: the off-screen placement check, and the stale design examples at lines 400, 415 and 416, remain open.
+  7. No mutation checks were run, as the task required.
+- Est. Credits Used: not measured in this session, so it is not given here.
+- Elapsed time: about 1 h 20 min, estimated from the clock. The first full test run started at 21:13, the clock read 22:27 when this entry was written, and the session started a few minutes before 21:13.
+
 
