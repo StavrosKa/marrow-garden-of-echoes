@@ -2390,4 +2390,16 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Est. Credits Used: not measured in this session, so it is not given here.
 - Elapsed time: about 1 h 20 min, estimated from the clock. The first full test run started at 21:13, the clock read 22:27 when this entry was written, and the session started a few minutes before 21:13.
 
+## 2026-11-25 - garden-level 12.6: deploy workflow fix, public-URL check, task 12 ticked
+
+- CI cause: the owner reported that every deploy run since 783bc8a (12.3) failed in `npm test`. The deploy workflow runs on every push to main, and its checkout is shallow by default. `tests/no-image-files.test.ts` runs `git ls-tree 9243e22`, which failed with "fatal: Not a valid object name 9243e22", so the public site stayed at the 12.2 build.
+- Fix `ddd3d59`: `fetch-depth: 0` on the build job's checkout, the only change to `deploy.yml`. The image-file test now fails with "9243e22 is not in this checkout; fetch full history" when the commit is missing.
+- Deploy run for `ddd3d59` (run 45696606703, created 2026-11-25 20:36:42 UTC): the build job passed, with typecheck, lint, `npm test` and the build, and the deploy job passed.
+- Public-URL check (12.6): the Home-to-end-card route ran against https://stavroska.github.io/marrow-garden-of-echoes/ in simulated input, with Reduced motion and muted audio, from 2026-11-25 22:40:00 local (20:40 UTC). It passed in 2.2 min. It asserted the `end-card` test id, the stage sequence lantern-glade, whisper-glade, whisper-hall, bloom, zero camera calls, and no page errors, console errors or HTTP responses of 400 or more.
+- Test change for the public run: the committed spec is unchanged. The throwaway copy in `.scratch` opens the full site URL, because a bare `/` would drop the `/marrow-garden-of-echoes/` base path, and it has no local web server. Its route logic is the committed one.
+- Tick commit `db8c29d`: 12.6 and task 12 are ticked. Sub-tasks 12.1 to 12.5 stay unticked, because the owner's approval named 12.6 and task 12 only. Its deploy run (45698053214) also passed.
+- No deploy was run by hand. The deploys came from the workflow on each push.
+- Est. Credits Used: not measured in this session, so it is not given here.
+- Elapsed time: about 25 min for this turn, estimated from the clock (22:27 to 22:50 local).
+
 
