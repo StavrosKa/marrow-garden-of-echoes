@@ -18,6 +18,7 @@ import {
   activeHitAreas,
   applyHelp,
   createGarden,
+  drawnTargetsOf,
   helpEventsOf,
   instructionKeyOf,
   playbackAfter,
@@ -224,9 +225,185 @@ describe('the garden session on Lantern Glade', () => {
   });
 
   it('14.2 20.4: a placeholder stage shows its own copy key and has no target to dwell on', () => {
-    const state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'whisper-glade' } })).state;
-    expect(instructionKeyOf(state)).toBe('whisper.select.blueDrop');
+    const state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'bloom' } })).state;
+    expect(instructionKeyOf(state)).toBe('bloom.target');
     expect(activeHitAreas(state, env.reach.frame)).toEqual([]);
+  });
+});
+
+/** The whisper stage, started by the ?start shortcut: it is in play at once, with the first presentation announced. */
+function whisperInPlay(seed = 42): GardenState {
+  return stepGarden(env, createGarden(segments, seed), frame({ event: { kind: 'startAt', stage: 'whisper-glade' } })).state;
+}
+
+/** The presentation on screen, or null. */
+function presentationOf(state: GardenState) {
+  if (state.stage?.kind !== 'whisper') return null;
+  const attention = state.stage.rule.attention;
+  return attention.blocks[attention.block]?.[attention.index] ?? null;
+}
+
+/** The pointer that dwells on the spirit of a select presentation, or on the path option the round offers. */
+function whisperPointer(state: GardenState): PointerInput[] {
+  const areas = activeHitAreas(state, env.reach.frame);
+  const area = areas[0];
+  if (area === undefined) return [];
+  if (state.stage?.kind === 'whisper' && state.stage.rule.path.phase === 'waiting') {
+    const presentation = presentationOf(state);
+    if (presentation === null || presentation.mark !== 'select' || state.stage.rule.attention.phase !== 'presenting') return [];
+  }
+  return [{ wrist: 'right', valid: true, pos: area.centre }];
+}
+
+/** Plays frames until a predicate holds, or fails the test when the bound is reached. */
+function playUntil(state: GardenState, done: (state: GardenState) => boolean, pointers: (state: GardenState) => PointerInput[] = whisperPointer): GardenState {
+  let current = state;
+  for (let i = 0; i < 20000 && !done(current); i++) {
+    current = stepGarden(env, current, frame({ pointers: pointers(current) })).state;
+  }
+  if (!done(current)) throw new Error('the condition was not reached');
+  return current;
+}
+
+describe('the whisper stage in the session (requirements 5, 8, 12.1, 1.4)', () => {
+  it('5.3 19.1: a demonstration is not a presentation, and it turns playback on until the next presentation starts', () => {
+    let state = whisperInPlay();
+    expect(state.stage?.kind).toBe('whisper');
+    state = playUntil(state, (s) => s.stage?.kind === 'whisper' && s.stage.rule.attention.phase === 'demonstration', () => []);
+    expect(state.playback).toBe(true);
+    expect(instructionKeyOf(state)).toBe('whisper.demo');
+    expect(activeHitAreas(state, env.reach.frame)).toEqual([]);
+    state = playUntil(state, (s) => s.stage?.kind === 'whisper' && s.stage.rule.attention.phase === 'presenting', () => []);
+    expect(state.playback).toBe(false);
+  });
+
+  it('5.3: the hit area exists only for the current presentation, one spirit at a time', () => {
+    const state = whisperInPlay();
+    const presentation = presentationOf(state);
+    expect(presentation).not.toBeNull();
+    expect(activeHitAreas(state, env.reach.frame).map((area) => area.targetId)).toEqual([`spirit-${presentation?.stimulusId}`]);
+  });
+
+  it('5.6: a whisper target is drawn only while it can be selected, with its shape', () => {
+    const state = whisperInPlay();
+    const drawn = drawnTargetsOf(state, env.reach.frame);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0]?.shape === 'drop' || drawn[0]?.shape === 'leaf').toBe(true);
+    expect(drawn[0]?.active).toBe(true);
+    expect(drawn[0]?.centre).not.toBeNull();
+  });
+
+  it('12.1: raising both help levels in the middle of a round does not change its placement', () => {
+    const state = whisperInPlay();
+    const before = activeHitAreas(state, env.reach.frame)[0];
+    const raised = { ...state, help: { ...state.help, motorLevel: TUNING.helpMaxLevel, cognitiveLevel: TUNING.helpMaxLevel } };
+    const later = stepGarden(env, raised, frame()).state;
+    expect(later.placed).toEqual(state.placed);
+    expect(activeHitAreas(later, env.reach.frame)[0]?.radius).toBe(before?.radius);
+  });
+
+  it('1.4: a completion under a pause reaches no rule, and the path stays closed for the choice', () => {
+    let state = playUntil(whisperInPlay(), (s) => s.stage?.kind === 'whisper' && s.stage.rule.path.phase === 'open');
+    const effects: GardenEffect[] = [];
+    for (let i = 0; i < 5; i++) {
+      const step = stepGarden(env, state, frame({ pointers: whisperPointer(state), suspension: PAUSED }));
+      effects.push(...step.effects);
+      state = step.state;
+    }
+    expect(effects.filter((effect) => effect.kind === 'pathChosen')).toEqual([]);
+    expect(state.session.done).toEqual([]);
+    expect(state.stage?.kind === 'whisper' ? state.stage.rule.path.dressing : 'none').toBeNull();
+  });
+
+  it('7.5 19.9: Continue with help completes the presentation with help', () => {
+    let state = whisperInPlay();
+    const effects: GardenEffect[] = [];
+    for (let i = 0; i < 200; i++) {
+      const step = stepGarden(env, state, frame({ helpRequested: true, pointers: [] }));
+      effects.push(...step.effects);
+      state = step.state;
+      if (effects.some((effect) => effect.kind === 'attention' && effect.event.kind === 'presentationCompleted')) break;
+    }
+    const completed = effects.flatMap((effect) => (effect.kind === 'attention' && effect.event.kind === 'presentationCompleted' ? [effect.event] : []));
+    expect(completed[0]).toEqual(expect.objectContaining({ byHelp: true }));
+  });
+
+  it('7.3 14.2: the attention events reach the effects in order, starting with the first presentation', () => {
+    const start = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'whisper-glade' } }));
+    let state = start.state;
+    const kinds: string[] = [];
+    for (const effect of start.effects) {
+      if (effect.kind === 'attention') kinds.push(effect.event.kind);
+      if (effect.kind === 'help') kinds.push('help');
+    }
+    for (let i = 0; i < 2000; i++) {
+      const step = stepGarden(env, state, frame({ pointers: whisperPointer(state) }));
+      for (const effect of step.effects) {
+        if (effect.kind === 'attention') kinds.push(effect.event.kind);
+        if (effect.kind === 'help') kinds.push('help');
+      }
+      state = step.state;
+      if (kinds.includes('presentationCompleted')) break;
+    }
+    expect(kinds[0]).toBe('presentationStarted');
+    expect(kinds.indexOf('presentationCompleted')).toBeGreaterThan(kinds.indexOf('presentationStarted'));
+  });
+});
+
+describe('the scripted run of Whisper Glade (requirements 8.1, 8.4)', () => {
+  it('8.1 8.4: the glade, journey A, the round, the path choice and journey B complete in order', () => {
+    const lanternPointer = (state: GardenState): PointerInput[] => pointerOnActive(state);
+    let state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'lantern-glade' } })).state;
+    const effects: GardenEffect[] = [];
+    const journeys: string[] = [];
+    for (let i = 0; i < 40000; i++) {
+      const pointers = state.stage?.kind === 'whisper' ? whisperPointer(state) : lanternPointer(state);
+      const step = stepGarden(env, state, frame({ pointers }));
+      state = step.state;
+      effects.push(...step.effects);
+      for (const effect of step.effects) {
+        if (effect.kind === 'session' && effect.effect.kind === 'travelStarted') journeys.push(effect.effect.journey);
+      }
+      if (journeys.includes('journeyB') && state.session.phase === 'TRAVELLING') break;
+    }
+    expect(journeys).toEqual(['journeyA', 'journeyB']);
+    expect(effects.filter((effect) => effect.kind === 'pathChosen')).toHaveLength(1);
+    expect(state.session.done).toEqual(['lantern-glade', 'whisper-glade']);
+    expect(state.session.phase).toBe('TRAVELLING');
+    expect(state.session.travel?.distance ?? -1).toBeGreaterThanOrEqual(0);
+  });
+
+  it('8.1: the path choice completes the stage once, and the stage has no rule after it', () => {
+    let state = playUntil(whisperInPlay(), (s) => s.stage?.kind === 'whisper' && s.stage.rule.path.phase === 'open');
+    const chosen: GardenEffect[] = [];
+    for (let i = 0; i < 300 && chosen.length === 0; i++) {
+      const step = stepGarden(env, state, frame({ pointers: whisperPointer(state) }));
+      chosen.push(...step.effects.filter((effect) => effect.kind === 'pathChosen'));
+      state = step.state;
+    }
+    expect(chosen).toHaveLength(1);
+    const after: GardenEffect[] = [];
+    for (let i = 0; i < 20; i++) {
+      const step = stepGarden(env, state, frame({ pointers: whisperPointer(state) }));
+      after.push(...step.effects.filter((effect) => effect.kind === 'pathChosen'));
+      state = step.state;
+    }
+    expect(after).toHaveLength(0);
+  });
+
+  it('8.1 8.2: either hand selects a path option, because the choice names the option and not a wrist', () => {
+    const open = playUntil(whisperInPlay(), (s) => s.stage?.kind === 'whisper' && s.stage.rule.path.phase === 'open');
+    const area = activeHitAreas(open, env.reach.frame)[0];
+    expect(area).toBeDefined();
+    let state = open;
+    let chosen = false;
+    for (let i = 0; i < 200 && !chosen; i++) {
+      const pointers: PointerInput[] = area === undefined ? [] : [{ wrist: 'left', valid: true, pos: area.centre }];
+      const step = stepGarden(env, state, frame({ pointers }));
+      chosen = step.effects.some((effect) => effect.kind === 'pathChosen');
+      state = step.state;
+    }
+    expect(chosen).toBe(true);
   });
 });
 

@@ -53,6 +53,16 @@ export function startWhisperGlade(content: WhisperGladeContent, rng: Rng, motion
  * presentation with help. Once the attention round has finished, the path targets are open. The step returns the
  * attention events, which the driver maps to help events.
  */
+/**
+ * The target id of the spirit presented now, or null. A demonstration, the path choice and the end of the round present
+ * no spirit, so none of them has a spirit target (Req 5.3, 8.1).
+ */
+export function presentedTargetId(state: WhisperState): string | null {
+  if (state.path.phase !== 'waiting') return null;
+  const presentation = currentPresentation(state.attention);
+  return presentation === null ? null : spiritTargetId(presentation.stimulusId);
+}
+
 export function stepWhisperGlade(
   state: WhisperState,
   selectedTargetIds: readonly string[],

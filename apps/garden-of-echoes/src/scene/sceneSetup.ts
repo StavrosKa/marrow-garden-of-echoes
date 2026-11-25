@@ -4,10 +4,25 @@
 // view is not wired yet), so the view has no parallax.
 import type { SessionState } from '../session/machine';
 import { resolveLayerTable, TUNING as WORLD_TUNING, type LayerTableEntry, type Rect, type View } from 'world-view';
-import type { FrameData, SceneLayerSpec, ShapeSpec } from 'world-view/pixi';
+import type { FrameData, SceneLayerSpec, SceneTarget, ShapeSpec } from 'world-view/pixi';
+import type { GardenState } from '../session/stageDriver';
+import { lanternSceneKey, lanternSceneTargets } from '../stages/lantern-glade/scene';
+import { whisperSceneKey, whisperSceneTargets } from '../stages/whisper-glade/scene';
 import { colourNumber, theme, type ThemeToken } from '../ui/theme';
 import { FOREST_LAYERS } from './forestLayers';
 import { spriteSlot, type SpriteName } from './spriteSlot';
+
+/** The Scene Manager's targets of the stage in progress: the lanterns, or the Whisper Glade targets, or none. */
+export function sceneTargetsOf(state: GardenState): SceneTarget[] {
+  if (state.stage?.kind === 'whisper') return whisperSceneTargets(state);
+  return lanternSceneTargets(state);
+}
+
+/** The key of the scene targets: the scene is updated only when this changes. */
+export function sceneKeyOf(state: GardenState): string {
+  if (state.stage?.kind === 'whisper') return whisperSceneKey(state);
+  return lanternSceneKey(state);
+}
 
 /** The visible disc of a target as a fraction of its hit radius, so the visible circle is smaller (steering 4). */
 export const TARGET_VISUAL_RATIO = 0.5;

@@ -1,6 +1,7 @@
 // Journeys and doors (requirements 2.1 to 2.7). The durations come from world-view's TUNING, so the test reads the
 // same numbers as the travel engine. The depth checks use the forest layer table of scene/forestLayers.ts.
-import type { MotionLevel } from 'marrow/core';
+import { TUNING, type MotionLevel } from 'marrow/core';
+import { createSession, stepSession } from '../session/machine';
 import {
   checkDepthScaling,
   createTravel,
@@ -132,6 +133,29 @@ describe('journeys and doors', () => {
       const spec: SegmentSpec = { id: journey, kind: journey.startsWith('door') ? 'door' : 'journey', ...segment };
       expect(checkDepthScaling(layers, spec, WORLD_TUNING)).toEqual([]);
     }
+  });
+});
+
+describe('the route after Whisper Glade (requirement 8.4)', () => {
+  it('8.4: the route goes through journey B and the hall door to the placeholder Whisper Hall', () => {
+    const input = { dtMs: TUNING.maxClockStepMs, motion: 'full' as const, suspension: { paused: false, holdActive: false } };
+    let state = createSession(segments);
+    state = stepSession(state, { kind: 'startAt', stage: 'whisper-glade' }, input).state;
+    state = stepSession(state, { kind: 'stageCompleted', stage: 'whisper-glade' }, input).state;
+    const travels: string[] = [];
+    const activated: string[] = [];
+    for (let i = 0; i < 100000 && !activated.includes('whisper-hall'); i++) {
+      const step = stepSession(state, null, input);
+      state = step.state;
+      for (const effect of step.effects) {
+        if (effect.kind === 'travelStarted') travels.push(effect.journey);
+        if (effect.kind === 'stageActivated') activated.push(effect.stage);
+      }
+    }
+    expect(travels).toEqual(['journeyB', 'doorHall']);
+    expect(activated).toEqual(['whisper-hall']);
+    expect(state.phase).toBe('PLAYING');
+    expect(state.stage).toBe('whisper-hall');
   });
 });
 

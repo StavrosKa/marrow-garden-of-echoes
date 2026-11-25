@@ -4,6 +4,7 @@
 // the forest and the lanterns, and the DOM draws the one instruction line, the label and the entry title. Each lantern
 // also has a transparent DOM marker at its position, so a test can aim at it.
 import { useEffect, useReducer, useRef, type ReactElement } from 'react';
+import type { CSSProperties } from 'react';
 import { makeMapping, stepClocks, TUNING as MARROW_TUNING, type MotionLevel, type PointerInput } from 'marrow/core';
 import { createPointerSource, type PoseSource } from 'marrow/input';
 import { TUNING as WORLD_TUNING } from 'world-view';
@@ -15,20 +16,20 @@ import segmentsJson from '../journeys/segments.json';
 import { APP_SESSION_TUNING } from '../session/tuning';
 import { loadLanternGlade } from '../stages/lantern-glade/content';
 import lanternJson from '../stages/lantern-glade/content.json';
-import { lanternSceneKey, lanternSceneTargets } from '../stages/lantern-glade/scene';
 import { loadWhisperGlade } from '../stages/whisper-glade/content';
 import whisperGladeJson from '../stages/whisper-glade/content.json';
 import { loadWhisperHall } from '../stages/whisper-hall/content';
 import whisperHallJson from '../stages/whisper-hall/content.json';
 import { loadBloom } from '../stages/bloom/content';
 import bloomJson from '../stages/bloom/content.json';
-import { colourNumber } from './theme';
-import { COVER_TOKEN, forestSceneLayers, frameDataOf, TARGET_VISUAL_RATIO } from '../scene/sceneSetup';
+import { colourNumber, theme } from './theme';
+import { COVER_TOKEN, forestSceneLayers, frameDataOf, sceneKeyOf, sceneTargetsOf, TARGET_VISUAL_RATIO } from '../scene/sceneSetup';
 import {
   createGarden,
   drawnTargetsOf,
   instructionKeyOf,
   stepGarden,
+  type DrawnTarget,
   type GardenEnv,
   type GardenFrame,
   type GardenState,
@@ -46,6 +47,33 @@ const CENTRE_Y = 0.5;
 const NOT_VALID_POINTER = { wrist: 'right', valid: false } as const;
 const REDUCED_QUERY = '(prefers-reduced-motion:reduce)';
 const PERCENT = 100;
+/** The centring of a marker on its target's centre. */
+const CENTRED = 'translate(-50%, -50%)';
+
+/**
+ * The style of a target's marker (Req 5.6, 8.1). A lantern marker stays transparent, as before. Each whisper marker is a
+ * visible shape, so its shape and not only its colour tells the targets apart: a blue drop, a gold leaf, the fireflies (a
+ * round glow) and the candles (a tall block). Colours come from the theme.
+ */
+export function markerStyleOf(shape: DrawnTarget['shape']): CSSProperties {
+  switch (shape) {
+    case 'lantern':
+      return { opacity: 0 };
+    case 'drop':
+      return { background: theme.grey6, borderRadius: '50% 50% 50% 0', transform: `${CENTRED} rotate(-45deg)` };
+    case 'leaf':
+      return { background: theme.lanternWarm, borderRadius: '0 50%' };
+    case 'fireflies':
+      return { background: theme.lanternGlow, borderRadius: '50%' };
+    case 'candles':
+      return { background: theme.grey7, borderRadius: '0.15em' };
+  }
+}
+
+/** A seed for one session, so each play is different (the simulator and the tests give their own seeds). */
+function randomSeed(): number {
+  return Math.floor(Math.random() * 2 ** 32);
+}
 
 function motionNow(): MotionLevel {
   return typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_QUERY).matches ? 'reduced' : 'full';
@@ -102,7 +130,7 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
     const env = environment();
     envRef.current = env;
     const segments = loadSegments(segmentsJson);
-    gameRef.current = createGarden(segments);
+    gameRef.current = createGarden(segments, randomSeed());
     const audio = createGardenAudio(createTonePlayer(() => new AudioContext()));
     audioRef.current = audio;
     const source = createPointerSource({ playArea: area, requestFrame: browserFrames.request, cancelFrame: browserFrames.cancel });
@@ -137,10 +165,10 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
         if (effect.kind === 'lanternLit') audio.playNote(effect.index);
       }
       const scene = sceneRef.current;
-      const key = lanternSceneKey(step.state);
+      const key = sceneKeyOf(step.state);
       if (scene !== null && key !== sceneKey) {
         sceneKey = key;
-        scene.setTargets(lanternSceneTargets(step.state));
+        scene.setTargets(sceneTargetsOf(step.state));
       }
       redraw();
       handle = browserFrames.request(tick);
@@ -225,6 +253,7 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
               data-target={target.id}
               data-lit={target.lit ? 'yes' : 'no'}
               data-active={target.active ? 'yes' : 'no'}
+              data-shape={target.shape}
               aria-hidden="true"
               style={{
                 position: 'absolute',
@@ -232,9 +261,10 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
                 top: `${target.centre.y * PERCENT}%`,
                 width: `${(target.radius * 2 * PERCENT) / ASPECT}%`,
                 height: `${target.radius * 2 * PERCENT}%`,
-                transform: 'translate(-50%, -50%)',
+                transform: CENTRED,
                 borderRadius: '50%',
-                opacity: 0,
+                pointerEvents: 'none',
+                ...markerStyleOf(target.shape),
               }}
             />
           ),

@@ -208,7 +208,7 @@ function calibrate(
 function playSession(profile: SimProfile, seed: number, maxSteps: number): RunSummary {
   const env = environment();
   const interval = profile.frameIntervalMs;
-  let garden = createGarden(loadSegments(segmentsJson));
+  let garden = createGarden(loadSegments(segmentsJson), seed);
   const budget = { steps: 0, maxSteps };
   const calibrated = calibrate(profile, seedRng(seed), env, garden, budget);
   garden = calibrated.garden;
