@@ -48,12 +48,6 @@ export function startWhisperGlade(content: WhisperGladeContent, rng: Rng, motion
 }
 
 /**
- * One step. A selection of the current spirit's target is a dwell on the current stimulus (a select completes, a let-pass
- * is a mistake). `helpRequested` is "Continue with help", which ends a demonstration and completes the current
- * presentation with help. Once the attention round has finished, the path targets are open. The step returns the
- * attention events, which the driver maps to help events.
- */
-/**
  * The target id of the spirit presented now, or null. A demonstration, the path choice and the end of the round present
  * no spirit, so none of them has a spirit target (Req 5.3, 8.1).
  */
@@ -63,6 +57,12 @@ export function presentedTargetId(state: WhisperState): string | null {
   return presentation === null ? null : spiritTargetId(presentation.stimulusId);
 }
 
+/**
+ * One step. A selection of the current spirit's target is a dwell on the current stimulus (a select completes, a let-pass
+ * is a mistake). `helpRequested` is "Continue with help", which ends a demonstration and completes the current
+ * presentation with help. Once the attention round has finished, the path targets are open. The step returns the
+ * attention events, which the driver maps to help events.
+ */
 export function stepWhisperGlade(
   state: WhisperState,
   selectedTargetIds: readonly string[],

@@ -6,6 +6,13 @@ import { registerContract, type ContractMutation } from '../shared/contract';
 import shipped from './content.json';
 import { ATTENTION_TUNING, seedRng } from 'marrow/challenges';
 import { copyKeysOf, loadWhisperGlade, validateWhisperGlade, type WhisperGladeContent } from './content';
+import { TUNING, createHelp } from 'marrow/core';
+import { targetScreen, TUNING as WORLD_TUNING, type WorldPoint } from 'world-view';
+import { loadSegments } from '../../journeys/journeys';
+import segmentsJson from '../../journeys/segments.json';
+import { INTERACTION_LAYER } from '../../scene/forestLayers';
+import { wholeFrameReach, SIMULATED_WRISTS } from '../../session/wholeFrame';
+import { placeRound } from '../shared/placeRound';
 import { PATH_TARGET_IDS } from './pathChoice';
 import { spiritTargetId, startWhisperGlade, stepWhisperGlade } from './rules';
 
@@ -202,5 +209,56 @@ describe('whisper-glade copy keys (requirement 5.8)', () => {
         'path.choose',
       ]),
     );
+  });
+});
+
+describe('whisper-glade target separation (the spirits and the path options do not overlap)', () => {
+  // The play area of the stage, and its whole-frame reach (as ui/GardenStage.tsx and the session tests use).
+  const aspect = 16 / 9;
+  const frame = { aspect, sceneScale: 1 };
+  const reach = wholeFrameReach(aspect);
+  const layer = { depth: INTERACTION_LAYER.depth, anchor: INTERACTION_LAYER.anchor, factor: WORLD_TUNING.interactionFactor };
+  const journeyA = loadSegments(segmentsJson).journeyA;
+  // The travel distances of Whisper Glade: its start, the middle of journey A, and the end of journey A.
+  const travels = [journeyA.from, (journeyA.from + journeyA.to) / 2, journeyA.to];
+  const pointOf = (slot: { x: number; y: number }): WorldPoint => ({ ...slot, depth: layer.depth, anchor: layer.anchor, factor: layer.factor });
+
+  it('8.1 8.4: at each travel, both groups place simultaneously, and no centre lies inside a circle of the other group', () => {
+    const loaded = loadWhisperGlade(shipped);
+    const spirits = loaded.spiritSlots.map(pointOf);
+    const paths = [loaded.pathSlots.fireflies, loaded.pathSlots.candles].map(pointOf);
+    for (const travel of travels) {
+      const view = { travel, head: { x: 0, y: 0 } };
+      const place = (slots: WorldPoint[]) =>
+        placeRound({
+          worldSlots: slots,
+          n: slots.length,
+          help: createHelp(TUNING),
+          grids: reach.grids,
+          activeWrists: SIMULATED_WRISTS,
+          mapping: reach.mapping,
+          view,
+          frame,
+          layer,
+          bandY: ATTENTION_TUNING.restingBandY,
+          core: TUNING,
+        });
+      const spiritRound = place(spirits);
+      const pathRound = place(paths);
+      expect(spiritRound.kind, `spirits at travel ${travel}`).toBe('simultaneous');
+      expect(pathRound.kind, `paths at travel ${travel}`).toBe('simultaneous');
+      const screen = (point: WorldPoint, radius: number) => targetScreen(point, radius, view, frame, WORLD_TUNING);
+      const spiritScreens = spiritRound.points.map((point) => screen(point, spiritRound.snapshot.radius));
+      const pathScreens = pathRound.points.map((point) => screen(point, pathRound.snapshot.radius));
+      for (const s of spiritScreens) {
+        for (const p of pathScreens) {
+          if (s === null || p === null) throw new Error(`a target is culled at travel ${travel}`);
+          const gap = Math.hypot(s.position.x - p.position.x, s.position.y - p.position.y);
+          expect(gap > p.radius, `a spirit centre is inside a path circle at travel ${travel}`).toBe(true);
+          expect(gap > s.radius, `a path centre is inside a spirit circle at travel ${travel}`).toBe(true);
+          expect(gap > s.radius + p.radius, `the spirit and path circles overlap at travel ${travel}`).toBe(true);
+        }
+      }
+    }
   });
 });
