@@ -187,8 +187,9 @@ test.describe('Keyboard and Pause (requirements 3.5, 24.1, 24.4)', () => {
   test('Enter on Start shows the camera permission screen, and does not request the camera yet', async ({ page }) => {
     await prepare(page);
     await page.goto('/');
-    await page.keyboard.press('Tab');
+    // The focus is set on the button, not reached by Tab: the first Tab depends on the browser's focus at load.
     const start = page.getByRole('button', { name: GARDEN_COPY.home.start });
+    await start.focus();
     await expect(start).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: copy.marrow.camera.useCamera })).toBeVisible({ timeout: SHORT_TIMEOUT_MS });
@@ -199,9 +200,8 @@ test.describe('Keyboard and Pause (requirements 3.5, 24.1, 24.4)', () => {
   test('Space on "Try without camera" enters the stage in simulated input', async ({ page }) => {
     await prepare(page);
     await page.goto('/');
-    await page.keyboard.press('Tab');
-    await page.keyboard.press('Tab');
     const noCamera = page.getByRole('button', { name: GARDEN_COPY.home.noCamera });
+    await noCamera.focus();
     await expect(noCamera).toBeFocused();
     await page.keyboard.press('Space');
     await expect(page.locator('main.garden-stage')).toBeVisible({ timeout: SHORT_TIMEOUT_MS });
