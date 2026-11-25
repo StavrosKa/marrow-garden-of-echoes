@@ -53,6 +53,18 @@ describe('the Pause controls (requirements 24.1, 24.4)', () => {
     expect(handlers.onExit).toHaveBeenCalledTimes(1);
   });
 
+  it('24.1: Tab from the last control returns to the first, and Shift+Tab goes back, so the focus stays in the dialog', async () => {
+    const user = userEvent.setup();
+    renderPause();
+    const resume = screen.getByRole('button', { name: GARDEN_COPY.pause.resume });
+    const exit = screen.getByRole('button', { name: GARDEN_COPY.pause.exit });
+    exit.focus();
+    await user.tab();
+    expect(document.activeElement).toBe(resume);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(exit);
+  });
+
   it('24.4: "Continue with help" from Pause calls onContinueHelp and nothing else', async () => {
     const user = userEvent.setup();
     const { handlers } = renderPause();
