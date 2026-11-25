@@ -397,7 +397,14 @@ Content holds ids, positions and counts. It never holds text: each line is a key
   "id": "lantern-glade",
   "lanterns": 4,
   "notes": ["C4", "D4", "E4", "G4"],
-  "slots": [{ "x": 0.8, "y": 0.5, "depth": 6, "anchor": 1 }, { "x": 1.2, "y": 0.5, "depth": 6, "anchor": 1 }],
+  "slots": [
+    { "x": 0.45, "y": 0.42, "depth": 24, "anchor": 0 },
+    { "x": 1.33, "y": 0.42, "depth": 24, "anchor": 0 },
+    { "x": 0.6, "y": 0.55, "depth": 24, "anchor": 0 },
+    { "x": 1.18, "y": 0.55, "depth": 24, "anchor": 0 },
+    { "x": 0.75, "y": 0.36, "depth": 24, "anchor": 0 },
+    { "x": 1.05, "y": 0.36, "depth": 24, "anchor": 0 }
+  ],
   "copy": { "first": "lantern.first", "next": "lantern.next" }
 }
 ```
@@ -412,10 +419,12 @@ Content holds ids, positions and counts. It never holds text: each line is a key
     { "select": "blueDrop", "pass": "goldLeaf", "marks": ["select", "select", "pass"] },
     { "select": "goldLeaf", "pass": "blueDrop", "marks": ["select", "pass", "pass"] }
   ],
-  "spiritSlots": [{ "x": 0.6, "y": 0.5, "depth": 6, "anchor": 1 }, { "x": 1.4, "y": 0.5, "depth": 6, "anchor": 1 }],
-  "pathSlots": { "fireflies": { "x": 0.2, "y": 0.5, "depth": 6, "anchor": 1 }, "candles": { "x": 1.8, "y": 0.5, "depth": 6, "anchor": 1 } }
+  "spiritSlots": [{ "x": 0.7, "y": 0.38, "depth": 24, "anchor": 0 }, { "x": 1.3, "y": 0.38, "depth": 24, "anchor": 0 }],
+  "pathSlots": { "fireflies": { "x": 0.4, "y": 0.66, "depth": 24, "anchor": 0 }, "candles": { "x": 1.3, "y": 0.66, "depth": 24, "anchor": 0 } }
 }
 ```
+
+Every slot is anchored so that its depth scale is 1 at the travel where its stage activates (journal, task 11 part B).
 
 The copy key for a line is built from the stem: `whisper.select.<select stem>`, `whisper.pass.<pass stem>`, `mistake.select.<select stem>`, `mistake.pass.<pass stem>`. Block one uses blueDrop as select, and block two uses goldLeaf (Req 5.8).
 
