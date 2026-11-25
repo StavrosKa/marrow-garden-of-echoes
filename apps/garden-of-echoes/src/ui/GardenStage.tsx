@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react';
 import { makeMapping, stepClocks, TUNING as MARROW_TUNING, type MotionLevel, type PointerInput } from 'marrow/core';
 import { createPointerSource, type PoseSource } from 'marrow/input';
 import { createSettingsStore, type SettingsStore } from 'marrow/react';
+import { createLowRate, stepLowRate, takeHint } from '../session/lowRate';
 import { TUNING as WORLD_TUNING } from 'world-view';
 import type { SceneManager } from 'world-view/pixi';
 import { createGardenAudio, type GardenAudio } from '../audio/gardenAudio';
@@ -49,6 +50,7 @@ import { SIMULATED_WRISTS, wholeFrameReach } from '../session/wholeFrame';
 import { browserFrames } from './frames';
 import { textOf } from './copyLookup';
 import { EndCard } from './EndCard';
+import { motionAt } from './motion';
 import { InstructionLine } from './InstructionLine';
 import { PauseScreen } from './PauseScreen';
 import { PlayArea } from './PlayArea';
@@ -91,6 +93,17 @@ function motionNow(): MotionLevel {
   return typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_QUERY).matches ? 'reduced' : 'full';
 }
 
+/**
+ * The copy key of the instruction the player must act on now, or null (Req 15.3). An instruction is pending while the
+ * session is entering a stage, playing it, or in Bloom. Travel, celebration and the end card have none, so the quiet hint
+ * may show then.
+ */
+export function requiredLineOf(state: GardenState): string | null {
+  const phase = state.session.phase;
+  if (phase !== 'ENTERING' && phase !== 'PLAYING' && phase !== 'BLOOM') return null;
+  return instructionKeyOf(state);
+}
+
 /** Exit without an app above the stage: the page goes to its own address, which has no ?start value and so shows Home. */
 function leaveToStartAddress(): void {
   window.location.assign(window.location.pathname);
@@ -125,9 +138,12 @@ function environment(): GardenEnv {
 /** The pointer mapping of the play area: the whole play area is the screen, with gain 1 (marrow Req 6.3). */
 const POINTER_MAPPING = makeMapping({ playAspect: ASPECT, frameAspect: ASPECT, gain: 1, centre: { x: ASPECT / 2, y: CENTRE_Y } });
 
-/** The pointer of this frame: the right wrist of the pointer source, in screen units (simulated input). */
-function pointerOf(source: PoseSource): PointerInput[] {
-  const wrist = source.latest()?.landmarks.rightWrist;
+/** A pose frame of the pointer source, or null before the first one. */
+type Pose = ReturnType<PoseSource['latest']>;
+
+/** The pointer of this frame: the right wrist of the pose frame, in screen units (simulated input). */
+function pointerOf(pose: Pose): PointerInput[] {
+  const wrist = pose?.landmarks.rightWrist;
   if (wrist === undefined || !wrist.valid) return [NOT_VALID_POINTER];
   return [{ wrist: 'right', valid: true, pos: POINTER_MAPPING.toScreen(wrist.pos) }];
 }
@@ -166,6 +182,8 @@ export function GardenStage(props: GardenStageProps): ReactElement {
   const titleRef = useRef<{ readonly title: TitleId; readonly timerMs: number } | null>(null);
   // The help offer "Want a hint?" (Req 7.3). It is on after the offerHelp output, and off when the presentation completes.
   const offerRef = useRef(false);
+  // Whether the quiet light hint has been shown in this play (Req 16.2: once per session).
+  const hintShownRef = useRef(false);
   // The frame loop is set up once, so it reads the callback through a ref that holds the latest one.
   const noSlotRef = useRef(onNoSlot);
   noSlotRef.current = onNoSlot;
@@ -197,6 +215,10 @@ export function GardenStage(props: GardenStageProps): ReactElement {
     void source.start();
     let last: number | null = null;
     let first = true;
+    let lastPose: Pose = null;
+    // The rate watch and its hint belong to one play, so a restart starts both again (Req 16.2).
+    let rate = createLowRate();
+    hintShownRef.current = false;
     let handle = 0;
     let alive = true;
     let sceneKey = '';
@@ -214,20 +236,32 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       // change in the Pause screen takes effect in this frame (Req 17.4).
       const paused = pausedRef.current;
       const clocks = stepClocks(rawDt, { paused, hidden: document.hidden, holdActive: false }, MARROW_TUNING);
+      // A new pose frame is one the source built since the last frame (by reference, design 9.7). The rate watch counts them
+      // on the presence clock, so a pause does not count as a low rate (Req 16.1, 16.2).
+      const pose = source.latest();
+      const delivered = pose !== null && pose !== lastPose ? 1 : 0;
+      lastPose = pose;
+      rate = stepLowRate(rate, { dtMs: clocks.presenceDt, delivered });
       const helpRequested = helpRef.current !== helpSeenRef.current;
       helpSeenRef.current = helpRef.current;
       const frameInput: GardenFrame = {
         event: first ? { kind: 'startAt', stage } : null,
         presenceDt: clocks.presenceDt,
         sessionDt: clocks.sessionDt,
-        motion: settings.get().motion,
+        motion: motionAt(settings),
         suspension: { paused, holdActive: false },
-        pointers: pointerOf(source),
+        pointers: pointerOf(pose),
         helpRequested,
       };
       first = false;
       const step = stepGarden(env, current, frameInput);
       gameRef.current = step.state;
+      // The quiet hint is taken only when no required line is pending, so it never replaces one (Req 15.3, 16.2).
+      if (requiredLineOf(step.state) === null) {
+        const taken = takeHint(rate);
+        rate = taken.state;
+        if (taken.shown) hintShownRef.current = true;
+      }
       for (const effect of step.effects) {
         if (effect.kind === 'lanternLit') audio.playNote(effect.index);
         // No usable slot (Req 10.6): the app shows the no-usable-slot screen in place of the stage.
@@ -359,7 +393,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
   const inRound = state !== null && state.session.phase === 'PLAYING' && state.stage?.kind === 'whisper';
   const env = envRef.current;
   const targets = state !== null && env !== null ? drawnTargetsOf(state, env.reach.frame) : [];
-  const line = state === null ? null : instructionKeyOf(state);
+  const required = state === null || ended ? null : requiredLineOf(state);
   return (
     <main
       className="garden-stage"
@@ -375,7 +409,10 @@ export function GardenStage(props: GardenStageProps): ReactElement {
           {textOf(title.title === 'lantern' ? 'title.lantern' : 'title.hall')}
         </h1>
       ) : null}
-      <InstructionLine required={ended || line === null ? null : textOf(line)} />
+      <InstructionLine
+        required={required === null ? null : textOf(required)}
+        quiet={hintShownRef.current ? textOf('hint.light') : null}
+      />
       {inRound ? (
         <div className="garden-help">
           {offerRef.current ? <p className="garden-help__offer">{textOf('help.offer')}</p> : null}

@@ -4,6 +4,7 @@ import { TUNING as WORLD_TUNING } from 'world-view';
 import { describe, expect, it } from 'vitest';
 import {
   APP_SESSION_TUNING,
+  RATE_BIN_MS,
   REWARD_MAX_MS,
   REWARD_MIN_MS,
   validateAppSessionTuning,
@@ -50,5 +51,28 @@ describe('app session tuning (tuning.test.ts)', () => {
     for (const t of bad) {
       expect(validateAppSessionTuning(t, MIN_FADE).length).toBeGreaterThan(0);
     }
+  });
+  it('16.3: lowRateHz must be a positive number, and lowRateWindowMs a whole number of one-second bins', () => {
+    const rateOff: AppSessionTuning[] = [
+      { ...APP_SESSION_TUNING, lowRateHz: 0 },
+      { ...APP_SESSION_TUNING, lowRateHz: -1 },
+      { ...APP_SESSION_TUNING, lowRateHz: Number.NaN },
+    ];
+    for (const t of rateOff) {
+      const issues = validateAppSessionTuning(t, MIN_FADE);
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toContain('lowRateHz');
+    }
+    const windowOff: AppSessionTuning[] = [
+      { ...APP_SESSION_TUNING, lowRateWindowMs: 0 },
+      { ...APP_SESSION_TUNING, lowRateWindowMs: 10500 },
+      { ...APP_SESSION_TUNING, lowRateWindowMs: Number.POSITIVE_INFINITY },
+    ];
+    for (const t of windowOff) {
+      const issues = validateAppSessionTuning(t, MIN_FADE);
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toContain('lowRateWindowMs');
+    }
+    expect(validateAppSessionTuning({ ...APP_SESSION_TUNING, lowRateWindowMs: RATE_BIN_MS }, MIN_FADE)).toEqual([]);
   });
 });
