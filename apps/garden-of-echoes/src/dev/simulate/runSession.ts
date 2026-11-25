@@ -92,8 +92,8 @@ function environment(): GardenEnv {
   cachedEnv = {
     content: {
       lantern: loadLanternGlade(lanternJson),
+      whisper: loadWhisperGlade(whisperGladeJson),
       placeholders: {
-        'whisper-glade': loadWhisperGlade(whisperGladeJson),
         'whisper-hall': loadWhisperHall(whisperHallJson),
         bloom: loadBloom(bloomJson),
       },

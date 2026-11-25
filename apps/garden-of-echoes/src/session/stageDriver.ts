@@ -31,6 +31,7 @@ import { LANTERN_COUNT, type LanternGladeContent } from '../stages/lantern-glade
 import { activeLanternIds, createLanternGlade, lineKey, stepLanternGlade, targetIdOf, type LanternState } from '../stages/lantern-glade/rules';
 import { placeRound, type PlaceRoundInput, type PlacedRound } from '../stages/shared/placeRound';
 import type { PlaceholderContent } from '../stages/shared/placeholderContent';
+import type { WhisperGladeContent } from '../stages/whisper-glade/content';
 import { createPlaceholder, stepPlaceholder, type PlaceholderState } from '../stages/shared/placeholderRule';
 import { createSession, stepSession, targetsActive, type JourneySegments, type SessionEffect, type SessionEvent, type SessionState, type Suspension } from './machine';
 import type { StageId } from './stageOrder';
@@ -43,7 +44,20 @@ export type PlaceholderStageId = Exclude<StageId, 'lantern-glade'>;
 
 export interface GardenContent {
   readonly lantern: LanternGladeContent;
-  readonly placeholders: Readonly<Record<PlaceholderStageId, PlaceholderContent>>;
+  /** Whisper Glade content. Until task 8.4 it drives a placeholder target built from its spirit slots (see placeholderOf). */
+  readonly whisper: WhisperGladeContent;
+  readonly placeholders: Readonly<Record<Exclude<PlaceholderStageId, 'whisper-glade'>, PlaceholderContent>>;
+}
+
+/**
+ * The placeholder content of a one-target stage. Whisper Glade has no placeholder file any more: until its rules
+ * arrive in task 8.2, its one target is its first spirit slot, and its line is the blue drop select line.
+ */
+function placeholderOf(env: GardenEnv, id: PlaceholderStageId): PlaceholderContent {
+  if (id === 'whisper-glade') {
+    return { version: 1, id, target: { slots: env.content.whisper.spiritSlots, copy: 'whisper.select.blueDrop' } };
+  }
+  return env.content.placeholders[id];
 }
 
 /** The comfort of the wrists that serve the input, and the frame it is measured in (Req 20.3). */
@@ -214,7 +228,7 @@ function activate(env: GardenEnv, state: GardenState, id: StageId, frame: Garden
     };
     return helpStep(next, [{ kind: 'roundStarted', steps: LANTERN_COUNT, ...flagsOf(next) }], effects);
   }
-  const content = env.content.placeholders[id];
+  const content = placeholderOf(env, id);
   return {
     ...state,
     stage: { kind: 'placeholder', id, rule: createPlaceholder(content), copy: content.target.copy, round },

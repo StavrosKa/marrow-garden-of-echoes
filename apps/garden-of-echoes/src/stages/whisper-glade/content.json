@@ -1,8 +1,20 @@
 {
   "version": 1,
   "id": "whisper-glade",
-  "target": {
-    "slots": [{ "x": 1, "y": 0.5, "depth": 6, "anchor": 1 }],
-    "copy": "whisper.select.blueDrop"
+  "spirits": [
+    { "stem": "blueDrop", "colour": "spiritBlue", "shape": "drop" },
+    { "stem": "goldLeaf", "colour": "spiritGold", "shape": "leaf" }
+  ],
+  "blocks": [
+    { "select": "blueDrop", "pass": "goldLeaf", "marks": ["select", "select", "pass"] },
+    { "select": "goldLeaf", "pass": "blueDrop", "marks": ["select", "pass", "pass"] }
+  ],
+  "spiritSlots": [
+    { "x": 0.7, "y": 0.45, "depth": 24, "anchor": 0 },
+    { "x": 1.3, "y": 0.45, "depth": 24, "anchor": 0 }
+  ],
+  "pathSlots": {
+    "fireflies": { "x": 0.4, "y": 0.55, "depth": 24, "anchor": 0 },
+    "candles": { "x": 1.3, "y": 0.55, "depth": 24, "anchor": 0 }
   }
 }
