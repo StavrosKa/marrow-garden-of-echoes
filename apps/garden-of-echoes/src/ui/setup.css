@@ -46,3 +46,34 @@
   outline: 3px solid var(--marrow-color-focus);
   outline-offset: 3px;
 }
+
+/* The calibration explainer: the painted area, the ring and the sentence (requirement 11). */
+.garden-calibration {
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+  color: var(--marrow-color-text);
+}
+
+.garden-painted-area {
+  width: min(100%, 40rem);
+  aspect-ratio: 16 / 9;
+  background: var(--marrow-color-surface);
+  border: 2px dashed var(--marrow-color-accent);
+  border-radius: 0.5rem;
+}
+
+.garden-ring {
+  width: 8rem;
+  height: 8rem;
+}
+
+.garden-ring__track,
+.garden-ring__progress {
+  stroke-linecap: round;
+}
+
+.garden-calibration__sentence {
+  margin: 0;
+  font-size: 1rem;
+}
