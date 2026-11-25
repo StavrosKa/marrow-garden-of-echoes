@@ -372,9 +372,21 @@ export function activeHitAreas(state: GardenState, frame: ProjectionFrame): HitA
     if (found === null) continue;
     const screen = targetScreen(found.point, state.placed.snapshot.radius, view, frame, WORLD_TUNING);
     if (screen === null) continue;
-    areas.push({ targetId: id, activationId: `${id}@${state.stage.round}`, centre: screen.position, radius: screen.radius });
+    areas.push({ targetId: id, activationId: activationOf(state.stage, id), centre: screen.position, radius: screen.radius });
   }
   return areas;
+}
+
+/**
+ * The activation id of a target (Req 17.13): a new id is a new period in which the target can be selected, and a target
+ * is selected once per period. A spirit of Whisper Glade appears once per presentation, and again after each mistake.
+ * Its id therefore counts the completed presentations and the mistakes of the current one. Both stay the same for every
+ * frame of one appearance. The path options and the lanterns keep the id of their round.
+ */
+function activationOf(stage: ActiveStage, id: string): string {
+  const base = `${id}@${stage.round}`;
+  if (stage.kind !== 'whisper' || stage.rule.path.phase !== 'waiting') return base;
+  return `${base}:${stage.rule.attention.completed}:${stage.rule.attention.mistakes}`;
 }
 
 /** Sends a stage completion to the session. The session refuses it under a flag or in another phase, and then nothing changes (Req 1.3). */

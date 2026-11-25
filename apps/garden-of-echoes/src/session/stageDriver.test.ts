@@ -407,6 +407,95 @@ describe('the scripted run of Whisper Glade (requirements 8.1, 8.4)', () => {
   });
 });
 
+/** The attention round of the whisper stage, or null before and after the stage. */
+function attentionOf(state: GardenState) {
+  return state.stage?.kind === 'whisper' ? state.stage.rule.attention : null;
+}
+
+/** The activation id of the first active hit area, or undefined when none is active. */
+function activationIdNow(state: GardenState): string | undefined {
+  return activeHitAreas(state, env.reach.frame)[0]?.activationId;
+}
+
+/** Plays frames like playUntil, and also returns the attention events of those frames, in order. */
+function playCollecting(
+  state: GardenState,
+  done: (state: GardenState) => boolean,
+  pointers: (state: GardenState) => PointerInput[] = whisperPointer,
+): { state: GardenState; events: AttentionEvent[] } {
+  let current = state;
+  const events: AttentionEvent[] = [];
+  for (let i = 0; i < 20000 && !done(current); i++) {
+    const step = stepGarden(env, current, frame({ pointers: pointers(current) }));
+    current = step.state;
+    for (const effect of step.effects) {
+      if (effect.kind === 'attention') events.push(effect.event);
+    }
+  }
+  if (!done(current)) throw new Error('the condition was not reached');
+  return { state: current, events };
+}
+
+/**
+ * The whisper pointer with the hand lifted on the first frame of each appearance. A dwell that continues from the last
+ * appearance keeps its owner (Req 17.14), so a player who has just completed a spirit lifts the hand before the next
+ * appearance, as a real hand does.
+ */
+function liftedWhisperPointer(state: GardenState): PointerInput[] {
+  const attention = attentionOf(state);
+  const area = activeHitAreas(state, env.reach.frame)[0];
+  if (attention !== null && attention.phase === 'presenting' && attention.elapsedMs === 0 && area !== undefined) {
+    // A valid pointer outside the target. A latch leaves only when a valid pointer is outside it (Req 17.12).
+    return [{ wrist: 'right', valid: true, pos: { x: area.centre.x + 3 * area.radius, y: area.centre.y } }];
+  }
+  return whisperPointer(state);
+}
+
+/** A pointer for a select presentation that dwells only after a mistake on it (the repeat), and nothing else. */
+function selectOnlyOnRepeat(state: GardenState): PointerInput[] {
+  const attention = attentionOf(state);
+  if (attention === null || attention.phase !== 'presenting') return [];
+  const presentation = presentationOf(state);
+  if (presentation === null || presentation.mark !== 'select' || attention.mistakes === 0) return [];
+  return liftedWhisperPointer(state);
+}
+
+describe('a whisper presentation has its own activation (requirement 17.13, 5.4)', () => {
+  it('17.13: the same spirit shown twice in a row can be selected twice, with no mistake', () => {
+    const { state, events } = playCollecting(whisperInPlay(), (s) => (attentionOf(s)?.completed ?? 0) >= 3, liftedWhisperPointer);
+    expect(events.some((event) => event.kind === 'mistake')).toBe(false);
+    const completed = events.flatMap((event) => (event.kind === 'presentationCompleted' ? [event.stimulusId] : []));
+    expect(completed.slice(0, 3)).toEqual(['goldLeaf', 'blueDrop', 'blueDrop']);
+    expect(state.stage?.kind).toBe('whisper');
+  });
+
+  it('17.13 7.1: after a mistake, the repeated presentation of a spirit can be selected, and the round needs no help', () => {
+    const { events } = playCollecting(whisperInPlay(), (s) => (attentionOf(s)?.completed ?? 0) >= 3, selectOnlyOnRepeat);
+    const mistakes = events.filter((event) => event.kind === 'mistake');
+    expect(mistakes.length).toBeGreaterThanOrEqual(2);
+    expect(mistakes.every((event) => event.kind === 'mistake' && event.reason === 'windowEnded')).toBe(true);
+    const helped = events.some((event) => event.kind === 'presentationCompleted' && event.byHelp);
+    expect(helped).toBe(false);
+  });
+
+  it('17.13: the activation id stays the same while one presentation is on screen, and changes for the same spirit shown again', () => {
+    // Index 0 (a let-pass) completes by its window. Index 1 is the blue drop, a select, on screen next.
+    let state = playUntil(whisperInPlay(), (s) => attentionOf(s)?.completed === 1 && attentionOf(s)?.phase === 'presenting', () => []);
+    const first = activationIdNow(state);
+    expect(first).toBeDefined();
+    for (let i = 0; i < 5; i++) {
+      state = stepGarden(env, state, frame({ pointers: [] })).state;
+      expect(attentionOf(state)?.phase).toBe('presenting');
+      expect(attentionOf(state)?.completed).toBe(1);
+      expect(activationIdNow(state)).toBe(first);
+    }
+    // Index 1 is completed by a dwell. Index 2 shows the same blue drop again, and its id must differ.
+    state = playUntil(state, (s) => attentionOf(s)?.completed === 2 && attentionOf(s)?.phase === 'presenting', liftedWhisperPointer);
+    expect(activationIdNow(state)).toBeDefined();
+    expect(activationIdNow(state)).not.toBe(first);
+  });
+});
+
 describe('simulated reach (requirement 20.3)', () => {
   it('20.3: the simulated reach gives grids for the one mouse wrist, and nothing for the other', () => {
     expect(SIMULATED_WRISTS).toEqual(['right']);
