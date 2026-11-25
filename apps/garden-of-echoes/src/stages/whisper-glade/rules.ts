@@ -17,7 +17,7 @@ import {
 } from 'marrow/challenges';
 import type { MotionLevel } from 'marrow/core';
 import type { Block, WhisperGladeContent } from './content';
-import { initialPath, type PathState } from './pathChoice';
+import { initialPath, pathChoice, pathOptionSelected, type PathState } from './pathChoice';
 
 /** The target id of a spirit: it names the spirit by its stem, so the drawing and the hit test agree. */
 export function spiritTargetId(stem: string): string {
@@ -59,6 +59,12 @@ export function stepWhisperGlade(
   dtMs: number,
   helpRequested = false,
 ): { state: WhisperState; events: readonly AttentionEvent[]; completed: boolean } {
+  // A path option selected while the path is open completes the stage (Req 8.1). The path is open only after the round,
+  // so a selection during the round names no option and falls through to the spirits.
+  const option = state.path.phase === 'open' ? pathOptionSelected(selectedTargetIds) : null;
+  if (option !== null) {
+    return { state: { ...state, path: pathChoice(state.path, option) }, events: [], completed: true };
+  }
   const presentation = currentPresentation(state.attention);
   let input: AttentionInput | null = null;
   if (helpRequested) {

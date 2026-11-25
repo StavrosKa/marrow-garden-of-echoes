@@ -18,7 +18,7 @@ export interface PathState {
   readonly dressing: PathOption | null;
 }
 
-/** The target id of each option, as the hit test and the markers name them. */
+/** The target id of each option, as the hit test and the markers name them. Ids name options, never wrists (Req 8.2). */
 export const PATH_TARGET_IDS: Readonly<Record<PathOption, string>> = Object.freeze({
   fireflies: 'path-fireflies',
   candles: 'path-candles',
@@ -27,4 +27,24 @@ export const PATH_TARGET_IDS: Readonly<Record<PathOption, string>> = Object.free
 /** The path state before the attention round ends. */
 export function initialPath(): PathState {
   return { phase: 'waiting', dressing: null };
+}
+
+/**
+ * The option that a selection names, or null. The first selected path target wins. A selection of any other target
+ * names no option.
+ */
+export function pathOptionSelected(selectedTargetIds: readonly string[]): PathOption | null {
+  for (const option of ['fireflies', 'candles'] as const) {
+    if (selectedTargetIds.includes(PATH_TARGET_IDS[option])) return option;
+  }
+  return null;
+}
+
+/**
+ * The path after a choice. Only an open path takes a choice (Req 8.1); a waiting or chosen path is returned as it is.
+ * The choice sets the dressing and nothing else.
+ */
+export function pathChoice(path: PathState, option: PathOption): PathState {
+  if (path.phase !== 'open') return path;
+  return { phase: 'chosen', dressing: option };
 }

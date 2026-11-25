@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { hasCopyKey } from '../../copy/garden';
 import { registerContract, type ContractMutation } from '../shared/contract';
 import shipped from './content.json';
+import { ATTENTION_TUNING, seedRng } from 'marrow/challenges';
 import { copyKeysOf, loadWhisperGlade, validateWhisperGlade, type WhisperGladeContent } from './content';
+import { PATH_TARGET_IDS } from './pathChoice';
+import { spiritTargetId, startWhisperGlade, stepWhisperGlade } from './rules';
 
 type Json = Record<string, unknown>;
 interface BlockJson {
@@ -92,6 +95,28 @@ const mutations: ContractMutation[] = [
   },
 ];
 
+/** A bound on the steps of one run. A round needs far fewer; the bound stops a broken round from hanging the test. */
+const STEP_CAP = 500;
+const STEP_MS = ATTENTION_TUNING.presentationMinMs;
+
+/**
+ * Case 4 of design 4.3: the rule, run from this content with seed 42, reaches completed. The player dwells on each
+ * select spirit, lets the pass spirits go, and then chooses the fireflies.
+ */
+function reachesCompleted(content: WhisperGladeContent): boolean {
+  let state = startWhisperGlade(content, seedRng(42), 'full').state;
+  for (let step = 0; step < STEP_CAP; step++) {
+    if (state.attention.phase === 'finished') {
+      return stepWhisperGlade(state, [PATH_TARGET_IDS.fireflies], STEP_MS).completed;
+    }
+    const current = state.attention.blocks[state.attention.block]?.[state.attention.index];
+    const dwell = state.attention.phase === 'presenting' && current?.mark === 'select';
+    const selected = dwell && current !== undefined ? [spiritTargetId(current.stimulusId)] : [];
+    state = stepWhisperGlade(state, selected, STEP_MS).state;
+  }
+  return false;
+}
+
 registerContract({
   stage: 'whisper-glade',
   validate: validateWhisperGlade,
@@ -99,6 +124,7 @@ registerContract({
   shipped: shipped as Json,
   mutations,
   copyKeys: (content: WhisperGladeContent) => copyKeysOf(content),
+  rule: reachesCompleted,
 });
 
 describe('whisper-glade block rules (design 4.2, requirements 5.2, 5.4, 5.8)', () => {
