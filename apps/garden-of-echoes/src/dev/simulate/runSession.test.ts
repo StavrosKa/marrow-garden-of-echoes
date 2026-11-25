@@ -2,6 +2,7 @@
 // machine and the stage rules. The property runs 20 cases, because each case is a whole session (design section 6).
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { TUNING } from 'marrow/core';
 import { SIM_PROFILES, type SimProfile } from 'marrow/sim';
 import { runSession, runSessionDetailed } from './runSession';
 
@@ -81,5 +82,28 @@ describe('every profile completes for seed 42 (9.1)', () => {
   it('9.1 invariant 5: the adversarial profile changes a help level inside a round', () => {
     const run = runSessionDetailed(profileNamed('adversarial'), 42, { maxSteps: MAX_STEPS });
     expect(run.stats.liveLevelChanges).toBeGreaterThan(0);
+  });
+
+  it('9.1 baseline makes no mistake, so it needs no help', () => {
+    const run = runSessionDetailed(baseline, 42, { maxSteps: MAX_STEPS });
+    expect(run.stats.mistakes).toBe(0);
+    expect(run.summary.helpStepsUsed).toBe(0);
+  });
+});
+
+describe('the adversarial and the slow profiles (9.2)', () => {
+  it('9.2 the adversarial profile completes through help, well inside the step budget, with no violation', () => {
+    const run = runSessionDetailed(profileNamed('adversarial'), 42, { maxSteps: MAX_STEPS });
+    expect(run.summary.completed).toBe(true);
+    expect(run.summary.helpStepsUsed).toBeGreaterThan(0);
+    expect(run.summary.violations).toEqual([]);
+    expect(run.stats.steps).toBeLessThan(MAX_STEPS / 4);
+  });
+
+  it('9.2 the slow profile completes with no violation, and its frames reach the 100 ms clamp', () => {
+    const run = runSessionDetailed(profileNamed('slow'), 42, { maxSteps: MAX_STEPS });
+    expect(run.summary.completed).toBe(true);
+    expect(run.summary.violations).toEqual([]);
+    expect(run.stats.maxSessionDtMs).toBe(TUNING.maxClockStepMs);
   });
 });
