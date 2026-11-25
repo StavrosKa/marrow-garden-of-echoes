@@ -1,28 +1,34 @@
 // One headless session of the garden for one synthetic player (garden-level design 5.2; requirement 19). The run
 // calibrates with the camera sweep of the profile, then plays the route through stepGarden, one simulated frame per
-// step. Lantern Glade is played through its own dwell. The three placeholder stages have no hit area in this spec,
-// so each completes with a stageCompleted event that goes through stepSession once the stage has its targets.
-// One pause probe sets the paused flag for one frame during a dwell, so invariant 2 can fail. The run checks the
-// invariants of design 5.2 step 5 and returns a summary. It prints nothing.
+// step. Lantern Glade is played through its dwell. Whisper Glade is played by its rules: the attention rounds and the
+// path choice, where each presentation is answered by chooseFor. Whisper Hall and Bloom have no hit area in this spec,
+// so each completes with a stageCompleted event sent through stepSession once the stage is active and its targets are
+// active. Two probes send a completion under a suspension: a pause on the first lantern, and a tracking hold (from
+// stepTracking) on the first hold frame. The run checks the invariants of design 5.2 step 5 and returns a summary with
+// counters. It prints nothing.
 //
 // The view of the play area (ASPECT, the pointer mapping, the whole-frame reach, the scene scale 1) repeats what
 // ui/GardenStage.tsx builds in its environment(). It is not imported from there, because that file is a React
 // component (see the journal entry of garden-level task 7).
-import { planPlacement, seedRng, type Rng } from 'marrow/challenges';
+import { ATTENTION_TUNING, currentPresentation, inRestingBand, seedRng, type Rng } from 'marrow/challenges';
 import {
   createCalibration,
+  createTracking,
   dwellView,
   makeMapping,
+  placeTargets,
   stepCalibration,
   stepClocks,
+  stepTracking,
   TUNING,
   type CalibrationInput,
   type Landmark,
   type PointerInput,
   type PoseFrame,
+  type TrackingState,
   type Vec2,
 } from 'marrow/core';
-import { checkInvariant, framesFor, startInvariantLog, sweepSamples, type RunSummary, type SimProfile } from 'marrow/sim';
+import { chooseFor, checkInvariant, framesFor, startInvariantLog, sweepSamples, type RunSummary, type SimProfile } from 'marrow/sim';
 import {
   depthScale,
   parallaxMargin,
@@ -52,6 +58,7 @@ import bloomJson from '../../stages/bloom/content.json';
 import { LANTERN_COUNT, loadLanternGlade } from '../../stages/lantern-glade/content';
 import lanternJson from '../../stages/lantern-glade/content.json';
 import { targetIdOf } from '../../stages/lantern-glade/rules';
+import type { PlacedRound } from '../../stages/shared/placeRound';
 import { loadWhisperGlade } from '../../stages/whisper-glade/content';
 import whisperGladeJson from '../../stages/whisper-glade/content.json';
 import { loadWhisperHall } from '../../stages/whisper-hall/content';
@@ -65,9 +72,10 @@ const CENTRE_Y = 0.5;
 const SCENE_SCALE = 1;
 /** The dwell progress at which the pause probe fires: half of the dwell time. */
 const PROBE_AT_MS = TUNING.dwellMs / 2;
+const RADIUS_TOLERANCE = 1e-9;
 const NO_FLAGS = { paused: false, hidden: false, holdActive: false };
 const NO_SUSPENSION = { paused: false, holdActive: false };
-/** The still head of the calibration and of the frames: a valid nose and two valid shoulders. */
+/** The still head of the calibration: a valid nose and two valid shoulders. */
 const still = (x: number, y: number): Landmark => ({ pos: { x, y }, valid: true });
 const STILL_HEAD: CalibrationInput['head'] = {
   nose: still(0.5, 0.4),
@@ -82,6 +90,51 @@ const POINTER_MAPPING = makeMapping({
   centre: { x: ASPECT / 2, y: CENTRE_Y },
 });
 const LANTERN: StageId = 'lantern-glade';
+/** The stages that complete by a stageCompleted event of the simulator (requirement 9.1 placeholder rule). */
+const PLACEHOLDER_STAGES: readonly StageId[] = ['whisper-hall', 'bloom'];
+
+/** The counters of one run. The report of the simulator prints the summary; these numbers are for the tests. */
+export interface SessionStats {
+  /** The steps of the whole run, calibration included. */
+  readonly steps: number;
+  /** The placements made: one per round (the lanterns, the spirits and the path choice). */
+  readonly placements: number;
+  /** The placements that used a band slot. */
+  readonly bandPlacements: number;
+  /** The steps on which a help level changed inside a round (Req 19.8). */
+  readonly liveLevelChanges: number;
+  /** The steps of a tracking hold. */
+  readonly holdFrames: number;
+  /** The completions sent during a tracking hold, each refused with reason suspended. */
+  readonly holdProbes: number;
+  /** The pause probes sent, at most one. */
+  readonly pauseProbes: number;
+  /** The help steps used (the revealStep outputs). */
+  readonly helpSteps: number;
+  /** The mistakes of the attention rounds (requirement 7.1). */
+  readonly mistakes: number;
+  /** The largest session delta of a step, in milliseconds. */
+  readonly maxSessionDtMs: number;
+}
+
+/** One run: its summary and its counters. */
+export interface SessionRun {
+  readonly summary: RunSummary;
+  readonly stats: SessionStats;
+}
+
+const EMPTY_STATS: SessionStats = {
+  steps: 0,
+  placements: 0,
+  bandPlacements: 0,
+  liveLevelChanges: 0,
+  holdFrames: 0,
+  holdProbes: 0,
+  pauseProbes: 0,
+  helpSteps: 0,
+  mistakes: 0,
+  maxSessionDtMs: 0,
+};
 
 let cachedEnv: GardenEnv | null = null;
 
@@ -118,44 +171,63 @@ function pointerOf(frame: PoseFrame): PointerInput {
 /** A placeholder stage is ready to complete: its targets are active and no completion has been accepted. */
 function placeholderReady(session: SessionState): session is SessionState & { readonly stage: StageId } {
   if (session.phase !== 'PLAYING' && session.phase !== 'BLOOM') return false;
-  return session.stage !== null && session.stage !== LANTERN && !session.done.includes(session.stage) && targetsActive(session);
+  return (
+    session.stage !== null &&
+    PLACEHOLDER_STAGES.includes(session.stage) &&
+    !session.done.includes(session.stage) &&
+    targetsActive(session)
+  );
+}
+
+/** The layer of the interaction targets: the layer every placement and hit area uses. */
+const INTERACTION_LAYER_REF: LayerRef = {
+  depth: INTERACTION_LAYER.depth,
+  anchor: INTERACTION_LAYER.anchor,
+  factor: WORLD_TUNING.interactionFactor,
+};
+
+/** An authored slot as a point of the interaction layer (as the stage driver places it). */
+function interactionPoint(slot: { readonly x: number; readonly y: number }): WorldPoint {
+  return { x: slot.x, y: slot.y, depth: INTERACTION_LAYER.depth, anchor: INTERACTION_LAYER.anchor, factor: WORLD_TUNING.interactionFactor };
+}
+
+/** The candidate slots of a placement and the number of targets it places, or null when the round has no placement. */
+function candidatesOf(env: GardenEnv, stage: GardenState['stage']): { points: readonly WorldPoint[]; n: number } | null {
+  if (stage === null) return null;
+  if (stage.kind === 'lantern') return { points: env.content.lantern.slots.map(interactionPoint), n: LANTERN_COUNT };
+  if (stage.kind === 'whisper') {
+    const whisper = env.content.whisper;
+    const slots = stage.rule.path.phase === 'waiting' ? whisper.spiritSlots : [whisper.pathSlots.fireflies, whisper.pathSlots.candles];
+    return { points: slots.map(interactionPoint), n: slots.length };
+  }
+  return null;
 }
 
 /**
  * Invariant 4 (requirement 10.5): a band slot is used only when the out-of-band slots alone give no simultaneous
- * placement. The check repeats planPlacement with every slot out of the band (a band value of Infinity).
+ * placement. The check takes the slots outside the resting band at its real edge (ATTENTION_TUNING.restingBandY) and
+ * places them alone, with the same count as the placement.
  */
-function bandRuleHolds(state: GardenState, env: GardenEnv): boolean {
-  const placed = state.placed;
-  if (placed === null || placed.bandSlotsUsed === 0) return true;
-  const travel = state.session.travel?.distance ?? 0;
-  const layer: LayerRef = {
-    depth: INTERACTION_LAYER.depth,
-    anchor: INTERACTION_LAYER.anchor,
-    factor: WORLD_TUNING.interactionFactor,
-  };
+function bandRuleHolds(placed: PlacedRound, candidates: { points: readonly WorldPoint[]; n: number }, travel: number, env: GardenEnv): boolean {
+  if (placed.bandSlotsUsed === 0) return true;
   const view: View = { travel, head: { x: 0, y: 0 } };
-  const slots = env.content.lantern.slots.flatMap((slot) => {
-    const point: WorldPoint = {
-      x: slot.x,
-      y: slot.y,
-      depth: INTERACTION_LAYER.depth,
-      anchor: INTERACTION_LAYER.anchor,
-      factor: WORLD_TUNING.interactionFactor,
-    };
+  const slots = candidates.points.flatMap((point) => {
     const screen = worldToScreen(point, view, env.reach.frame);
     return screen === null ? [] : [screen];
   });
-  const r = placed.snapshot.radius * depthScale(layer, travel);
+  const r = placed.snapshot.radius * depthScale(INTERACTION_LAYER_REF, travel);
   const m = parallaxMargin(env.reach.frame.sceneScale, env.reach.frame.aspect);
-  const outOfBand = planPlacement(
-    { slots, n: LANTERN_COUNT, r, m },
-    env.reach.grids,
-    env.reach.mapping,
-    TUNING,
-    Number.POSITIVE_INFINITY,
-  );
-  return outOfBand.result.kind !== 'simultaneous';
+  const bandY = ATTENTION_TUNING.restingBandY;
+  // The slots outside the resting band, placed alone. A simultaneous result means no band slot was needed.
+  const outOfBand = slots.filter((slot) => !inRestingBand(slot, r, env.reach.mapping, bandY));
+  const alone = placeTargets({ slots: outOfBand, n: candidates.n, r, m }, env.reach.grids, env.reach.mapping, TUNING);
+  return alone.kind !== 'simultaneous';
+}
+
+/** The answer of the player to the presentation in progress: its key, and whether it dwells on the spirit. */
+interface Attempt {
+  readonly key: string;
+  readonly dwell: boolean;
 }
 
 /** The calibration phase of a run: the camera sweep until calibration completes, one frame per step. */
@@ -204,114 +276,231 @@ function calibrate(
   return { garden: current, rng: generator, completed: true };
 }
 
-/** One full run of the session for the profile and the seed. The summary says whether it reached SAVED. */
-function playSession(profile: SimProfile, seed: number, maxSteps: number): RunSummary {
+/** One full run of the session for the profile and the seed, with its counters. */
+function playSession(profile: SimProfile, seed: number, maxSteps: number): SessionRun {
   const env = environment();
   const interval = profile.frameIntervalMs;
   let garden = createGarden(loadSegments(segmentsJson), seed);
   const budget = { steps: 0, maxSteps };
+  let log = startInvariantLog();
+  const counts = {
+    placements: 0,
+    bandPlacements: 0,
+    liveLevelChanges: 0,
+    holdFrames: 0,
+    holdProbes: 0,
+    pauseProbes: 0,
+    helpSteps: 0,
+    mistakes: 0,
+    maxSessionDtMs: 0,
+  };
+  const finish = (completed: boolean, violations: readonly string[]): SessionRun => ({
+    summary: { profile: profile.name, seed, completed, helpStepsUsed: counts.helpSteps, violations },
+    stats: { ...counts, steps: budget.steps },
+  });
   const calibrated = calibrate(profile, seedRng(seed), env, garden, budget);
   garden = calibrated.garden;
-  if (!calibrated.completed) return summaryOf(profile, seed, false, 0, []);
+  if (!calibrated.completed) return finish(false, []);
   let rng = calibrated.rng;
-  let log = startInvariantLog();
-  let helpSteps = 0;
-  let probed = false;
   let pending: SessionEvent | null = { kind: 'calibrated' };
-  const activations = new Map<string, number>();
+  let tracking: TrackingState = createTracking({ activeWrists: ['right'], mode: 'camera', tuning: TUNING });
+  let probed = false;
+  let holdProbed = false;
+  let attempt: Attempt | null = null;
+  let liftFrames = 0;
+  // One counter per stage and kind of transition: "activated" and "rewarded" (a completion accepted).
+  const transitions = new Map<string, number>();
   const lanternZero = targetIdOf(0);
+  let lastPlaced: PlacedRound | null = null;
+  let roundStart = '';
+  let prevLive = '';
   while (garden.session.phase !== 'SAVED') {
-    if (budget.steps >= maxSteps) return summaryOf(profile, seed, false, helpSteps, log.violations);
+    if (budget.steps >= maxSteps) return finish(false, log.violations);
     budget.steps++;
     const areas = activeHitAreas(garden, env.reach.frame);
     const area = areas[0];
-    const aim: Vec2 | null = area === undefined ? null : POINTER_MAPPING.toCamera(area.centre);
+    const stage = garden.stage;
+
+    // The player's answer. A presentation of Whisper Glade is answered once per attempt: a new draw after each mistake.
+    // The hand lifts for one frame at the start of each attempt, to the resting place outside every target. A latch on a
+    // completed target leaves only when a valid pointer stands outside it (Req 17.12), so the next appearance needs it.
+    let wantsDwell = true;
+    if (stage !== null && stage.kind === 'whisper') {
+      const presentation = currentPresentation(stage.rule.attention);
+      if (presentation !== null) {
+        const attentionNow = stage.rule.attention;
+        const key = `${attentionNow.block}:${attentionNow.index}:${attentionNow.completed}:${attentionNow.mistakes}`;
+        if (attempt === null || attempt.key !== key) {
+          const choice = chooseFor(profile, rng, presentation.mark);
+          rng = choice.rng;
+          attempt = { key, dwell: choice.dwell };
+          liftFrames = 1;
+        }
+        wantsDwell = attempt.dwell;
+      }
+    }
+    const lifted = liftFrames > 0;
+    if (lifted) liftFrames--;
+    const aim: Vec2 | null = area === undefined || lifted ? null : POINTER_MAPPING.toCamera(area.centre);
+    const dwell = area !== undefined && wantsDwell && !lifted;
     const t = budget.steps * interval;
-    const framed = framesFor(profile, rng, aim, area !== undefined, ASPECT, { startMs: t, endMs: t + interval });
+    const framed = framesFor(profile, rng, aim, dwell, ASPECT, { startMs: t, endMs: t + interval });
     rng = framed.rng;
     const pose = framed.frames[0];
     if (pose === undefined) throw new Error('the frame generator gave no frame');
+
+    // The pause probe: one frame, on the first lantern, during its dwell.
     const probing =
       !probed &&
       pending === null &&
       area !== undefined &&
       area.targetId === lanternZero &&
       dwellView(garden.dwell, area.targetId).progressMs >= PROBE_AT_MS;
+
+    // The tracking hold: stepTracking reads the right wrist of this frame, and its holdActive is the flag for the clocks.
+    const timing = stepClocks(interval, { paused: probing, hidden: false, holdActive: false }, TUNING);
+    const trackingStep = stepTracking(
+      tracking,
+      { wristValid: { right: pose.landmarks.rightWrist.valid }, noseValid: true, calibrating: false },
+      timing.presenceDt,
+    );
+    tracking = trackingStep.state;
+    const holdNow = trackingStep.holdActive;
+    if (holdNow) counts.holdFrames++;
+    const clocks = stepClocks(interval, { paused: probing, hidden: false, holdActive: holdNow }, TUNING);
+    counts.maxSessionDtMs = Math.max(counts.maxSessionDtMs, clocks.sessionDt);
+
     let event: SessionEvent | null = pending;
     pending = null;
+    let probe: 'pause' | 'hold' | null = null;
+    const activeStage = garden.session.stage;
     if (probing) {
       probed = true;
+      probe = 'pause';
       event = { kind: 'stageCompleted', stage: LANTERN };
+    } else if (holdNow && !holdProbed && event === null && activeStage !== null && targetsActive(garden.session)) {
+      holdProbed = true;
+      probe = 'hold';
+      event = { kind: 'stageCompleted', stage: activeStage };
     } else if (event === null && placeholderReady(garden.session)) {
       event = { kind: 'stageCompleted', stage: garden.session.stage };
     }
-    const clocks = stepClocks(interval, { paused: probing, hidden: false, holdActive: false }, TUNING);
+    const suspension = { paused: probing, holdActive: holdNow };
     const frame: GardenFrame = {
       event,
       presenceDt: clocks.presenceDt,
       sessionDt: clocks.sessionDt,
       motion: 'full',
-      suspension: probing ? { paused: true, holdActive: false } : NO_SUSPENSION,
+      suspension,
       pointers: [pointerOf(pose)],
     };
     const step = stepGarden(env, garden, frame);
     garden = step.state;
-    let activatedLantern = false;
+
+    let accepted = false;
+    let refusedSuspended = false;
+    let lit = false;
+    let changed = false;
     for (const effect of step.effects) {
-      if (effect.kind === 'help' && effect.output.kind === 'revealStep') helpSteps++;
-      if (effect.kind === 'session' && effect.effect.kind === 'stageActivated') {
-        const id = effect.effect.stage;
-        activations.set(id, (activations.get(id) ?? 0) + 1);
-        if (id === LANTERN) activatedLantern = true;
+      if (effect.kind === 'help' && effect.output.kind === 'revealStep') counts.helpSteps++;
+      if (effect.kind === 'attention' && effect.event.kind === 'mistake') counts.mistakes++;
+      if (effect.kind === 'lanternLit') {
+        lit = true;
+        accepted = true;
+      }
+      if (effect.kind === 'pathChosen') accepted = true;
+      if (effect.kind !== 'session') continue;
+      const sessionEffect = effect.effect;
+      if (sessionEffect.kind === 'stageActivated') {
+        const key = `activated ${sessionEffect.stage}`;
+        transitions.set(key, (transitions.get(key) ?? 0) + 1);
+        changed = true;
+      }
+      if (sessionEffect.kind === 'rewardStarted') {
+        const key = `rewarded ${sessionEffect.stage}`;
+        transitions.set(key, (transitions.get(key) ?? 0) + 1);
+        accepted = true;
+        changed = true;
+      }
+      if (sessionEffect.kind === 'ignored' && sessionEffect.reason === 'suspended') refusedSuspended = true;
+    }
+
+    // Invariant 1: one transition per stage. A stage is activated at most once and rewarded at most once.
+    if (changed) {
+      const over = [...transitions].find(([, count]) => count > 1);
+      log = checkInvariant(log, 'one transition per stage', over === undefined, () => `${over?.[0]} happened ${over?.[1]} times`);
+    }
+
+    // Invariant 2: no completion under a suspension, and each probe is refused with reason suspended.
+    if (probing || holdNow) {
+      log = checkInvariant(log, 'no completion under a suspension', !accepted, () => 'a completion was accepted while paused or in a tracking hold');
+    }
+    if (probe === 'pause') {
+      counts.pauseProbes++;
+      log = checkInvariant(log, 'no completion under a suspension', refusedSuspended && !lit, () => 'the pause did not refuse the completion');
+    }
+    if (probe === 'hold') {
+      counts.holdProbes++;
+      log = checkInvariant(log, 'no completion under a suspension', refusedSuspended && !accepted, () => 'the tracking hold did not refuse the completion');
+    }
+
+    // Invariant 3: no hit area while the travel is not arrived. Before the first travel there is no travel to check.
+    const travel = garden.session.travel;
+    const travelling = travel !== null && travel.phase !== 'arrived';
+    const areasNow = activeHitAreas(garden, env.reach.frame);
+    log = checkInvariant(log, 'no target active before travel stops', !(travelling && areasNow.length > 0), () => 'a hit area was active while travelling');
+
+    // Invariants 4 and 5, per round. A new placement starts a round and keeps its snapshot. Inside a round, the hit areas
+    // must use the radius of the round's snapshot, and the snapshot must not change.
+    const placed = garden.placed;
+    const travelNow = travel?.distance ?? 0;
+    if (placed !== null && placed !== lastPlaced) {
+      lastPlaced = placed;
+      counts.placements++;
+      if (placed.bandSlotsUsed > 0) counts.bandPlacements++;
+      const candidates = candidatesOf(env, garden.stage);
+      if (candidates !== null) {
+        log = checkInvariant(log, 'no band slot unless needed', bandRuleHolds(placed, candidates, travelNow, env), () =>
+          'a band slot was used though the other slots give a simultaneous placement',
+        );
+      }
+      roundStart = JSON.stringify(placed.snapshot);
+      prevLive = JSON.stringify(snapshotRound(garden.help, TUNING));
+    } else if (placed !== null && placed === lastPlaced) {
+      log = checkInvariant(log, 'help levels unchanged in a round', JSON.stringify(placed.snapshot) === roundStart, () => 'the round snapshot changed');
+      const live = JSON.stringify(snapshotRound(garden.help, TUNING));
+      if (live !== prevLive) {
+        counts.liveLevelChanges++;
+        prevLive = live;
+      }
+      const expected = placed.snapshot.radius * depthScale(INTERACTION_LAYER_REF, travelNow);
+      for (const hit of areasNow) {
+        log = checkInvariant(log, 'help levels unchanged in a round', Math.abs(hit.radius - expected) < RADIUS_TOLERANCE, () =>
+          `a hit area radius ${hit.radius} differs from the round snapshot radius ${expected}`,
+        );
       }
     }
-    const repeated = [...activations].find(([, count]) => count > 1);
-    log = checkInvariant(log, 'one transition per stage', repeated === undefined, () => `${repeated?.[0]} activated ${repeated?.[1]} times`);
-    if (probing) {
-      const refused = step.effects.some(
-        (effect) => effect.kind === 'session' && effect.effect.kind === 'ignored' && effect.effect.reason === 'suspended',
-      );
-      const lit = step.effects.some((effect) => effect.kind === 'lanternLit');
-      log = checkInvariant(log, 'no completion under a pause', refused && !lit, () =>
-        lit ? 'a lantern was lit while paused' : 'a completion under the pause was not refused',
-      );
-    }
-    const targetsOk = activeHitAreas(garden, env.reach.frame).length === 0 || targetsActive(garden.session);
-    log = checkInvariant(log, 'no target active before travel stops', targetsOk, () => 'a target was active while travelling');
-    if (activatedLantern) {
-      log = checkInvariant(log, 'no band slot unless needed', bandRuleHolds(garden, env), () =>
-        'a band slot was used though the other slots give a simultaneous placement',
-      );
-    }
-    const stage = garden.stage;
-    if (stage !== null && stage.kind === 'lantern' && !stage.rule.completed && garden.placed !== null) {
-      // The levels are compared through snapshotRound, the only reader of the levels (requirement 12.1).
-      const levelsHold = JSON.stringify(snapshotRound(garden.help, TUNING)) === JSON.stringify(garden.placed.snapshot);
-      log = checkInvariant(log, 'help levels unchanged in a round', levelsHold, () => 'a help level changed during the round');
-    }
   }
-  return summaryOf(profile, seed, true, helpSteps, log.violations);
-}
-
-function summaryOf(
-  profile: SimProfile,
-  seed: number,
-  completed: boolean,
-  helpStepsUsed: number,
-  violations: readonly string[],
-): RunSummary {
-  return { profile: profile.name, seed, completed, helpStepsUsed, violations };
+  return finish(true, log.violations);
 }
 
 /**
  * One run of one profile from one seed, at most `options.maxSteps` steps (requirement 19.5, 19.7). A run that throws
  * is returned as a run that did not complete, with the error as its violation.
  */
-export function runSession(profile: SimProfile, seed: number, options: { readonly maxSteps: number }): RunSummary {
+export function runSessionDetailed(profile: SimProfile, seed: number, options: { readonly maxSteps: number }): SessionRun {
   try {
     return playSession(profile, seed, options.maxSteps);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return summaryOf(profile, seed, false, 0, [`run threw: ${message}`]);
+    return {
+      summary: { profile: profile.name, seed, completed: false, helpStepsUsed: 0, violations: [`run threw: ${message}`] },
+      stats: EMPTY_STATS,
+    };
   }
+}
+
+/** The summary of one run, as the simulator reports it. */
+export function runSession(profile: SimProfile, seed: number, options: { readonly maxSteps: number }): RunSummary {
+  return runSessionDetailed(profile, seed, options).summary;
 }

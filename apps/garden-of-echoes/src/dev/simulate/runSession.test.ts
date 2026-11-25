@@ -1,19 +1,25 @@
-// One headless session (requirements 19.1, 19.2, 19.5). Each run plays the real session through stepGarden. The
-// property runs 20 cases, because each case is a whole session (design section 6).
+// One headless session (requirements 19.1 to 19.7). Each run plays the real session through stepGarden, with the real
+// machine and the stage rules. The property runs 20 cases, because each case is a whole session (design section 6).
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { SIM_PROFILES, type SimProfile } from 'marrow/sim';
-import { runSession } from './runSession';
+import { runSession, runSessionDetailed } from './runSession';
 
 const MAX_STEPS = 20000;
-const RUN_TIMEOUT_MS = 120000;
+const RUN_TIMEOUT_MS = 240000;
 
 const baselineOrNull = SIM_PROFILES[0];
 if (baselineOrNull === undefined) throw new Error('no baseline profile');
 const baseline: SimProfile = baselineOrNull;
 
+function profileNamed(name: string): SimProfile {
+  const found = SIM_PROFILES.find((profile) => profile.name === name);
+  if (found === undefined) throw new Error(`no profile ${name}`);
+  return found;
+}
+
 describe('one headless session (runSession.ts)', () => {
-  it('19.1 19.2 baseline with seed 42 completes the placeholder session, with no violation', () => {
+  it('19.1 19.2 baseline with seed 42 completes the session, with no violation and no help', () => {
     const summary = runSession(baseline, 42, { maxSteps: MAX_STEPS });
     expect(summary).toEqual({ profile: 'baseline', seed: 42, completed: true, helpStepsUsed: 0, violations: [] });
   });
@@ -44,4 +50,36 @@ describe('one headless session (runSession.ts)', () => {
     },
     RUN_TIMEOUT_MS,
   );
+});
+
+describe('every profile completes for seed 42 (9.1)', () => {
+  it.each(SIM_PROFILES.map((profile) => [profile.name, profile] as const))(
+    '%s completes with no violation',
+    (_name, profile) => {
+      const summary = runSession(profile, 42, { maxSteps: MAX_STEPS });
+      expect(summary.completed).toBe(true);
+      expect(summary.violations).toEqual([]);
+    },
+    RUN_TIMEOUT_MS,
+  );
+
+  it('9.1 Whisper Glade is played by its rules: the lanterns, the spirit round and the path round are three placements', () => {
+    const run = runSessionDetailed(baseline, 42, { maxSteps: MAX_STEPS });
+    expect(run.stats.placements).toBe(3);
+  });
+
+  it('9.1 invariant 2: the pause probe fires once in every profile, and the tracking-gaps profile takes a hold and a probe', () => {
+    for (const profile of SIM_PROFILES) {
+      const run = runSessionDetailed(profile, 42, { maxSteps: MAX_STEPS });
+      expect(run.stats.pauseProbes).toBe(1);
+    }
+    const gaps = runSessionDetailed(profileNamed('tracking-gaps'), 42, { maxSteps: MAX_STEPS });
+    expect(gaps.stats.holdFrames).toBeGreaterThan(0);
+    expect(gaps.stats.holdProbes).toBe(1);
+  });
+
+  it('9.1 invariant 5: the adversarial profile changes a help level inside a round', () => {
+    const run = runSessionDetailed(profileNamed('adversarial'), 42, { maxSteps: MAX_STEPS });
+    expect(run.stats.liveLevelChanges).toBeGreaterThan(0);
+  });
 });
