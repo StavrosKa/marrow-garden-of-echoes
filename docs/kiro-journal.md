@@ -2292,5 +2292,37 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - Invariant 5 has data only where a level changes inside a round. At seed 42, six of the eight profiles have none.
 - Gates. Each code commit passed typecheck, lint and the full suite. The `b75e401` gates ran with the runner's work stashed, so the fix was tested alone. Final suite: 145 files and 1814 tests. Est. Credits Used and elapsed time are not reported in this session, so they are not given here.
 - Tool notes. `git stash` held the runner work while the fix was gated. The stash pop wrote CRLF into the runner files. `core.autocrlf` is true on this machine, so git stores LF anyway. Mutation copies and the throwaway hook were in `.scratch` and were deleted.
+## 2026-11-25 - garden-level task 11, part A: in-game interface, pause, end card, low rate (11.1 to 11.5)
+- Kiro feature used: task 11 part A, sub-tasks 11.1 to 11.5, run in order with one commit each and a push after each (model: Claude Haiku 5.5, Medium). The session stopped at a blocker found by the 11.5 walk. Task 11 is not ticked, and parts 11.6 to 11.8 and the task-level check are not started. Commits, each pushed to origin/main:
+  - `943dcb0` Add the instruction line and the play area (11.1).
+  - `f5ccfdf` Add the Pause screen and wire it into the stage (11.2).
+  - `71857cc` Add the end card, the level titles and the help offer (11.3).
+  - `cb61768` Add the low-rate watch and the motion read per frame (11.4).
+  - `8bad2a1` Test the ?start entry and fix the Pause focus loop (11.5). The keyboard walk is in this commit's body.
+  - This commit: this entry.
+- Gates, run before each commit: typecheck, lint and the full suite passed every time. The suite went from 145 files and 1814 tests at the start of part A to 153 files and 1863 tests at 11.5. No mutation check was run, as the brief asked.
+- Decisions:
+  - Pause lives in `GardenStage`, not in `App`. `main.tsx` renders a `?start` stage directly, and `main.tsx` is outside this part's file list. So Pause appears on the stage screens only. Escape does nothing on the camera setup screens and on the no-usable-slot screen. This departs from Req 3.5 ("from anywhere after Home"). The owner should decide whether the setup screens need Pause.
+  - Escape toggles Pause: the first press opens it, the second closes it.
+  - Exit goes to Home. From the app flow, `App` clears its setup state. From a bare `?start` stage, the page goes to its address without the `?start` value, so Home shows after a reload.
+  - Recalibrate and Restart both begin the stage again at `lantern-glade`, as Retry does in 10.4. Neither asks for confirmation.
+  - "Continue with help" in Pause unpauses and sends one help request in the same frame. The stage's own "Continue with help" button, shown only in a whisper round, sends the request without pausing.
+  - The motion and sound controls are marrow's `MotionSetting` and `AudioSettings`. They write the app's settings store, and the frame loop reads the motion setting on every frame, so a change applies on the next frame.
+  - Pause has a focus loop. Tab and Shift+Tab stay inside the dialog, because `aria-modal` alone does not stop focus from reaching the page behind it. The walk showed the leak before the fix.
+  - The quiet hint "More light, face the window." is taken only when no required line is pending. A required line is pending during entry, play and Bloom. This changes the lantern line: it no longer shows during travel and celebration. The old code showed it through travel.
+  - The level titles start from the machine's `titleShown` effect, not from the phase. The lantern title keeps its 4 s timing, and the whisper hall title now shows when the hall activates.
+  - The help offer "Want a hint?" appears after the `offerHelp` output and clears when a presentation completes. A repeated presentation keeps it.
+  - The low-rate watch counts new pose frames, as the design says. The simulated pointer source builds one frame per animation frame, so simulated input sees the app's frame rate. The hint fires only if that rate falls below 5 per second for 10 s.
+  - Two tuning values are new, both labelled: `lowRateHz` (5) and `lowRateWindowMs` (10000). Both are the low-rate values that 11.4 names.
+- Keyboard walk (11.5, a throwaway Playwright script against `npm run dev`, deleted afterwards): Home, the stage with its label, Pause with every control, resume, Recalibrate, Restart, Exit, and a `?start=bloom` Exit. Page errors 0, console errors 0, camera calls 0. The end card path did not pass (see the blocker below).
+- Blocker, found by the walk and not fixed. Whisper Hall and Bloom cannot be completed in the browser. Their targets have no placed round, so `activeHitAreas` returns no hit area, and the placeholder rule never sees a selection. The stage shows no target: the driver draws none, and the DOM markers need a hit area. `stageDriver.test.ts` asserts that a placeholder "has no target to dwell on" (line 227). That contradicts Req 9.1 and 9.2, which need one dwell on each placeholder target. The fix is in `session/stageDriver.ts` and placement, which are outside this part. The owner decides it. `tests/e2e` for the end card cannot pass until then.
+- Open items for the owner and Part B:
+  - The placeholder blocker above. It blocks the end card path and the Req 9 Playwright test in task 12.
+  - "Continue with help" has no effect on a lantern round. The driver takes the help request only in a whisper round, so the Pause button and the in-stage button do nothing in Lantern Glade. Req 7.5 wants a reveal. The driver fix is outside this part.
+  - Escape opens Pause on the stage screens only (see the decision above).
+  - Parts 11.6 to 11.8 are not started: the lantern flicker and its e2e pixel check, the simulated head view, and the camera head view.
+  - The calibration screen (task 10's open item) is still not mounted, and the raised-help placement overlap from tasks 8 and 9 is still open.
+  - The hint can be checked only by unit tests. No browser run shows it, because the walk never drops the frame rate.
+- Tool notes. The dev server ran under `control_pwsh_process`, and it was stopped after the walk. Each new file was written with the editor tool, and each commit message was written into `.scratch`, then passed to `git commit -F`. The `.scratch` walk script was deleted after the run. Est. Credits Used is not reported in this session, so it is not given here. The elapsed time is about 55 minutes, from the first test run at 15:32 to this entry at 16:26.
 
 
