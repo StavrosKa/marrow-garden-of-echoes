@@ -71,6 +71,42 @@ export function stepLowRate(
   };
 }
 
+/**
+ * The quiet light hint on the screen, "More light, face the window." (requirements 15.3, 16.2). It is shown once per
+ * session. It clears when a required line returns, or when the session is saved, and it never comes back in the same
+ * session: `spent` is set as soon as it has been shown.
+ */
+export interface QuietHintState {
+  /** The hint is on the screen now. */
+  readonly shown: boolean;
+  /** The hint has been shown in this session, so it is never shown again. */
+  readonly spent: boolean;
+}
+
+export interface QuietHintInput {
+  /** The hint was taken this frame (takeHint said so). It is only taken when no required line is pending. */
+  readonly taken: boolean;
+  /** A required line is pending now (requiredLineOf is not null). */
+  readonly required: boolean;
+  /** The session is saved (phase SAVED). */
+  readonly ended: boolean;
+}
+
+export function createQuietHint(): QuietHintState {
+  return { shown: false, spent: false };
+}
+
+/** One step of the quiet hint. A taken hint is shown unless a required line is pending or the session has ended. */
+export function stepQuietHint(state: QuietHintState, input: QuietHintInput): QuietHintState {
+  // A required line, or the end of the session, clears the hint. Once it has been shown, it never comes back.
+  if (input.required || input.ended) return { shown: false, spent: state.spent || state.shown };
+  // A shown hint stays on until one of the events above.
+  if (state.shown) return state;
+  if (state.spent) return { shown: false, spent: true };
+  if (input.taken) return { shown: true, spent: true };
+  return state;
+}
+
 /** Takes the hint for the screen. It is shown once, so the second take says nothing. */
 export function takeHint(state: LowRateState): { state: LowRateState; shown: boolean } {
   if (!state.due) return { state, shown: false };

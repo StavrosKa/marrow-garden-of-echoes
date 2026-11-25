@@ -1,7 +1,16 @@
 // The delivered-rate watch (garden-level requirement 16.2). The threshold and the window come from session/tuning.ts, and
 // the tests read them, so a change of the tuning does not break the test.
 import { describe, expect, it } from 'vitest';
-import { createLowRate, stepLowRate, takeHint, type LowRateState } from './lowRate';
+import {
+  createLowRate,
+  createQuietHint,
+  stepLowRate,
+  stepQuietHint,
+  takeHint,
+  type LowRateState,
+  type QuietHintInput,
+  type QuietHintState,
+} from './lowRate';
 import { APP_SESSION_TUNING, RATE_BIN_MS } from './tuning';
 
 const WINDOW_BINS = APP_SESSION_TUNING.lowRateWindowMs / RATE_BIN_MS;
@@ -18,6 +27,58 @@ function seconds(count: number, frames: number, from: LowRateState = createLowRa
   for (let i = 0; i < count; i += 1) state = second(state, frames);
   return state;
 }
+
+/** One frame's input of the quiet hint: a taken hint or not, a required line or not, the session ended or not. */
+function frameOf(over: Partial<QuietHintInput> = {}): QuietHintInput {
+  return { taken: false, required: false, ended: false, ...over };
+}
+
+/** The state after a list of frames, from a fresh hint. */
+function afterFrames(frames: readonly QuietHintInput[]): QuietHintState {
+  return frames.reduce((state, input) => stepQuietHint(state, input), createQuietHint());
+}
+
+describe('the quiet light hint (requirements 15.3, 16.2; D2)', () => {
+  it('16.2: a taken hint is shown, and it stays shown while no required line is pending and the session goes on', () => {
+    const state = afterFrames([frameOf({ taken: true }), frameOf(), frameOf(), frameOf()]);
+    expect(state).toEqual({ shown: true, spent: true });
+  });
+
+  it('15.3: a hint that is not taken is not shown', () => {
+    expect(afterFrames([frameOf(), frameOf({ taken: false })])).toEqual({ shown: false, spent: false });
+  });
+
+  it('15.3: a required line that returns clears a shown hint', () => {
+    const state = afterFrames([frameOf({ taken: true }), frameOf({ required: true })]);
+    expect(state.shown).toBe(false);
+  });
+
+  it('15.3: a required line that returns clears the hint in the same frame it is taken, so the hint never replaces a line', () => {
+    const state = afterFrames([frameOf({ taken: true, required: true })]);
+    expect(state.shown).toBe(false);
+  });
+
+  it('16.2: the saved session clears a shown hint', () => {
+    const state = afterFrames([frameOf({ taken: true }), frameOf({ ended: true })]);
+    expect(state.shown).toBe(false);
+  });
+
+  it('16.2: a cleared hint never returns in the same session, however often it is taken or the line is absent', () => {
+    const cleared = afterFrames([frameOf({ taken: true }), frameOf({ required: true })]);
+    const again = [frameOf({ taken: true }), frameOf({ taken: true }), frameOf()].reduce(stepQuietHint, cleared);
+    expect(again.shown).toBe(false);
+    expect(again.spent).toBe(true);
+  });
+
+  it('16.2: a hint cleared by a required line that came before any taking is still available to take later', () => {
+    const state = afterFrames([frameOf({ required: true }), frameOf({ taken: true })]);
+    expect(state).toEqual({ shown: true, spent: true });
+  });
+
+  it('16.2: a hint is shown at most once: the saved session with no hint leaves nothing on', () => {
+    expect(afterFrames([frameOf({ ended: true }), frameOf({ taken: true, ended: true })])).toEqual({ shown: false, spent: false });
+  });
+});
 
 describe('the delivered-rate watch (requirement 16.2)', () => {
   it('16.2: no hint before a full window of time has passed, however low the rate', () => {

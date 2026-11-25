@@ -19,7 +19,7 @@ import {
 } from 'marrow/core';
 import { createPointerSource, type PoseSource } from 'marrow/input';
 import { createSettingsStore, type SettingsStore } from 'marrow/react';
-import { createLowRate, stepLowRate, takeHint } from '../session/lowRate';
+import { createLowRate, createQuietHint, stepLowRate, stepQuietHint, takeHint } from '../session/lowRate';
 import { TUNING as WORLD_TUNING } from 'world-view';
 import type { SceneManager } from 'world-view/pixi';
 import { createGardenAudio, type GardenAudio } from '../audio/gardenAudio';
@@ -210,7 +210,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
   // The help offer "Want a hint?" (Req 7.3). It is on after the offerHelp output, and off when the presentation completes.
   const offerRef = useRef(false);
   // Whether the quiet light hint has been shown in this play (Req 16.2: once per session).
-  const hintShownRef = useRef(false);
+  const quietRef = useRef(createQuietHint());
   // The frame loop is set up once, so it reads the callback through a ref that holds the latest one.
   const noSlotRef = useRef(onNoSlot);
   noSlotRef.current = onNoSlot;
@@ -248,7 +248,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
     let lastPose: Pose = null;
     // The rate watch and its hint belong to one play, so a restart starts both again (Req 16.2).
     let rate = createLowRate();
-    hintShownRef.current = false;
+    quietRef.current = createQuietHint();
     let handle = 0;
     let alive = true;
     let sceneKey = '';
@@ -307,11 +307,15 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       const step = stepGarden(env, current, frameInput);
       gameRef.current = step.state;
       // The quiet hint is taken only when no required line is pending, so it never replaces one (Req 15.3, 16.2).
-      if (requiredLineOf(step.state) === null) {
-        const taken = takeHint(rate);
-        rate = taken.state;
-        if (taken.shown) hintShownRef.current = true;
+      const required = requiredLineOf(step.state) !== null;
+      let taken = false;
+      if (!required) {
+        const offer = takeHint(rate);
+        rate = offer.state;
+        taken = offer.shown;
       }
+      // The hint clears when a required line returns or the session is saved, and never comes back (D2, Req 16.2).
+      quietRef.current = stepQuietHint(quietRef.current, { taken, required, ended: step.state.session.phase === 'SAVED' });
       for (const effect of step.effects) {
         if (effect.kind === 'lanternLit') audio.playNote(effect.index);
         // No usable slot (Req 10.6): the app shows the no-usable-slot screen in place of the stage.
@@ -475,7 +479,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       ) : null}
       <InstructionLine
         required={required === null ? null : textOf(required)}
-        quiet={hintShownRef.current ? textOf('hint.light') : null}
+        quiet={quietRef.current.shown ? textOf('hint.light') : null}
       />
       {inRound ? (
         <div className="garden-help">
