@@ -1,6 +1,6 @@
 // The placeholder rule of Whisper Hall and Bloom (design 2.7; Req 9.1, 9.2). A stage has one target. Selecting it
 // completes the stage, and the completion stays once it has happened. The rule is pure: it reads no clock, no
-// randomness and no help level. Placement is not wired yet, so it takes no placed round.
+// randomness and no help level.
 import type { PlaceholderContent } from './placeholderContent';
 
 export interface PlaceholderState {

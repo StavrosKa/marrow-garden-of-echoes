@@ -17,12 +17,25 @@ import { spriteSlot, type SpriteName } from './spriteSlot';
 /** The Scene Manager's targets of the stage in progress: the lanterns, or the Whisper Glade targets, or none. */
 export function sceneTargetsOf(state: GardenState): SceneTarget[] {
   if (state.stage?.kind === 'whisper') return whisperSceneTargets(state);
+  if (state.stage?.kind === 'placeholder') return placeholderSceneTargets(state);
   return lanternSceneTargets(state);
+}
+
+/** The one visible disc of a placeholder stage (Req 9.1, 9.2), at its placed point. */
+function placeholderSceneTargets(state: GardenState): SceneTarget[] {
+  const stage = state.stage;
+  const placed = state.placed;
+  const point = placed?.points[0];
+  if (stage === null || stage.kind !== 'placeholder' || placed === null || point === undefined) return [];
+  return [{ id: stage.rule.targetId, point, r: placed.snapshot.radius, colour: spriteSlot('lantern-unlit').drawable[0]?.colour ?? 0 }];
 }
 
 /** The key of the scene targets: the scene is updated only when this changes. */
 export function sceneKeyOf(state: GardenState): string {
   if (state.stage?.kind === 'whisper') return whisperSceneKey(state);
+  if (state.stage?.kind === 'placeholder') {
+    return `placeholder:${state.stage.rule.done ? 1 : 0}:${state.placed?.points.length ?? 0}:${state.placed?.snapshot.radius ?? 0}`;
+  }
   return lanternSceneKey(state);
 }
 

@@ -1,11 +1,10 @@
 // One headless session of the garden for one synthetic player (garden-level design 5.2; requirement 19). The run
 // calibrates with the camera sweep of the profile, then plays the route through stepGarden, one simulated frame per
 // step. Lantern Glade is played through its dwell. Whisper Glade is played by its rules: the attention rounds and the
-// path choice, where each presentation is answered by chooseFor. Whisper Hall and Bloom have no hit area in this spec,
-// so each completes with a stageCompleted event sent through stepSession once the stage is active and its targets are
-// active. Two probes send a completion under a suspension: a pause on the first lantern, and a tracking hold (from
-// stepTracking) on the first hold frame. The run checks the invariants of design 5.2 step 5 and returns a summary with
-// counters. It prints nothing.
+// path choice, where each presentation is answered by chooseFor. Whisper Hall and Bloom are played through a dwell on
+// their one placed target, as in the browser. Two probes send a completion under a suspension: a pause on the first
+// lantern, and a tracking hold (from stepTracking) on the first hold frame. The run checks the invariants of design 5.2
+// step 5 and returns a summary with counters. It prints nothing.
 //
 // The view of the play area (ASPECT, the pointer mapping, the whole-frame reach, the scene scale 1) repeats what
 // ui/GardenStage.tsx builds in its environment(). It is not imported from there, because that file is a React
@@ -41,10 +40,12 @@ import {
 import { loadSegments } from '../../journeys/journeys';
 import segmentsJson from '../../journeys/segments.json';
 import { INTERACTION_LAYER } from '../../scene/forestLayers';
-import { targetsActive, type SessionEvent, type SessionState } from '../../session/machine';
+import { targetsActive, type SessionEvent } from '../../session/machine';
 import {
   activeHitAreas,
   createGarden,
+  placeholderLayerOf,
+  placeholderPointOf,
   stepGarden,
   type GardenEnv,
   type GardenFrame,
@@ -59,6 +60,7 @@ import { LANTERN_COUNT, loadLanternGlade } from '../../stages/lantern-glade/cont
 import lanternJson from '../../stages/lantern-glade/content.json';
 import { targetIdOf } from '../../stages/lantern-glade/rules';
 import type { PlacedRound } from '../../stages/shared/placeRound';
+import type { SlotSpec } from '../../stages/shared/placeholderContent';
 import { loadWhisperGlade } from '../../stages/whisper-glade/content';
 import whisperGladeJson from '../../stages/whisper-glade/content.json';
 import { loadWhisperHall } from '../../stages/whisper-hall/content';
@@ -90,8 +92,6 @@ const POINTER_MAPPING = makeMapping({
   centre: { x: ASPECT / 2, y: CENTRE_Y },
 });
 const LANTERN: StageId = 'lantern-glade';
-/** The stages that complete by a stageCompleted event of the simulator (requirement 9.1 placeholder rule). */
-const PLACEHOLDER_STAGES: readonly StageId[] = ['whisper-hall', 'bloom'];
 
 /** The counters of one run. The report of the simulator prints the summary; these numbers are for the tests. */
 export interface SessionStats {
@@ -168,16 +168,6 @@ function pointerOf(frame: PoseFrame): PointerInput {
   return { wrist: 'right', valid: true, pos: POINTER_MAPPING.toScreen(wrist.pos) };
 }
 
-/** A placeholder stage is ready to complete: its targets are active and no completion has been accepted. */
-function placeholderReady(session: SessionState): session is SessionState & { readonly stage: StageId } {
-  if (session.phase !== 'PLAYING' && session.phase !== 'BLOOM') return false;
-  return (
-    session.stage !== null &&
-    PLACEHOLDER_STAGES.includes(session.stage) &&
-    !session.done.includes(session.stage) &&
-    targetsActive(session)
-  );
-}
 
 /** The layer of the interaction targets: the layer every placement and hit area uses. */
 const INTERACTION_LAYER_REF: LayerRef = {
@@ -191,14 +181,32 @@ function interactionPoint(slot: { readonly x: number; readonly y: number }): Wor
   return { x: slot.x, y: slot.y, depth: INTERACTION_LAYER.depth, anchor: INTERACTION_LAYER.anchor, factor: WORLD_TUNING.interactionFactor };
 }
 
-/** The candidate slots of a placement and the number of targets it places, or null when the round has no placement. */
-function candidatesOf(env: GardenEnv, stage: GardenState['stage']): { points: readonly WorldPoint[]; n: number } | null {
+/** The layer of a round's targets: a placeholder's own layer (its slot's depth and anchor), else the forest's interaction layer. */
+function layerOf(env: GardenEnv, stage: NonNullable<GardenState['stage']>): LayerRef {
+  if (stage.kind !== 'placeholder') return INTERACTION_LAYER_REF;
+  return placeholderLayerOf(placeholderSlotOf(env, stage.id));
+}
+
+/** The first slot of a placeholder stage, the one its target is placed at (see stageDriver). */
+function placeholderSlotOf(env: GardenEnv, id: 'whisper-hall' | 'bloom'): SlotSpec {
+  const slot = env.content.placeholders[id].target.slots[0];
+  if (slot === undefined) throw new Error(`${id}: no slot`);
+  return slot;
+}
+
+/** The candidate slots of a placement, its number of targets and its layer, or null when the round has no placement. */
+function candidatesOf(
+  env: GardenEnv,
+  stage: GardenState['stage'],
+): { points: readonly WorldPoint[]; n: number; layer: LayerRef } | null {
   if (stage === null) return null;
-  if (stage.kind === 'lantern') return { points: env.content.lantern.slots.map(interactionPoint), n: LANTERN_COUNT };
+  const layer = layerOf(env, stage);
+  if (stage.kind === 'lantern') return { points: env.content.lantern.slots.map(interactionPoint), n: LANTERN_COUNT, layer };
+  if (stage.kind === 'placeholder') return { points: [placeholderPointOf(placeholderSlotOf(env, stage.id))], n: 1, layer };
   if (stage.kind === 'whisper') {
     const whisper = env.content.whisper;
     const slots = stage.rule.path.phase === 'waiting' ? whisper.spiritSlots : [whisper.pathSlots.fireflies, whisper.pathSlots.candles];
-    return { points: slots.map(interactionPoint), n: slots.length };
+    return { points: slots.map(interactionPoint), n: slots.length, layer };
   }
   return null;
 }
@@ -208,14 +216,14 @@ function candidatesOf(env: GardenEnv, stage: GardenState['stage']): { points: re
  * placement. The check takes the slots outside the resting band at its real edge (ATTENTION_TUNING.restingBandY) and
  * places them alone, with the same count as the placement.
  */
-function bandRuleHolds(placed: PlacedRound, candidates: { points: readonly WorldPoint[]; n: number }, travel: number, env: GardenEnv): boolean {
+function bandRuleHolds(placed: PlacedRound, candidates: { points: readonly WorldPoint[]; n: number; layer: LayerRef }, travel: number, env: GardenEnv): boolean {
   if (placed.bandSlotsUsed === 0) return true;
   const view: View = { travel, head: { x: 0, y: 0 } };
   const slots = candidates.points.flatMap((point) => {
     const screen = worldToScreen(point, view, env.reach.frame);
     return screen === null ? [] : [screen];
   });
-  const r = placed.snapshot.radius * depthScale(INTERACTION_LAYER_REF, travel);
+  const r = placed.snapshot.radius * depthScale(candidates.layer, travel);
   const m = parallaxMargin(env.reach.frame.sceneScale, env.reach.frame.aspect);
   const bandY = ATTENTION_TUNING.restingBandY;
   // The slots outside the resting band, placed alone. A simultaneous result means no band slot was needed.
@@ -382,8 +390,6 @@ function playSession(profile: SimProfile, seed: number, maxSteps: number): Sessi
       holdProbed = true;
       probe = 'hold';
       event = { kind: 'stageCompleted', stage: activeStage };
-    } else if (event === null && placeholderReady(garden.session)) {
-      event = { kind: 'stageCompleted', stage: garden.session.stage };
     }
     const suspension = { paused: probing, holdActive: holdNow };
     const frame: GardenFrame = {
@@ -473,7 +479,7 @@ function playSession(profile: SimProfile, seed: number, maxSteps: number): Sessi
         counts.liveLevelChanges++;
         prevLive = live;
       }
-      const expected = placed.snapshot.radius * depthScale(INTERACTION_LAYER_REF, travelNow);
+      const expected = garden.stage === null ? 0 : placed.snapshot.radius * depthScale(layerOf(env, garden.stage), travelNow);
       for (const hit of areasNow) {
         log = checkInvariant(log, 'help levels unchanged in a round', Math.abs(hit.radius - expected) < RADIUS_TOLERANCE, () =>
           `a hit area radius ${hit.radius} differs from the round snapshot radius ${expected}`,

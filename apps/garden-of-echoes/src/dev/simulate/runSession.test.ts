@@ -64,9 +64,9 @@ describe('every profile completes for seed 42 (9.1)', () => {
     RUN_TIMEOUT_MS,
   );
 
-  it('9.1 Whisper Glade is played by its rules: the lanterns, the spirit round and the path round are three placements', () => {
+  it('9.1 the stages are played by their rules: the lanterns, the spirit round, the path round, the hall and Bloom are five placements', () => {
     const run = runSessionDetailed(baseline, 42, { maxSteps: MAX_STEPS });
-    expect(run.stats.placements).toBe(3);
+    expect(run.stats.placements).toBe(5);
   });
 
   it('9.1 invariant 2: the pause probe fires once in every profile, and the tracking-gaps profile takes a hold and a probe', () => {

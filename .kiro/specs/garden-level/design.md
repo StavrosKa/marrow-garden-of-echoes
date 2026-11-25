@@ -297,7 +297,7 @@ export function startWhisperGlade(content: WhisperGladeContent, rng: Rng, motion
 export function stepWhisperGlade(state: WhisperState, selectedTargetIds: readonly string[], dtMs: number): { state: WhisperState; events: readonly AttentionEvent[]; completed: boolean };
 export function pathChoice(state: WhisperState, option: 'fireflies' | 'candles'): WhisperState;
 
-// whisper-hall, bloom (placeholders; placement is wired by the driver in a later task, so no PlacedRound here)
+// whisper-hall, bloom (placeholders; the driver places their one target through placeRound, so the rule takes no PlacedRound)
 export function createPlaceholder(content: PlaceholderContent): PlaceholderState;
 export function stepPlaceholder(state: PlaceholderState, selectedTargetIds: readonly string[]): { state: PlaceholderState; completed: boolean };
 ```
@@ -467,7 +467,7 @@ The pieces that do not depend on the game live in `packages/marrow/src/sim`: pro
 1. Creates a calibration with `createCalibration`, then feeds `sweepSamples` through `stepCalibration` until `completed`. The real calibration code runs. With `reachShare` below 1, the sweep covers only part of the frame.
 2. Each step is one simulated frame. The raw delta is the profile's `frameIntervalMs`, passed through `stepClocks`, which clamps it at `maxClockStepMs`. The session delta it returns is the step's `sessionDt`. The run starts on the normal route, with `motion` set to full.
 3. For each presentation, `chooseFor` decides on dwell and wrong answer. `framesFor` builds frames. The frames go to a `PoseSource` object whose `latest()` returns the current one.
-4. Calls `stepGarden`, the function the app uses, once per frame. `placeRound` inside it calls `planPlacement`, and its help events go through `stepHelp`. `stepAttention` is not used until Whisper Glade has its rules (task 8). Lantern Glade completes through its own dwell. The placeholder stages (Whisper Glade, Whisper Hall, Bloom) have no hit area in this spec, so runSession completes each one with a `stageCompleted` event sent through `stepSession` once the stage is active and its targets are active. One pause probe sets the paused flag for one frame during a dwell on the first lantern, and sends a `stageCompleted` with it, so invariant 2 can fail.
+4. Calls `stepGarden`, the function the app uses, once per frame. `placeRound` inside it calls `planPlacement`, and its help events go through `stepHelp`. `stepAttention` is not used until Whisper Glade has its rules (task 8). Lantern Glade completes through its own dwell. Whisper Hall and Bloom each have one target, placed through placeRound at their activation travel, so runSession completes each one by a dwell on that target, as in the browser (Req 9.1, 9.2). One pause probe sets the paused flag for one frame during a dwell on the first lantern, and sends a `stageCompleted` with it, so invariant 2 can fail.
 5. Checks invariants after each step with `checkInvariant`: one transition per stage, no completion under a suspension flag, no target active before travel stops, no slot in the band unless needed, and help levels unchanged between round start and round end.
 6. Stops at `maxSteps`. A run that does not reach `SAVED` counts as not completed.
 

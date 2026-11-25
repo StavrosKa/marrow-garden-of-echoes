@@ -24,7 +24,7 @@ import {
   type Vec2,
 } from 'marrow/core';
 import { ATTENTION_TUNING, seedRng, type AttentionEvent, type Rng } from 'marrow/challenges';
-import { targetScreen, TUNING as WORLD_TUNING, type ProjectionFrame, type View, type WorldPoint } from 'world-view';
+import { targetScreen, TUNING as WORLD_TUNING, type LayerRef, type ProjectionFrame, type View, type WorldPoint } from 'world-view';
 import { INTERACTION_LAYER } from '../scene/forestLayers';
 import { LANTERN_COUNT, type LanternGladeContent } from '../stages/lantern-glade/content';
 import { activeLanternIds, createLanternGlade, lineKey as lanternLineKey, stepLanternGlade, targetIdOf, type LanternState } from '../stages/lantern-glade/rules';
@@ -196,15 +196,30 @@ function viewOf(session: SessionState): View {
   return { travel: session.travel?.distance ?? 0, head: { x: 0, y: 0 } };
 }
 
+/** The layer of the interaction targets of the forest table: the lanterns and the whisper targets (Req 2.4). */
+const FOREST_INTERACTION: LayerRef = {
+  depth: INTERACTION_LAYER.depth,
+  anchor: INTERACTION_LAYER.anchor,
+  factor: WORLD_TUNING.interactionFactor,
+};
+
 /** An authored slot as a point of the interaction layer (the layer of the forest table). */
 function interactionPoint(slot: SlotSpec): WorldPoint {
-  return {
-    x: slot.x,
-    y: slot.y,
-    depth: INTERACTION_LAYER.depth,
-    anchor: INTERACTION_LAYER.anchor,
-    factor: WORLD_TUNING.interactionFactor,
-  };
+  return { x: slot.x, y: slot.y, ...FOREST_INTERACTION };
+}
+
+/**
+ * A placeholder slot as a point of its own layer. Its depth and anchor are the slot's, so the slot is at scale 1 at its
+ * activation travel (its anchor) and the screen position is (x, y) there (Req 9.1, 9.2). The forest layer would give
+ * another scale, which is wrong for a slot that is placed after the travel has moved on.
+ */
+export function placeholderLayerOf(slot: SlotSpec): LayerRef {
+  return { depth: slot.depth, anchor: slot.anchor, factor: WORLD_TUNING.interactionFactor };
+}
+
+/** The point of a placeholder slot, on its own layer (see placeholderLayerOf). */
+export function placeholderPointOf(slot: SlotSpec): WorldPoint {
+  return { x: slot.x, y: slot.y, ...placeholderLayerOf(slot) };
 }
 
 /** The flags that every help event of a frame carries (Req 19.1). */
@@ -223,7 +238,13 @@ function helpStep(state: GardenState, events: readonly HelpEvent[], effects: Gar
  * The one placement of a round (design 2.8). It reads the help levels through placeRound, and nowhere else. The points
  * are the caller's objects, and placeRound returns the same objects, so a target finds its place by identity.
  */
-function placeOn(env: GardenEnv, state: GardenState, points: readonly WorldPoint[], n: number): PlacedRound {
+function placeOn(
+  env: GardenEnv,
+  state: GardenState,
+  points: readonly WorldPoint[],
+  n: number,
+  layer: LayerRef = FOREST_INTERACTION,
+): PlacedRound {
   return placeRound({
     worldSlots: points,
     n,
@@ -233,7 +254,7 @@ function placeOn(env: GardenEnv, state: GardenState, points: readonly WorldPoint
     mapping: env.reach.mapping,
     view: viewOf(state.session),
     frame: env.reach.frame,
-    layer: { depth: INTERACTION_LAYER.depth, anchor: INTERACTION_LAYER.anchor, factor: WORLD_TUNING.interactionFactor },
+    layer,
     bandY: ATTENTION_TUNING.restingBandY,
     core: TUNING,
   });
@@ -301,11 +322,20 @@ function activate(env: GardenEnv, state: GardenState, id: StageId, frame: Garden
       rng: started.rng,
     };
   }
+  // A placeholder stage has one target, placed through placeRound like a lantern round (Req 9.1, 9.2).
   const content = env.content.placeholders[id];
+  // The content has one slot per placeholder stage (validatePlaceholder needs at least one); the first one is the target.
+  const slot = content.target.slots[0];
+  if (slot === undefined) throw new Error(`${id}: the placeholder content has no slot`);
+  const placed = placeOn(env, state, [placeholderPointOf(slot)], 1, placeholderLayerOf(slot));
+  if (placed.kind === 'none') {
+    effects.push({ kind: 'noSlot' });
+    return { ...state, stage: null, placed: null, rounds: round };
+  }
   return {
     ...state,
     stage: { kind: 'placeholder', id, rule: createPlaceholder(content), copy: content.target.copy, round },
-    placed: null,
+    placed,
     rounds: round,
   };
 }
@@ -336,7 +366,7 @@ function activeIdsOf(state: GardenState): string[] {
     const presented = presentedTargetId(stage.rule);
     return presented === null ? [] : [presented];
   }
-  return [];
+  return stage.rule.done ? [] : [stage.rule.targetId];
 }
 
 /**
@@ -351,6 +381,10 @@ function placedTargetOf(state: GardenState, id: string): { point: WorldPoint; in
     const index = Number(id.slice('lantern-'.length));
     const point = placed.points[index];
     return point === undefined ? null : { point, index };
+  }
+  if (stage.kind === 'placeholder') {
+    const point = placed.points[0];
+    return id === stage.rule.targetId && point !== undefined ? { point, index: 0 } : null;
   }
   if (stage.kind !== 'whisper') return null;
   const target = stage.targets.find((candidate) => candidate.id === id);
@@ -524,6 +558,23 @@ export function drawnTargetsOf(state: GardenState, frame: ProjectionFrame): Draw
         radius: screen?.radius ?? 0,
       };
     });
+  }
+  if (stage.kind === 'placeholder') {
+    // The one target of a placeholder stage is a transparent marker, like a lantern (Req 9.1, 9.2).
+    const point = state.placed.points[0];
+    if (point === undefined) return [];
+    const screen = targetScreen(point, radius, view, frame, WORLD_TUNING);
+    return [
+      {
+        id: stage.rule.targetId,
+        shape: 'lantern',
+        index: 0,
+        lit: false,
+        active: activeIdsOf(state).includes(stage.rule.targetId),
+        centre: screen?.position ?? null,
+        radius: screen?.radius ?? 0,
+      },
+    ];
   }
   if (stage.kind !== 'whisper') return [];
   const active = activeIdsOf(state);

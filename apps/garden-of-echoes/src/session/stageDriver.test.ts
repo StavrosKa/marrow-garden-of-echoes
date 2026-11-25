@@ -1,8 +1,11 @@
 // The per-frame glue (design 3 steps 5 to 8; requirements 1.3, 1.4, 2.7, 4, 7, 10, 12.1, 19). The tests run the real
 // session machine, the real lantern rule and the real placeRound, with whole-frame simulated reach. Time is given as
 // frame deltas of marrow's maxClockStepMs, so the dwell and the entry title take their real number of frames.
-import { helpRadiusForMotorLevel, TUNING, type PointerInput } from 'marrow/core';
-import type { AttentionEvent } from 'marrow/challenges';
+import { createHelp, helpRadiusForMotorLevel, TUNING, type PointerInput, type Vec2 } from 'marrow/core';
+import { ATTENTION_TUNING, type AttentionEvent } from 'marrow/challenges';
+import { TUNING as WORLD_TUNING, targetScreen, type LayerRef, type WorldPoint } from 'world-view';
+import { INTERACTION_LAYER } from '../scene/forestLayers';
+import { placeRound } from '../stages/shared/placeRound';
 import { describe, expect, it } from 'vitest';
 import { loadSegments } from '../journeys/journeys';
 import segmentsJson from '../journeys/segments.json';
@@ -18,6 +21,8 @@ import {
   activeHitAreas,
   applyHelp,
   createGarden,
+  placeholderLayerOf,
+  placeholderPointOf,
   drawnTargetsOf,
   helpEventsOf,
   instructionKeyOf,
@@ -224,10 +229,51 @@ describe('the garden session on Lantern Glade', () => {
     expect(next.session).toEqual(state.session);
   });
 
-  it('14.2 20.4: a placeholder stage shows its own copy key and has no target to dwell on', () => {
+  it('14.2: a placeholder stage shows its own copy key', () => {
     const state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'bloom' } })).state;
     expect(instructionKeyOf(state)).toBe('bloom.target');
-    expect(activeHitAreas(state, env.reach.frame)).toEqual([]);
+  });
+});
+
+describe('the placeholder stages (requirements 9.1, 9.2)', () => {
+  it.each(['whisper-hall', 'bloom'] as const)(
+    '%s: its one target is placed through placeRound, has one hit area and one drawn marker',
+    (stage) => {
+      const state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage } })).state;
+      expect(state.placed?.points).toHaveLength(1);
+      expect(activeHitAreas(state, env.reach.frame).map((area) => area.targetId)).toEqual([`${stage}:target`]);
+      expect(drawnTargetsOf(state, env.reach.frame).map((target) => target.id)).toEqual([`${stage}:target`]);
+    },
+  );
+
+  it.each(['whisper-hall', 'bloom'] as const)(
+    '%s: a dwell on the target completes the stage, and stageCompleted is not sent before the dwell',
+    (stage) => {
+      let state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage } })).state;
+      const rewardFrames: number[] = [];
+      let frames = 0;
+      while (state.session.done.length === 0 && frames < 200) {
+        const step = stepGarden(env, state, frame({ pointers: pointerOnActive(state) }));
+        frames++;
+        if (rewardsIn(step.effects) > 0) rewardFrames.push(frames);
+        state = step.state;
+      }
+      expect(state.session.done).toEqual([stage]);
+      expect(rewardFrames).toEqual([frames]);
+      // The dwell takes time: the stage is not done after the first frame of the pointer.
+      expect(frames).toBeGreaterThan(1);
+    },
+  );
+
+  it('9.2: the Bloom dwell leads to the end card (SAVED), and a pointer off the target does not complete it', () => {
+    let state = stepGarden(env, createGarden(segments), frame({ event: { kind: 'startAt', stage: 'bloom' } })).state;
+    const away = { wrist: 'right', valid: true, pos: { x: 0, y: 0 } } as const;
+    for (let i = 0; i < 200; i++) state = stepGarden(env, state, frame({ pointers: [away] })).state;
+    expect(state.session.done).toEqual([]);
+    for (let i = 0; i < 200 && state.session.phase !== 'SAVED'; i++) {
+      state = stepGarden(env, state, frame({ pointers: pointerOnActive(state) })).state;
+    }
+    expect(state.session.phase).toBe('SAVED');
   });
 });
 
@@ -493,6 +539,75 @@ describe('a whisper presentation has its own activation (requirement 17.13, 5.4)
     state = playUntil(state, (s) => attentionOf(s)?.completed === 2 && attentionOf(s)?.phase === 'presenting', liftedWhisperPointer);
     expect(activationIdNow(state)).toBeDefined();
     expect(activationIdNow(state)).not.toBe(first);
+  });
+});
+
+describe('every authored slot is on screen at its activation travel (requirements 2.7, 9.1, 9.2, 10.1)', () => {
+  const ASPECT_FRAME = env.reach.frame;
+  const forestLayer: LayerRef = { depth: INTERACTION_LAYER.depth, anchor: INTERACTION_LAYER.anchor, factor: WORLD_TUNING.interactionFactor };
+  /** An authored forest slot as a point of the interaction layer, the way the driver places it. */
+  const interactionPoint = (slot: { readonly x: number; readonly y: number }): WorldPoint => ({ x: slot.x, y: slot.y, ...forestLayer });
+  const restHelp = createHelp(TUNING);
+  const raisedHelp = { ...restHelp, motorLevel: TUNING.helpMaxLevel };
+
+  /**
+   * Places one round of the given slots at this travel under the help level, and checks that the round places all of
+   * them and that every placed target's centre is inside the play frame. The round is placed as the driver places it.
+   */
+  function expectRoundOnScreen(label: string, points: readonly WorldPoint[], layer: LayerRef, travel: number): void {
+    for (const [level, help] of [
+      ['rest', restHelp],
+      ['raised', raisedHelp],
+    ] as const) {
+      const placed = placeRound({
+        worldSlots: points,
+        n: points.length,
+        help,
+        grids: env.reach.grids,
+        activeWrists: SIMULATED_WRISTS,
+        mapping: env.reach.mapping,
+        view: { travel, head: { x: 0, y: 0 } },
+        frame: ASPECT_FRAME,
+        layer,
+        bandY: ATTENTION_TUNING.restingBandY,
+        core: TUNING,
+      });
+      const where = `${label} at travel ${travel}, ${level} help`;
+      expect(placed.kind, where).not.toBe('none');
+      expect(placed.points.length, where).toBe(points.length);
+      for (const point of placed.points) {
+        const screen = targetScreen(point, placed.snapshot.radius, { travel, head: { x: 0, y: 0 } }, ASPECT_FRAME, WORLD_TUNING);
+        const centre: Vec2 | null = screen?.position ?? null;
+        expect(centre, `${where}: a centre`).not.toBeNull();
+        expect(centre?.x ?? -1, `${where}: centre x`).toBeGreaterThanOrEqual(0);
+        expect(centre?.x ?? ASPECT + 1, `${where}: centre x`).toBeLessThanOrEqual(ASPECT);
+        expect(centre?.y ?? -1, `${where}: centre y`).toBeGreaterThanOrEqual(0);
+        expect(centre?.y ?? 2, `${where}: centre y`).toBeLessThanOrEqual(1);
+      }
+    }
+  }
+
+  it('the lantern round places all four lantern slots at travel 0', () => {
+    expectRoundOnScreen('lantern round', env.content.lantern.slots.map(interactionPoint), forestLayer, 0);
+  });
+
+  it('the whisper spirit round and the path round place their slots at travel 8 (journey A ends there)', () => {
+    const arrival = segments.journeyA.to;
+    expectRoundOnScreen('spirit round', env.content.whisper.spiritSlots.map(interactionPoint), forestLayer, arrival);
+    const paths = [env.content.whisper.pathSlots.fireflies, env.content.whisper.pathSlots.candles].map(interactionPoint);
+    expectRoundOnScreen('path round', paths, forestLayer, arrival);
+  });
+
+  it('17 Whisper Hall: its one slot places at the door arrival, on its own layer', () => {
+    const slot = env.content.placeholders['whisper-hall'].target.slots[0];
+    if (slot === undefined) throw new Error('the hall has no slot');
+    expectRoundOnScreen('hall round', [placeholderPointOf(slot)], placeholderLayerOf(slot), segments.doorHall.to);
+  });
+
+  it('18 Bloom: its one slot places at the garden door arrival, on its own layer', () => {
+    const slot = env.content.placeholders.bloom.target.slots[0];
+    if (slot === undefined) throw new Error('bloom has no slot');
+    expectRoundOnScreen('bloom round', [placeholderPointOf(slot)], placeholderLayerOf(slot), segments.doorGarden.to);
   });
 });
 
