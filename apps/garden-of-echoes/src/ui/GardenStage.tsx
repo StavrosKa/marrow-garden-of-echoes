@@ -216,6 +216,9 @@ export function GardenStage(props: GardenStageProps): ReactElement {
   noSlotRef.current = onNoSlot;
   const playRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GardenState | null>(null);
+  // The session time of this play. It counts the session delta of each frame, so Pause holds it (Req 1.4). It is shown as
+  // data-timer-ms on the stage element.
+  const sessionClockRef = useRef(0);
   const envRef = useRef<GardenEnv | null>(null);
   const audioRef = useRef<GardenAudio | null>(null);
   const sceneRef = useRef<SceneManager | null>(null);
@@ -250,7 +253,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
     let alive = true;
     let sceneKey = '';
     // The session time of this play: the flicker of the lit lanterns runs on it (Req 17.2).
-    let sessionMs = 0;
+    sessionClockRef.current = 0;
     // The head view of the simulated pointer (marrow's head view, Req 6.7). It is reset with each play.
     let headState = createHeadView();
     /** The backdrop the scene should show. It moves once, from the lantern forest to the Whisper Glade (Req 2.4). */
@@ -340,10 +343,10 @@ export function GardenStage(props: GardenStageProps): ReactElement {
         scene.setTargets(sceneTargetsOf(step.state));
       }
       // The lit lanterns flicker on the session clock, so Pause freezes the flicker with the session (Req 17.2, 17.3).
-      sessionMs += clocks.sessionDt;
+      sessionClockRef.current += clocks.sessionDt;
       const lanternRule = step.state.stage?.kind === 'lantern' ? step.state.stage.rule : null;
       if (scene !== null && lanternRule !== null) {
-        for (const lit of lanternColoursOf(lanternRule, sessionMs, frameInput.motion, colourNumber('lanternWarm'))) {
+        for (const lit of lanternColoursOf(lanternRule, sessionClockRef.current, frameInput.motion, colourNumber('lanternWarm'))) {
           scene.setTargetColour(lit.id, lit.colour);
         }
       }
@@ -460,6 +463,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       data-travel-style={state?.session.travel?.part?.style ?? ''}
       data-travel-ms={state?.session.travel?.part?.elapsedMs ?? 0}
       data-travel-length={state?.session.travel?.part?.remainingMs ?? 0}
+      data-timer-ms={sessionClockRef.current}
       data-head-x={state?.view.interaction.x ?? 0}
       data-live-head-x={state?.view.live.x ?? 0}
     >
