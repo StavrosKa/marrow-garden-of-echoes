@@ -1,7 +1,15 @@
 // The per-frame glue (design 3 steps 5 to 8; requirements 1.3, 1.4, 2.7, 4, 7, 10, 12.1, 19). The tests run the real
 // session machine, the real lantern rule and the real placeRound, with whole-frame simulated reach. Time is given as
 // frame deltas of marrow's maxClockStepMs, so the dwell and the entry title take their real number of frames.
-import { createHelp, helpRadiusForMotorLevel, TUNING, type PointerInput, type Vec2 } from 'marrow/core';
+import {
+  createHeadView,
+  createHelp,
+  helpRadiusForMotorLevel,
+  stepHeadView,
+  TUNING,
+  type PointerInput,
+  type Vec2,
+} from 'marrow/core';
 import { ATTENTION_TUNING, type AttentionEvent } from 'marrow/challenges';
 import { TUNING as WORLD_TUNING, targetScreen, type LayerRef, type WorldPoint } from 'world-view';
 import { INTERACTION_LAYER } from '../scene/forestLayers';
@@ -608,6 +616,118 @@ describe('every authored slot is on screen at its activation travel (requirement
     const slot = env.content.placeholders.bloom.target.slots[0];
     if (slot === undefined) throw new Error('bloom has no slot');
     expectRoundOnScreen('bloom round', [placeholderPointOf(slot)], placeholderLayerOf(slot), segments.doorGarden.to);
+  });
+});
+
+describe('the head view in simulated input (garden-level 11.7; marrow requirements 6.7, 6.8)', () => {
+  const NO_LANDMARK = { pos: { x: 0, y: 0 }, valid: false } as const;
+  const NO_LANDMARKS = {
+    leftWrist: NO_LANDMARK,
+    rightWrist: NO_LANDMARK,
+    nose: NO_LANDMARK,
+    leftShoulder: NO_LANDMARK,
+    rightShoulder: NO_LANDMARK,
+  } as const;
+
+  /** The head offset of a simulated pointer at a screen position, from marrow's head view at rest. */
+  function headAt(pos: Vec2): Vec2 {
+    const pointer = { valid: true as const, pos };
+    return stepHeadView(
+      createHeadView(),
+      { mode: 'simulated', tuning: TUNING, landmarks: NO_LANDMARKS, frameAspect: ASPECT, neutral: null, skip: false, playAspect: ASPECT, pointer },
+      0,
+    ).offset;
+  }
+
+  it('6.7: the pointer at the left edge, the centre and the right edge gives -0.3, 0 and +0.3 (the strength of the tuning)', () => {
+    const left = headAt({ x: 0, y: 0.5 });
+    const centre = headAt({ x: ASPECT / 2, y: 0.5 });
+    const right = headAt({ x: ASPECT, y: 0.5 });
+    expect(left.x).toBeCloseTo(-TUNING.simulatedHeadStrength, 9);
+    expect(centre.x).toBe(0);
+    expect(right.x).toBeCloseTo(TUNING.simulatedHeadStrength, 9);
+    expect(TUNING.simulatedHeadStrength).toBe(0.3);
+  });
+
+  it('6.7 11.7: at each of the three offsets the drawn disc and the hit circle share one centre', () => {
+    const state = lanternInPlay();
+    for (const pos of [{ x: 0, y: 0.5 }, { x: ASPECT / 2, y: 0.5 }, { x: ASPECT, y: 0.5 }]) {
+      const head = headAt(pos);
+      const hit = activeHitAreas(state, env.reach.frame, head)[0];
+      const drawn = drawnTargetsOf(state, env.reach.frame, head).find((target) => target.id === hit?.targetId);
+      expect(hit).toBeDefined();
+      expect(drawn?.centre).toEqual(hit?.centre);
+    }
+    // The offset moves the target: the centre at the right edge is not the centre at rest.
+    const rest = activeHitAreas(state, env.reach.frame, { x: 0, y: 0 })[0];
+    const right = activeHitAreas(state, env.reach.frame, headAt({ x: ASPECT, y: 0.5 }))[0];
+    expect(right?.centre.x).not.toBe(rest?.centre.x);
+  });
+
+  it('6.8 11.7: an invalid pointer eases the offset to exactly 0 within 500 ms, and it is between 0 and the offset before that', () => {
+    const step = TUNING.maxClockStepMs;
+    let view = createHeadView();
+    view = stepHeadView(view, { mode: 'simulated', tuning: TUNING, landmarks: NO_LANDMARKS, frameAspect: ASPECT, neutral: null, skip: false, playAspect: ASPECT, pointer: { valid: true, pos: { x: ASPECT, y: 0.5 } } }, 0).state;
+    const invalid = { mode: 'simulated' as const, tuning: TUNING, landmarks: NO_LANDMARKS, frameAspect: ASPECT, neutral: null, skip: false, playAspect: ASPECT, pointer: { valid: false as const, pos: { x: 0, y: 0 } } };
+    const offsets: number[] = [];
+    for (let elapsed = 0; elapsed < 500; elapsed += step) {
+      const result = stepHeadView(view, invalid, step);
+      view = result.state;
+      offsets.push(result.offset.x);
+    }
+    const before = offsets.slice(0, -1);
+    expect(before.every((x) => x > 0 && x < TUNING.simulatedHeadStrength)).toBe(true);
+    expect(offsets[offsets.length - 1]).toBe(0);
+  });
+
+  it('11.7 steering 8: while a dwell is in progress the interaction offset is held, and the hit centre does not move when the pointer moves', () => {
+    let state = lanternInPlay();
+    // The dwell begins with the head at rest: the pointer sits on the centre of the active lantern.
+    const start = activeHitAreas(state, env.reach.frame, state.view.interaction)[0];
+    expect(start).toBeDefined();
+    const onTarget: PointerInput[] = [{ wrist: 'right', valid: true, pos: start?.centre ?? { x: 0, y: 0 } }];
+    for (let i = 0; i < 100 && !state.dwellActive; i++) state = stepGarden(env, state, frame({ pointers: onTarget })).state;
+    expect(state.dwellActive).toBe(true);
+    const held = activeHitAreas(state, env.reach.frame, state.view.interaction)[0];
+    expect(state.view.interaction).toEqual({ x: 0, y: 0 });
+    // The head moves to the right and to the left while the pointer stays on the lantern.
+    for (const x of [TUNING.simulatedHeadStrength, -TUNING.simulatedHeadStrength, TUNING.simulatedHeadStrength / 2]) {
+      state = stepGarden(env, state, frame({ head: { x, y: 0 }, pointers: onTarget })).state;
+      expect(state.dwellActive, 'the dwell is still in progress').toBe(true);
+      expect(state.view.live.x).toBe(x);
+      expect(state.view.interaction).toEqual({ x: 0, y: 0 });
+      expect(activeHitAreas(state, env.reach.frame, state.view.interaction)[0]?.centre).toEqual(held?.centre);
+    }
+  });
+
+  it('11.7 steering 8: when the dwell ends the interaction offset eases to the live value over headEaseToCentreMs', () => {
+    let state = lanternInPlay();
+    const start = activeHitAreas(state, env.reach.frame, state.view.interaction)[0];
+    const onTarget: PointerInput[] = [{ wrist: 'right', valid: true, pos: start?.centre ?? { x: 0, y: 0 } }];
+    for (let i = 0; i < 100 && !state.dwellActive; i++) state = stepGarden(env, state, frame({ pointers: onTarget })).state;
+    const live = { x: -TUNING.simulatedHeadStrength, y: 0 };
+    // The pointer is lifted. The dwell releases after its outside window, and the ease starts in that frame. The live
+    // offset is at the left from the first frame of the lift.
+    for (let i = 0; i < 100 && state.dwellActive; i++) state = stepGarden(env, state, frame({ head: live, pointers: [] })).state;
+    expect(state.dwellActive).toBe(false);
+    expect(state.view.held).toBeNull();
+    expect(state.view.ease).not.toBeNull();
+    // One frame more than the ease needs, because the interaction offset of a frame is read before that frame's time.
+    const frames = Math.ceil(TUNING.headEaseToCentreMs / TUNING.maxClockStepMs) + 1;
+    const ramp: number[] = [];
+    for (let i = 0; i < frames; i++) {
+      state = stepGarden(env, state, frame({ head: live, pointers: [] })).state;
+      ramp.push(state.view.interaction.x);
+    }
+    // Between the held value (0) and the live value while the ease runs, falling monotonically; the live value once it is over.
+    const eased = ramp.slice(0, -1);
+    eased.forEach((x, i) => {
+      expect(x).toBeLessThanOrEqual(0);
+      expect(x).toBeGreaterThan(live.x);
+      if (i > 0) expect(x).toBeLessThanOrEqual(eased[i - 1] ?? 0);
+    });
+    expect(ramp[ramp.length - 1]).toBe(live.x);
+    expect(state.view.live).toEqual(live);
   });
 });
 

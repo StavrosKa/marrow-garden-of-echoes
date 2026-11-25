@@ -104,6 +104,45 @@ test.describe('Lantern Glade frame', () => {
   }
 });
 
+test.describe('Lantern Glade head view (garden-level 11.7)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      (globalThis as unknown as { __PIXI_APP_INIT__: (app: unknown) => void }).__PIXI_APP_INIT__ = (app: unknown) => {
+        globalThis.__pixiApp = app as PixiAppLike;
+      };
+    });
+  });
+  test('the head offset is -0.3, 0 and +0.3 at the left, centre and right of the play area, and the drawn and hit centres agree', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?start=lantern-glade');
+    await page.waitForSelector('[data-target]', { timeout: 30000 });
+    const play = await page.locator('.garden-play').boundingBox();
+    if (play === null) throw new Error('the play area has no box');
+    // The pointer stays near the bottom of the play area, below the lanterns, so no dwell holds the head (steering 8).
+    const y = play.y + play.height * 0.95;
+    const positions = [
+      { label: 'left', x: play.x + 1, expected: -TUNING.simulatedHeadStrength },
+      { label: 'centre', x: play.x + play.width / 2, expected: 0 },
+      { label: 'right', x: play.x + play.width - 1, expected: TUNING.simulatedHeadStrength },
+    ] as const;
+    for (const position of positions) {
+      await page.mouse.move(position.x, y, { steps: 2 });
+      await page.waitForTimeout(TUNING.maxClockStepMs * 3);
+      const headX = Number(await page.locator('main.garden-stage').getAttribute('data-head-x'));
+      expect(Math.abs(headX - position.expected), `head offset at the ${position.label}`).toBeLessThanOrEqual(0.02);
+      const frame = await readFrame(page);
+      expect(frame.drawn.length, `drawn lanterns at the ${position.label}`).toBe(4);
+      frame.drawn.forEach((drawn, index) => {
+        const hit = frame.hitCentres[index];
+        expect(hit, `lantern ${index} at the ${position.label}`).toBeDefined();
+        if (hit === undefined) return;
+        expect(Math.abs(drawn.x - hit.x), `lantern ${index} x at the ${position.label}`).toBeLessThanOrEqual(ONE_PIXEL);
+        expect(Math.abs(drawn.y - hit.y), `lantern ${index} y at the ${position.label}`).toBeLessThanOrEqual(ONE_PIXEL);
+      });
+    }
+  });
+});
+
 /** How long a lantern is held: the dwell time, and a few frames of margin (marrow TUNING, read not written). */
 const HOLD_MS = TUNING.dwellMs + TUNING.maxClockStepMs * 4;
 

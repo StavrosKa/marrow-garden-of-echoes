@@ -110,6 +110,25 @@ export interface GardenState {
   readonly rounds: number;
   /** The seeded generator of the session. It orders the whisper blocks (Req 5.5), and it is kept in the state (Req 19). */
   readonly rng: Rng;
+  /** The head view: the live offset, and the offset the interaction layer uses (garden-level 11.7, steering 8). */
+  readonly view: ViewState;
+}
+
+/**
+ * The head view of the garden. The interaction layer (the targets) and the decorative layers read the head differently:
+ * while a dwell is in progress the interaction offset is held at the value it had when the dwell began, and it eases back
+ * to the live value over headEaseToCentreMs once the dwell ends (steering 8, view lock). The decorative layers always use
+ * the live offset.
+ */
+export interface ViewState {
+  /** The live head offset of the latest frame, after the motion scale. */
+  readonly live: Vec2;
+  /** The offset the interaction layer used in the latest frame: its hit areas and its drawn discs. */
+  readonly interaction: Vec2;
+  /** The offset held for the dwell in progress, or null. */
+  readonly held: Vec2 | null;
+  /** The ease back to the live value after a dwell, or null. */
+  readonly ease: { readonly from: Vec2; readonly elapsedMs: number } | null;
 }
 
 /** One frame of input. The times are the clocks' outputs (Req 7.7): the driver adds no time of its own. */
@@ -125,6 +144,8 @@ export interface GardenFrame {
   readonly pointers: readonly PointerInput[];
   /** "Continue with help" was pressed this frame. Nothing in the UI sets it yet (Pause is task 11). */
   readonly helpRequested?: boolean;
+  /** The live head offset of this frame, already scaled by the motion level. Left out, the head is at rest. */
+  readonly head?: Vec2;
 }
 
 export type GardenEffect =
@@ -176,6 +197,42 @@ export function applyHelp(help: HelpState, events: readonly HelpEvent[]): { help
   return { help: state, outputs };
 }
 
+/** The head offset at rest. Written with literal zeros, so it is never -0. */
+export const CENTRE_HEAD: Vec2 = Object.freeze({ x: 0, y: 0 });
+
+/** A head view at rest: no offset, nothing held, no ease. */
+export function createView(): ViewState {
+  return { live: CENTRE_HEAD, interaction: CENTRE_HEAD, held: null, ease: null };
+}
+
+/**
+ * The interaction layer's head offset for a frame (steering 8, view lock). While a dwell holds an offset, that offset is
+ * used. After a dwell, the offset eases from the held value to the live one over headEaseToCentreMs, linearly. Otherwise
+ * the offset is the live one. The live value is returned as it is, so no -0 appears.
+ */
+export function interactionHeadOf(view: ViewState, live: Vec2): Vec2 {
+  if (view.held !== null) return view.held;
+  if (view.ease === null) return live;
+  const t = Math.min(view.ease.elapsedMs / TUNING.headEaseToCentreMs, 1);
+  if (t >= 1) return live;
+  const remaining = 1 - t;
+  return { x: live.x + (view.ease.from.x - live.x) * remaining, y: live.y + (view.ease.from.y - live.y) * remaining };
+}
+
+/**
+ * The head view after a frame. A dwell in progress holds the interaction offset of the frame it began in. When the dwell
+ * ends, the held offset starts an ease to the live value, which runs on the presence clock (steering 8, view lock).
+ */
+export function stepView(view: ViewState, live: Vec2, interaction: Vec2, dwellActive: boolean, presenceDt: number): ViewState {
+  if (dwellActive) return { live, interaction, held: view.held ?? interaction, ease: null };
+  if (view.held !== null) return { live, interaction, held: null, ease: { from: view.held, elapsedMs: 0 } };
+  if (view.ease === null) return { live, interaction, held: null, ease: null };
+  const dt = Number.isFinite(presenceDt) && presenceDt > 0 ? presenceDt : 0;
+  const elapsedMs = view.ease.elapsedMs + dt;
+  const ease = elapsedMs >= TUNING.headEaseToCentreMs ? null : { from: view.ease.from, elapsedMs };
+  return { live, interaction, held: null, ease };
+}
+
 /** A session at SETUP, with no stage, no dwell, the default help levels and the seeded generator. */
 export function createGarden(segments: JourneySegments, seed: number = DEFAULT_SEED, tuning: Tuning = TUNING): GardenState {
   return {
@@ -188,12 +245,13 @@ export function createGarden(segments: JourneySegments, seed: number = DEFAULT_S
     playback: false,
     rounds: 0,
     rng: seedRng(seed),
+    view: createView(),
   };
 }
 
-/** The view of a frame: the session's travel distance, with the head at rest (the head is not wired in this task). */
-function viewOf(session: SessionState): View {
-  return { travel: session.travel?.distance ?? 0, head: { x: 0, y: 0 } };
+/** The view of a frame: the session's travel distance and the head offset the caller gives (at rest by default). */
+function viewOf(session: SessionState, head: Vec2 = CENTRE_HEAD): View {
+  return { travel: session.travel?.distance ?? 0, head };
 }
 
 /** The layer of the interaction targets of the forest table: the lanterns and the whisper targets (Req 2.4). */
@@ -397,9 +455,9 @@ function placedTargetOf(state: GardenState, id: string): { point: WorldPoint; in
  * The hit circles of the active targets (design 3 steps 6 and 7). Each circle comes from targetScreen, the function
  * that the drawing uses too, so the hit area and the drawn target cannot differ (steering 10, item 3).
  */
-export function activeHitAreas(state: GardenState, frame: ProjectionFrame): HitArea[] {
+export function activeHitAreas(state: GardenState, frame: ProjectionFrame, head: Vec2 = CENTRE_HEAD): HitArea[] {
   if (state.stage === null || state.placed === null) return [];
-  const view = viewOf(state.session);
+  const view = viewOf(state.session, head);
   const areas: HitArea[] = [];
   for (const id of activeIdsOf(state)) {
     const found = placedTargetOf(state, id);
@@ -470,10 +528,19 @@ export function stepGarden(env: GardenEnv, state: GardenState, frame: GardenFram
     if (effect.kind === 'stageActivated') next = activate(env, next, effect.stage, frame, effects);
   }
 
-  // Steps 6 and 7: the dwell over the active targets.
-  const dwell = stepDwell(next.dwell, { dt: frame.presenceDt, pointers: frame.pointers, hitAreas: activeHitAreas(next, env.reach.frame) });
+  // Steps 6 and 7: the dwell over the active targets. The interaction layer uses the head offset of this frame, which the
+  // view lock holds while a dwell is in progress (steering 8). The hit areas and the dwell use the same offset.
+  const live = frame.head ?? CENTRE_HEAD;
+  const interaction = interactionHeadOf(state.view, live);
+  const dwell = stepDwell(next.dwell, { dt: frame.presenceDt, pointers: frame.pointers, hitAreas: activeHitAreas(next, env.reach.frame, interaction) });
   const activeIds = activeIdsOf(next);
-  next = { ...next, dwell: dwell.state, dwellActive: activeIds.some((id) => dwellView(dwell.state, id).owner !== null) };
+  const dwellActive = activeIds.some((id) => dwellView(dwell.state, id).owner !== null);
+  next = {
+    ...next,
+    dwell: dwell.state,
+    dwellActive,
+    view: stepView(state.view, live, interaction, dwellActive, frame.presenceDt),
+  };
   const selections = suspended ? [] : dwell.events.map((event) => event.targetId);
 
   // Step 8: the stage rule, while targets are active.
@@ -538,10 +605,10 @@ export interface DrawnTarget {
  * player sees the target where it can be selected (steering 10, item 3). A lantern round draws every lantern; a whisper
  * round draws only the targets that can be selected now, so one spirit is shown at a time (Req 5.3).
  */
-export function drawnTargetsOf(state: GardenState, frame: ProjectionFrame): DrawnTarget[] {
+export function drawnTargetsOf(state: GardenState, frame: ProjectionFrame, head: Vec2 = CENTRE_HEAD): DrawnTarget[] {
   const stage = state.stage;
   if (stage === null || state.placed === null) return [];
-  const view = viewOf(state.session);
+  const view = viewOf(state.session, head);
   const radius = state.placed.snapshot.radius;
   if (stage.kind === 'lantern') {
     const active = activeIdsOf(state);

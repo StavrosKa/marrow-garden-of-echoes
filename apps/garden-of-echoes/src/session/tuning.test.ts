@@ -4,6 +4,7 @@ import { TUNING as WORLD_TUNING } from 'world-view';
 import { describe, expect, it } from 'vitest';
 import {
   APP_SESSION_TUNING,
+  headScaleOf,
   RATE_BIN_MS,
   REWARD_MAX_MS,
   REWARD_MIN_MS,
@@ -52,6 +53,25 @@ describe('app session tuning (tuning.test.ts)', () => {
       expect(validateAppSessionTuning(t, MIN_FADE).length).toBeGreaterThan(0);
     }
   });
+  it('steering 8: gentleHeadScale must be a number from 0 to 1, and the shipped value is 0.5', () => {
+    expect(APP_SESSION_TUNING.gentleHeadScale).toBe(0.5);
+    for (const scale of [Number.NaN, -0.1, 1.1, Number.POSITIVE_INFINITY]) {
+      const issues = validateAppSessionTuning({ ...APP_SESSION_TUNING, gentleHeadScale: scale }, MIN_FADE);
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toContain('gentleHeadScale');
+    }
+    for (const scale of [0, 1]) {
+      expect(validateAppSessionTuning({ ...APP_SESSION_TUNING, gentleHeadScale: scale }, MIN_FADE)).toEqual([]);
+    }
+  });
+
+  it('steering 8: the head scale is 1 in Full, the gentleHeadScale in Gentle, and 0 in Reduced', () => {
+    expect(headScaleOf('full')).toBe(1);
+    expect(headScaleOf('gentle')).toBe(APP_SESSION_TUNING.gentleHeadScale);
+    expect(headScaleOf('gentle')).toBe(0.5);
+    expect(headScaleOf('reduced')).toBe(0);
+  });
+
   it('16.3: lowRateHz must be a positive number, and lowRateWindowMs a whole number of one-second bins', () => {
     const rateOff: AppSessionTuning[] = [
       { ...APP_SESSION_TUNING, lowRateHz: 0 },

@@ -5,7 +5,18 @@
 // also has a transparent DOM marker at its position, so a test can aim at it.
 import { useEffect, useReducer, useRef, useState, type ReactElement } from 'react';
 import type { CSSProperties } from 'react';
-import { makeMapping, stepClocks, TUNING as MARROW_TUNING, type MotionLevel, type PointerInput } from 'marrow/core';
+import {
+  createHeadView,
+  makeMapping,
+  stepClocks,
+  stepHeadView,
+  TUNING as MARROW_TUNING,
+  type HeadViewInput,
+  type MotionLevel,
+  type PointerInput,
+  type PoseLandmarks,
+  type Vec2,
+} from 'marrow/core';
 import { createPointerSource, type PoseSource } from 'marrow/input';
 import { createSettingsStore, type SettingsStore } from 'marrow/react';
 import { createLowRate, stepLowRate, takeHint } from '../session/lowRate';
@@ -15,7 +26,7 @@ import { createGardenAudio, type GardenAudio } from '../audio/gardenAudio';
 import { createTonePlayer } from '../audio/tonePlayer';
 import { loadSegments } from '../journeys/journeys';
 import segmentsJson from '../journeys/segments.json';
-import { APP_SESSION_TUNING } from '../session/tuning';
+import { APP_SESSION_TUNING, headScaleOf } from '../session/tuning';
 import { loadLanternGlade } from '../stages/lantern-glade/content';
 import lanternJson from '../stages/lantern-glade/content.json';
 import { loadWhisperGlade } from '../stages/whisper-glade/content';
@@ -60,6 +71,21 @@ import { PlayArea } from './PlayArea';
 const ASPECT = 16 / 9;
 const CENTRE_Y = 0.5;
 const NOT_VALID_POINTER = { wrist: 'right', valid: false } as const;
+/** The head offset at rest. Literal zeros, so it is never -0. */
+const REST_HEAD: Vec2 = { x: 0, y: 0 };
+/** The simulated head reads no landmark: the pointer alone sets the offset (Req 6.7), so every landmark is left out as invalid. */
+const NO_LANDMARK = { pos: REST_HEAD, valid: false } as const;
+const NO_LANDMARKS: PoseLandmarks = {
+  leftWrist: NO_LANDMARK,
+  rightWrist: NO_LANDMARK,
+  nose: NO_LANDMARK,
+  leftShoulder: NO_LANDMARK,
+  rightShoulder: NO_LANDMARK,
+};
+/** The head offset scaled by the motion level. A zero scale gives a literal zero, so it is never -0. */
+function scaledHead(offset: Vec2, scale: number): Vec2 {
+  return scale === 0 ? REST_HEAD : { x: offset.x * scale, y: offset.y * scale };
+}
 const REDUCED_QUERY = '(prefers-reduced-motion:reduce)';
 const PERCENT = 100;
 /** The centring of a marker on its target's centre. */
@@ -225,10 +251,12 @@ export function GardenStage(props: GardenStageProps): ReactElement {
     let sceneKey = '';
     // The session time of this play: the flicker of the lit lanterns runs on it (Req 17.2).
     let sessionMs = 0;
+    // The head view of the simulated pointer (marrow's head view, Req 6.7). It is reset with each play.
+    let headState = createHeadView();
     /** The backdrop the scene should show. It moves once, from the lantern forest to the Whisper Glade (Req 2.4). */
     let wanted: Backdrop = stage === 'lantern-glade' ? 'lantern' : 'whisper';
 
-    const frameTargets = (state: GardenState) => drawnTargetsOf(state, env.reach.frame);
+    const frameTargets = (state: GardenState) => drawnTargetsOf(state, env.reach.frame, state.view.interaction);
     const tick = (now: number): void => {
       if (!alive) return;
       const current = gameRef.current;
@@ -247,14 +275,30 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       rate = stepLowRate(rate, { dtMs: clocks.presenceDt, delivered });
       const helpRequested = helpRef.current !== helpSeenRef.current;
       helpSeenRef.current = helpRef.current;
+      const pointers = pointerOf(pose);
+      const pointer = pointers[0] ?? NOT_VALID_POINTER;
+      const headInput: HeadViewInput = {
+        mode: 'simulated',
+        tuning: MARROW_TUNING,
+        landmarks: NO_LANDMARKS,
+        frameAspect: ASPECT,
+        neutral: null,
+        skip: false,
+        playAspect: ASPECT,
+        pointer: pointer.valid ? { valid: true, pos: pointer.pos } : { valid: false, pos: REST_HEAD },
+      };
+      const headStep = stepHeadView(headState, headInput, clocks.presenceDt);
+      headState = headStep.state;
+      const motion = motionAt(settings);
       const frameInput: GardenFrame = {
         event: first ? { kind: 'startAt', stage } : null,
         presenceDt: clocks.presenceDt,
         sessionDt: clocks.sessionDt,
-        motion: motionAt(settings),
+        motion,
         suspension: { paused, holdActive: false },
-        pointers: pointerOf(pose),
+        pointers,
         helpRequested,
+        head: scaledHead(headStep.offset, headScaleOf(motion)),
       };
       first = false;
       const step = stepGarden(env, current, frameInput);
@@ -326,12 +370,15 @@ export function GardenStage(props: GardenStageProps): ReactElement {
           targetVisualRatio: TARGET_VISUAL_RATIO,
           getFrame: () => {
             const state = gameRef.current;
-            if (state === null) return frameDataOf({ session: idleSession, active: [], shown: [] });
+            if (state === null) return frameDataOf({ session: idleSession, active: [], shown: [], head: REST_HEAD, decorativeHead: REST_HEAD });
             const targets = frameTargets(state);
             return frameDataOf({
               session: state.session,
               active: targets.filter((target) => target.active).map((target) => target.id),
               shown: targets.map((target) => target.id),
+              // The targets and their hit areas share the interaction head; the decorative layers follow the live one (steering 8).
+              head: state.view.interaction,
+              decorativeHead: state.view.live,
             });
           },
         });
@@ -403,7 +450,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
   const ended = state !== null && state.session.phase === 'SAVED';
   const inRound = state !== null && state.session.phase === 'PLAYING' && state.stage?.kind === 'whisper';
   const env = envRef.current;
-  const targets = state !== null && env !== null ? drawnTargetsOf(state, env.reach.frame) : [];
+  const targets = state !== null && env !== null ? drawnTargetsOf(state, env.reach.frame, state.view.interaction) : [];
   const required = state === null || ended ? null : requiredLineOf(state);
   return (
     <main
@@ -413,6 +460,8 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       data-travel-style={state?.session.travel?.part?.style ?? ''}
       data-travel-ms={state?.session.travel?.part?.elapsedMs ?? 0}
       data-travel-length={state?.session.travel?.part?.remainingMs ?? 0}
+      data-head-x={state?.view.interaction.x ?? 0}
+      data-live-head-x={state?.view.live.x ?? 0}
     >
       <p className="garden-label">{textOf('label.simulated')}</p>
       {title !== null && title.timerMs > 0 ? (

@@ -1,8 +1,8 @@
 // The inputs of the Scene Manager (garden-level design 2.8, 3 steps 4 and 6; requirements 2.4, 2.7, 22.2). The layers come
 // from the layer table of the current backdrop in table order, and each frame's data comes from the session: the travel
-// distance and cover, whether the session is travelling, and which targets are active and shown. The head is at rest in
-// this task (the head view is not wired yet), so the view has no parallax.
-import type { MotionLevel } from 'marrow/core';
+// distance and cover, whether the session is travelling, and which targets are active and shown. The head offsets come from
+// the caller: the interaction head for the targets, and the live head for the decorative layers.
+import type { MotionLevel, Vec2 } from 'marrow/core';
 import type { SessionState } from '../session/machine';
 import { ROUTE } from '../session/stageOrder';
 import { resolveLayerTable, TUNING as WORLD_TUNING, type LayerTableEntry, type Rect, type View } from 'world-view';
@@ -144,17 +144,21 @@ export interface FrameInput {
   readonly active: readonly string[];
   /** Ids of the targets that are drawn. */
   readonly shown: readonly string[];
+  /** The head offset of the interaction layer (held during a dwell). The targets and their hit areas share it. */
+  readonly head: Vec2;
+  /** The live head offset, which the decorative layers follow (steering 8). */
+  readonly decorativeHead: Vec2;
 }
 
-/** The frame data of the Scene Manager: the view of the travel and the targets' states. */
+/** The frame data of the Scene Manager: the view of the travel, the head offsets and the targets' states. */
 export function frameDataOf(input: FrameInput): FrameData {
   const travel = input.session.travel;
-  const view: View = { travel: travel?.distance ?? 0, head: { x: 0, y: 0 } };
+  const view: View = { travel: travel?.distance ?? 0, head: input.head };
   return {
     view,
     interactionView: view,
-    interactionHead: { x: 0, y: 0 },
-    decorativeHead: { x: 0, y: 0 },
+    interactionHead: input.head,
+    decorativeHead: input.decorativeHead,
     cover: travel?.cover ?? 0,
     accentAlpha: 0,
     travelling: input.session.phase === 'TRAVELLING',
