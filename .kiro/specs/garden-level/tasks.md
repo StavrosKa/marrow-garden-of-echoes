@@ -85,7 +85,7 @@ Rules for every task:
   - Verification: typecheck, lint and test pass, and `npm run test:e2e` passes for the arrival check of 8.5. Then a mouse play-through of Whisper Glade and journey B to the hall door, reported in the commit body.
   - _Requirements: 2.4, 2.5, 2.6, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 9. Simulator with all profiles and invariants (stop after plan)
+- [x] 9. Simulator with all profiles and invariants (stop after plan)
   - 9.1 Run every profile in `SIM_PROFILES` through `runSession`, with the real machine and stage rules. The invariants are: one transition per stage; no completion under a suspension flag; no target active before travel stops; no band slot unless needed; help levels unchanged between round start and round end. Extend `runSession.test.ts`: every profile completes for seed 42.
   - 9.2 The adversarial profile completes within the step budget through help, and the slow profile completes. Both are tests.
   - 9.3 Check the default invocation `npm run simulate -- --seed 42 --runs 50`. Its output, with each profile's completions, help steps, violations and seeds, goes in the commit body.

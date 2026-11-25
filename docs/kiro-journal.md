@@ -2261,5 +2261,36 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - The raised-help placement problem above: the path round is `sequential` at travel 8 when the motor level is raised, and the hit circles overlap at that radius.
   - `CalibrationExplainer` and the no-usable-slot screen have no caller in the browser path. The no-usable-slot screen is reached only through the `noSlot` effect of the stage.
 - Tool notes: the dev server ran under `control_pwsh_process`, and it was stopped afterwards. Every new file was written with the editor tool, and every commit message was written into `.scratch` first.
+## 2026-11-25 - garden-level task 9: simulator with all profiles and invariants
+- Kiro feature used: task 9 in three steps, with two stops (model: Claude Haiku 5.5, Medium). Stop 1 gave the plan. Stop 2 reported a bug in the stage driver, and the owner approved a fix outside the usual file list. Commits, each pushed to origin/main:
+  - `b75e401` Give each whisper presentation its own activation id. This is the driver fix, with its tests in `stageDriver.test.ts`.
+  - `d301f6f` Play every simulator profile through the real session and check the five invariants (9.1).
+  - `7fbe005` Test the adversarial and the slow profiles through the session (9.2).
+  - `84b89b8` Check the default simulator run and its exit codes (9.3). This commit has no code change, and the default output is in its body.
+  - This commit: the journal entry and the tick of task 9.
+- Bug found and fixed (`b75e401`). A dwell activation is used once for good (Req 17.13). The whisper hit areas used `${id}@${round}`, and the round number stays the same for the whole attention round. So a spirit shown twice in one round could be selected only once. At seed 42 the baseline player made three mistakes and used one forced help step before the fix. The id now counts the completed presentations and the mistakes of the current one. Path options and lanterns keep their id. No spec text stated the old format.
+- Dwell latch. A completed target keeps its latch until a valid pointer stands outside it (Req 17.12). So the player (in the runner and in the driver test) lifts the hand for one frame at the start of each attempt. The driver test proves the lift is needed.
+- Baseline now makes no mistake and needs no help at seed 42.
+- Invariants checked after each step, with the data each one reads:
+  1. One transition per stage: the session effects `stageActivated` and `rewardStarted`, counted per stage, each at most one.
+  2. No completion under a suspension: no accepted completion in a step with a pause or a tracking hold. The pause probe (first lantern) and the hold probe (first hold frame with an active target) must be refused with reason `suspended`. The hold comes from `stepTracking`.
+  3. No target active before travel stops: no hit area while `session.travel` is not `arrived`.
+  4. No band slot unless needed: each placement that used a band slot is placed again with its out-of-band slots alone, at `ATTENTION_TUNING.restingBandY`. The first version passed an infinite band edge, which put every slot out of band. That was wrong, and it was corrected before the commit.
+  5. Help levels unchanged in a round: the snapshot stays the same, and each hit area radius equals the snapshot radius times the depth scale. Steps where the live levels (read through `snapshotRound`) differ from the round's start are counted, and the adversarial profile counts some.
+- Mutation checks, one file per mutation, copied alone first, restored, and checked by SHA-256 after restore:
+  - M1 (invariant 1): `machine.ts` emits `rewardStarted` twice. 10 runner tests fail, with "rewarded lantern-glade happened 2 times".
+  - M2 (invariant 2): `machine.ts` drops the suspension refusal. 10 runner tests fail.
+  - M3 (invariant 3): `machine.ts` activates the next stage at travel start, and `stageDriver.ts` allows hit areas while the session is TRAVELLING. Invariant 3 reports "a hit area was active while travelling". Invariant 1 also fires. A first attempt that opened the gate in every phase broke the entry before travel, so the gate change is limited to TRAVELLING.
+  - M4 (invariant 4): `placementBand.ts` reports one band slot when the out-of-band placement is simultaneous. 10 runner tests fail.
+  - M5 (invariant 5): `stageDriver.ts` takes the hit radius from the live motor level. Two profiles fail (incorrect-answers and adversarial). The other profiles change no level inside a round at seed 42.
+- Numbers from the default run (`npm run simulate -- --seed 42 --runs 50`, exit 0, about 23 s): 400 runs, all complete, no violation. Help steps: baseline 0, limited-reach 1, jitter 1, slow 5, one-hand 1, tracking-gaps 1, incorrect-answers 30, adversarial 300. The report exit code is 0 for the clean run and 1 with the seeded hook violation (the throwaway hook is described in `84b89b8`).
+- Adversarial at seed 42: completes with 3643 steps, out of the 20 000 budget, with help steps. The slow profile at seed 42 completes, and its largest session delta is 100 ms, the clamp.
+- Open items:
+  - The task 8 open item is still open: at a raised motor level the travel 8 path round can have overlapping hit circles. The adversarial run completed at seed 42 and found no stall. No test covers the overlap.
+  - The app's `GardenStage` still passes `holdActive: false`, so the tracking hold runs only in the simulator. This belongs to task 11.
+  - The report prints the seeds of the failing runs only, as design 5.4 says. The seed range is in the header.
+  - Invariant 5 has data only where a level changes inside a round. At seed 42, six of the eight profiles have none.
+- Gates. Each code commit passed typecheck, lint and the full suite. The `b75e401` gates ran with the runner's work stashed, so the fix was tested alone. Final suite: 145 files and 1814 tests. Est. Credits Used and elapsed time are not reported in this session, so they are not given here.
+- Tool notes. `git stash` held the runner work while the fix was gated. The stash pop wrote CRLF into the runner files. `core.autocrlf` is true on this machine, so git stores LF anyway. Mutation copies and the throwaway hook were in `.scratch` and were deleted.
 
 
