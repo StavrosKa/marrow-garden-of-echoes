@@ -14,6 +14,18 @@ export const INTERACTION_LAYER: LayerTableEntry = Object.freeze({
   interaction: true,
 });
 
+/**
+ * The Whisper Glade layer table: the same five rows, with the same depths and factors as the forest, so the world-view
+ * checks of journeys A and B hold for it too (Req 2.4). Its sprites differ, and sceneSetup gives it its own bands.
+ */
+export const WHISPER_LAYERS: readonly LayerTableEntry[] = Object.freeze([
+  { id: 'layer-0', depth: 4000, anchor: 0, backdrop: true, factor: 0, fill: 'night' },
+  { id: 'layer-1', depth: 600, anchor: 0, backdrop: true, factor: 0.03, fill: 'night2' },
+  { id: 'layer-2', depth: 120, anchor: 0, backdrop: false, factor: 0.1 },
+  INTERACTION_LAYER,
+  { id: 'layer-4', depth: 18, anchor: 0, backdrop: false, factor: 0.6 },
+]);
+
 export const FOREST_LAYERS: readonly LayerTableEntry[] = Object.freeze([
   { id: 'layer-0', depth: 4000, anchor: 0, backdrop: true, factor: 0, fill: 'night' },
   { id: 'layer-1', depth: 600, anchor: 0, backdrop: true, factor: 0.03, fill: 'night2' },

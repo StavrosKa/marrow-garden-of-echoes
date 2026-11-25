@@ -23,7 +23,16 @@ import whisperHallJson from '../stages/whisper-hall/content.json';
 import { loadBloom } from '../stages/bloom/content';
 import bloomJson from '../stages/bloom/content.json';
 import { colourNumber, theme } from './theme';
-import { COVER_TOKEN, forestSceneLayers, frameDataOf, sceneKeyOf, sceneTargetsOf, TARGET_VISUAL_RATIO } from '../scene/sceneSetup';
+import {
+  backdropOf,
+  type Backdrop,
+  COVER_TOKEN,
+  frameDataOf,
+  sceneKeyOf,
+  sceneLayersOf,
+  sceneTargetsOf,
+  TARGET_VISUAL_RATIO,
+} from '../scene/sceneSetup';
 import {
   createGarden,
   drawnTargetsOf,
@@ -141,6 +150,8 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
     let handle = 0;
     let alive = true;
     let sceneKey = '';
+    /** The backdrop the scene should show. It moves once, from the lantern forest to the Whisper Glade (Req 2.4). */
+    let wanted: Backdrop = stage === 'lantern-glade' ? 'lantern' : 'whisper';
 
     const frameTargets = (state: GardenState) => drawnTargetsOf(state, env.reach.frame);
     const tick = (now: number): void => {
@@ -164,6 +175,14 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
       for (const effect of step.effects) {
         if (effect.kind === 'lanternLit') audio.playNote(effect.index);
       }
+      const nextBackdrop = backdropOf(step.state.session, motion, wanted);
+      if (nextBackdrop !== wanted) {
+        wanted = nextBackdrop;
+        sceneRef.current?.dispose();
+        sceneRef.current = null;
+        sceneKey = '';
+        buildScene(wanted);
+      }
       const scene = sceneRef.current;
       const key = sceneKeyOf(step.state);
       if (scene !== null && key !== sceneKey) {
@@ -178,34 +197,44 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
     const travelTo = Math.max(...Object.values(segments).map((segment) => segment.to));
     const idleSession = createGarden(segments).session;
 
-    void import('world-view/pixi').then(async (pixi) => {
-      if (!alive) return;
-      const scene = pixi.createSceneManager({
-        host: area,
-        layers: forestSceneLayers(),
-        targets: [],
-        sceneScale: 1,
-        travelRange: { from: 0, to: travelTo },
-        coverColour: colourNumber(COVER_TOKEN),
-        targetVisualRatio: TARGET_VISUAL_RATIO,
-        getFrame: () => {
-          const state = gameRef.current;
-          if (state === null) return frameDataOf({ session: idleSession, active: [], shown: [] });
-          const targets = frameTargets(state);
-          return frameDataOf({
-            session: state.session,
-            active: targets.filter((target) => target.active).map((target) => target.id),
-            shown: targets.map((target) => target.id),
-          });
-        },
+    // The scene is built for one backdrop. A switch of backdrop (Req 2.4) disposes it and builds the next one, because the
+    // Scene Manager takes its layers once. A build that finishes after the backdrop has moved on is disposed.
+    const buildScene = (backdrop: Backdrop): void => {
+      void import('world-view/pixi').then(async (pixi) => {
+        if (!alive) return;
+        const scene = pixi.createSceneManager({
+          host: area,
+          layers: sceneLayersOf(backdrop),
+          targets: [],
+          sceneScale: 1,
+          travelRange: { from: 0, to: travelTo },
+          coverColour: colourNumber(COVER_TOKEN),
+          targetVisualRatio: TARGET_VISUAL_RATIO,
+          getFrame: () => {
+            const state = gameRef.current;
+            if (state === null) return frameDataOf({ session: idleSession, active: [], shown: [] });
+            const targets = frameTargets(state);
+            return frameDataOf({
+              session: state.session,
+              active: targets.filter((target) => target.active).map((target) => target.id),
+              shown: targets.map((target) => target.id),
+            });
+          },
+        });
+        await scene.start();
+        if (!alive) {
+          scene.dispose();
+          return;
+        }
+        if (backdrop !== wanted) {
+          scene.dispose();
+          buildScene(wanted);
+          return;
+        }
+        sceneRef.current = scene;
       });
-      await scene.start();
-      if (!alive) {
-        scene.dispose();
-        return;
-      }
-      sceneRef.current = scene;
-    });
+    };
+    buildScene(wanted);
     handle = browserFrames.request(tick);
     return () => {
       alive = false;
@@ -223,7 +252,14 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
   const targets = state !== null && env !== null ? drawnTargetsOf(state, env.reach.frame) : [];
   const line = state === null ? null : instructionKeyOf(state);
   return (
-    <main className="garden-stage">
+    <main
+      className="garden-stage"
+      data-phase={state?.session.phase ?? 'NONE'}
+      data-stage={state?.session.stage ?? ''}
+      data-travel-style={state?.session.travel?.part?.style ?? ''}
+      data-travel-ms={state?.session.travel?.part?.elapsedMs ?? 0}
+      data-travel-length={state?.session.travel?.part?.remainingMs ?? 0}
+    >
       <p className="garden-label">{textOf('label.simulated')}</p>
       {state !== null && state.session.phase === 'ENTERING' ? (
         <h1 className="garden-title" style={{ opacity: titleOpacity(state.session.timerMs) }}>

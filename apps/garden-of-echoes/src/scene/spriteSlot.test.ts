@@ -27,6 +27,10 @@ describe('sprite slots', () => {
       'glade1-ground',
       'glade1-trunk-left',
       'glade1-trunk-right',
+      'glade2-ground',
+      'forest-fartrees-b',
+      'glade2-trunk-left',
+      'glade2-trunk-right',
     ]);
   });
 

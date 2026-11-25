@@ -14,7 +14,8 @@ import {
   type TravelState,
 } from 'world-view';
 import { describe, expect, it } from 'vitest';
-import { FOREST_LAYERS } from '../scene/forestLayers';
+import { FOREST_LAYERS, WHISPER_LAYERS } from '../scene/forestLayers';
+import { backdropOf, type Backdrop } from '../scene/sceneSetup';
 import { journeyTravel, loadSegments, validateSegments } from './journeys';
 import shipped from './segments.json';
 
@@ -133,6 +134,57 @@ describe('journeys and doors', () => {
       const spec: SegmentSpec = { id: journey, kind: journey.startsWith('door') ? 'door' : 'journey', ...segment };
       expect(checkDepthScaling(layers, spec, WORLD_TUNING)).toEqual([]);
     }
+  });
+});
+
+describe('the Whisper Glade backdrop (requirements 2.4, 2.5, 2.6)', () => {
+  it('2.1 2.6: the Whisper Glade table passes the world-view layer checks, and the depth scaling of journeys A and B and the doors', () => {
+    expect(validateLayerTable(WHISPER_LAYERS)).toEqual([]);
+    const layers = resolveLayerTable(WHISPER_LAYERS, WORLD_TUNING);
+    for (const journey of ['journeyA', 'journeyB', 'doorHall', 'doorGarden'] as const) {
+      const segment = segments[journey];
+      const spec: SegmentSpec = { id: journey, kind: journey.startsWith('door') ? 'door' : 'journey', ...segment };
+      expect(checkDepthScaling(layers, spec, WORLD_TUNING)).toEqual([]);
+    }
+  });
+
+  /** The backdrop of each frame of journey A, from the lantern to the arrival, under one motion level. */
+  function backdropTrace(motion: MotionLevel): { phase: string; cover: number; backdrop: Backdrop }[] {
+    const quiet = { paused: false, holdActive: false };
+    const input = { dtMs: TUNING.maxClockStepMs, motion, suspension: quiet };
+    let state = stepSession(createSession(segments), { kind: 'startAt', stage: 'lantern-glade' }, input).state;
+    for (let i = 0; i < 100000 && state.phase !== 'PLAYING'; i++) state = stepSession(state, null, input).state;
+    state = stepSession(state, { kind: 'stageCompleted', stage: 'lantern-glade' }, input).state;
+    let backdrop: Backdrop = 'lantern';
+    const trace: { phase: string; cover: number; backdrop: Backdrop }[] = [];
+    for (let i = 0; i < 100000 && state.stage !== 'whisper-glade'; i++) {
+      state = stepSession(state, null, input).state;
+      backdrop = backdropOf(state, motion, backdrop);
+      trace.push({ phase: state.phase, cover: state.travel?.cover ?? 0, backdrop });
+    }
+    return trace;
+  }
+
+  it('2.5: at Full motion the backdrop switches in the frame where journey A arrives, and not before', () => {
+    for (const motion of ['full', 'gentle'] as const) {
+      const trace = backdropTrace(motion);
+      const travelling = trace.filter((entry) => entry.phase === 'TRAVELLING');
+      expect(travelling.length).toBeGreaterThan(0);
+      expect(travelling.every((entry) => entry.backdrop === 'lantern')).toBe(true);
+      const arrival = trace[trace.length - 1];
+      expect(arrival?.phase).toBe('PLAYING');
+      expect(arrival?.backdrop).toBe('whisper');
+    }
+  });
+
+  it('2.4: in Reduced motion the backdrop switches at the plateau of the cross-fade, where the cover is full', () => {
+    const trace = backdropTrace('reduced');
+    const firstWhisper = trace.findIndex((entry) => entry.backdrop === 'whisper');
+    expect(firstWhisper).toBeGreaterThan(0);
+    expect(trace[firstWhisper]?.cover).toBeGreaterThanOrEqual(1);
+    expect(trace.slice(0, firstWhisper).every((entry) => entry.backdrop === 'lantern')).toBe(true);
+    // The switch is latched: after the plateau the cover falls, and the backdrop stays on the whisper layers.
+    expect(trace.slice(firstWhisper).every((entry) => entry.backdrop === 'whisper')).toBe(true);
   });
 });
 
