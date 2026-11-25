@@ -2209,3 +2209,32 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
 - Follow-up: design 2.10 `playNote` now returns `VisualCue`, as the code does, so every note has a visual cue (Req 18.4).
 - Planning, no code: tasks.md gained 8.5 (Whisper Glade arrival background) and 11.6 to 11.8 (flicker on lit lanterns, head view in simulated input, head view with camera input after 10.2). Design 3 steps 6 and 10 and section 4 gained one sentence each, for the head view, the flicker and the per-stage layer sets.
 
+## 2026-11-25 - garden-level task 8: Whisper Glade, path choice and journey B
+- Kiro feature used: task 8 implemented directly, after one stop and the owner's decision on it (model: Claude Haiku 5.5, Medium). Before the work the tree was clean and main was at c72cd78. Commits, each pushed to origin/main:
+  - `5a761af` Add the whisper-glade content and its validator (8.1).
+  - `6e52342` Add the Whisper Glade rule on the attention round (8.2).
+  - `371f9eb` Add the Whisper Glade path choice (8.3).
+  - `6a6a807` Wire Whisper Glade and the path choice into the session driver (8.4).
+  - `46df045` Give Whisper Glade its own backdrop, switched at journey A's arrival (8.5).
+  - This commit: the journal entry and the tick of task 8.
+- Stop, first pass. The brief's check at journey A's end (travel 8) found that the outer path slots (x 0.25 and 1.5, depth 24, the interaction layer) gave no target. The owner chose option 1: symmetric pairs, probed at travel 0, 4 and 8. No symmetric pair placed at all three. The fallback (0.40, 1.30) was used, which is not symmetric about 1, and the spirit pair (0.70, 1.30) placed at every travel. The probe table is in the 8.1 commit body. The probe files were deleted.
+- Gates on the tree before each commit: typecheck, lint and the full suite passed for every commit. The last one (8.5): 138 files and 1750 tests. The simulate baseline `npm run simulate -- --seed 42 --runs 50` exits 0 with 50 of 50 runs in all eight profiles, no violation and no help step.
+- Mutation check: six mutations in all, the cap. Block rules (8.1): the validator accepts a block with no pass (killed, 2 tests), and accepts select equal to pass (killed, 1 test). Attention key use (8.2): block 2 uses the block 1 keys (killed, 2 tests), and a mistake line uses the select key for a pass presentation (killed, 1 test). Path choice (8.3): the choice is tied to one option (killed, 3 tests), and the choice also changes the journey B end (killed, 4 tests). Each mutant was run against its test file and restored, with a SHA-256 check.
+- A batching mistake in the 8.2 mutation check. A copy of the original file was taken in the same batch as the first mutation, so the copy held the mutation. The run was caught because the tests failed on a clean tree. The file was rebuilt from its committed form, and both mutations were run again on a verified copy. The 8.1 copy was taken alone, before any mutation, and the committed file was checked.
+- Decisions taken on the way:
+  - The driver's `createGarden` takes the seed as its second argument (default 42), and the garden keeps the seeded generator. The UI passes a random seed per play, and runSession passes the run seed.
+  - `helpRequested` is an optional frame field, passed to the attention round. The rule's signature takes it as a fourth argument, which the brief did not list.
+  - The whisper stage uses the driver's placeRound, with the same identity rule as the lanterns. The path choice is a second placement, made when the attention round ends.
+  - Shapes. World-view's `SceneTarget` is a disc with no shape, so the shape of each spirit is drawn in its DOM marker, which is visible for whisper targets. Lantern markers stay transparent.
+  - Colours. The theme has no blue token, and `theme.ts` is outside the list of files for this task. The blue spirit keeps the placeholder grey6, and the gold spirit keeps lanternWarm. The shapes carry the difference.
+  - The backdrop switch disposes the Pixi scene and builds one with the other layers, because the Scene Manager cannot change its layers. The switch follows the owner's rule: in Full and Gentle at the arrival frame, and in Reduced at the cover plateau. The new scene starts asynchronously, so the whisper layers appear a few frames after the arrival frame. The gap is not measured.
+- Mouse play-through (the 8.4 check, a throwaway Playwright script, deleted): three runs at `?start=whisper-glade`, with the results in the 8.4 commit body. The line changed per block. A dwell on the let-pass spirit gave the mistake line and repeated the presentation. A dwell on a select completed it. The demonstration showed between the blocks. The path line appeared, and both options reached the hall line. Camera calls were 0 in all three runs, with no page errors and no console errors.
+- e2e. The first `npm run test:e2e` run: 15 passed, 2 failed. Both failures were the new arrival tests at the default 30 s test timeout. An arrival takes 37 to 56 s of wall-clock time in headless Chromium, because stepClocks clamps each frame to 100 ms of session time. The fix gives the arrival tests a budget of 180 s, and it reads the Reduced cross-fade from the travel's own clock, exposed on the stage element as data attributes. The lantern-frame file then passed 4 of 4. I did not rerun the other files, since their results from the first run stand.
+- Open items for the owner:
+  - Overlap of the path targets with the spirits. The fallback path pair (0.40, 1.30) puts the candles target at (1.30, 0.55), and the gold leaf is at (1.30, 0.45). At travel 8 the candles hit circle has radius 0.135 and reaches the leaf, so a hand that stays on the leaf after its completion can select the candles. The play-through hit this once. Nothing in the spec forbids it. Options: move the path slots vertically, or lower the spirit slots.
+  - Path pair not symmetric about 1, because no symmetric pair placed at travel 8 (see the probe table).
+  - The blue spirit has no theme token. Either add one (a change to theme.ts) or keep the placeholder.
+  - The backdrop switch lags the arrival by a few frames while the new scene starts.
+- Tool notes: the dev server ran under `control_pwsh_process`, and it was stopped afterwards. Redirected output went to `.scratch`. Two batched calls ran in parallel, so a copy and an edit in one batch can interleave. Mutation steps were run one per call from then on.
+
+

@@ -76,7 +76,7 @@ Rules for every task:
   - Verification: typecheck, lint and test pass. Then `npm run simulate -- --seed 42 --runs 50`, with its output in the commit body.
   - _Requirements: 1.3, 19.1, 19.2, 19.4, 19.5, 19.6_
 
-- [ ] 8. Whisper Glade, path choice and journey B
+- [x] 8. Whisper Glade, path choice and journey B
   - 8.1 `stages/whisper-glade/content.json` (two spirits, two blocks of three marks, two spirit slots, path slots), `content.ts` validator with the block rules of `design.md` section 4.2, and `content.test.ts` contract test. The real content replaces the placeholder from task 3.
   - 8.2 `stages/whisper-glade/rules.ts`: two blocks, a demonstration between them that does not count, the attention round from task 2, and seeded block order. The copy key follows the rule of the current block. Tests: `rules.test.ts` (blocks, demonstration, shape with colour). Property tests in `rules.properties.test.ts`: over seeded rounds, each presentation uses the keys of its block's rule, and each of the eight per-rule keys exists and is used.
   - 8.3 `stages/whisper-glade/pathChoice.ts`: two targets, either pointer, the same journey B geometry, and the choice changes only the dressing. Test `pathChoice.test.ts`.
