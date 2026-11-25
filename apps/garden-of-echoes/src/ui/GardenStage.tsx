@@ -24,6 +24,7 @@ import { loadWhisperHall } from '../stages/whisper-hall/content';
 import whisperHallJson from '../stages/whisper-hall/content.json';
 import { loadBloom } from '../stages/bloom/content';
 import bloomJson from '../stages/bloom/content.json';
+import { lanternColoursOf } from '../stages/lantern-glade/scene';
 import { colourNumber, theme } from './theme';
 import {
   backdropOf,
@@ -222,6 +223,8 @@ export function GardenStage(props: GardenStageProps): ReactElement {
     let handle = 0;
     let alive = true;
     let sceneKey = '';
+    // The session time of this play: the flicker of the lit lanterns runs on it (Req 17.2).
+    let sessionMs = 0;
     /** The backdrop the scene should show. It moves once, from the lantern forest to the Whisper Glade (Req 2.4). */
     let wanted: Backdrop = stage === 'lantern-glade' ? 'lantern' : 'whisper';
 
@@ -291,6 +294,14 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       if (scene !== null && key !== sceneKey) {
         sceneKey = key;
         scene.setTargets(sceneTargetsOf(step.state));
+      }
+      // The lit lanterns flicker on the session clock, so Pause freezes the flicker with the session (Req 17.2, 17.3).
+      sessionMs += clocks.sessionDt;
+      const lanternRule = step.state.stage?.kind === 'lantern' ? step.state.stage.rule : null;
+      if (scene !== null && lanternRule !== null) {
+        for (const lit of lanternColoursOf(lanternRule, sessionMs, frameInput.motion, colourNumber('lanternWarm'))) {
+          scene.setTargetColour(lit.id, lit.colour);
+        }
       }
       redraw();
       handle = browserFrames.request(tick);

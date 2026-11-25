@@ -5,6 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { TUNING } from 'marrow/core';
 import { TUNING as WORLD_TUNING } from 'world-view';
+import { FLICKER } from '../../apps/garden-of-echoes/src/scene/flicker';
 
 /** The part of Pixi's Application that this test reads. The hook below stores it; no app code does. */
 interface PixiAppLike {
@@ -159,6 +160,68 @@ async function pixelsAt(page: Page, first: Buffer, second: Buffer, points: reado
  * a bound for a slow headless frame rate, not a timing claim: the timing claims read the session's own clock.
  */
 const ARRIVAL_BUDGET_MS = 180000;
+
+/** The colour of a lit lantern and the flicker bound (requirements 17.2): the light colour of lanternWarm (ui/theme.ts). */
+const LIGHT_RGB = [0xf0, 0xa8, 0x40] as const;
+const FLICKER_BOUND = 0.15;
+/** A channel may round by one value when read from the screenshot. */
+const PIXEL_TOLERANCE = 2;
+
+test.describe('lit lantern flicker (requirements 17.2, 17.3)', () => {
+  test.setTimeout(ARRIVAL_BUDGET_MS);
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      (globalThis as unknown as { __PIXI_APP_INIT__: (app: unknown) => void }).__PIXI_APP_INIT__ = (app: unknown) => {
+        globalThis.__pixiApp = app as PixiAppLike;
+      };
+    });
+  });
+
+  test('the pixel of a lit lantern stays within 15% of the light colour, and changes by no more than the bound', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/?start=lantern-glade');
+    await page.waitForSelector('[data-target][data-active="yes"]', { timeout: 30000 });
+    // Light the first lantern with the pointer, and hold it for the dwell.
+    const first = await page.locator('[data-target][data-active="yes"]').boundingBox();
+    if (first === null) throw new Error('the first lantern has no box');
+    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2, { steps: 4 });
+    await page.waitForSelector('[data-target="lantern-0"][data-lit="yes"]', { timeout: 30000 });
+    // Let the light's ease finish (uiMinLightEaseMs) before the first reading, so the level is 1 (Req 17.1).
+    await page.waitForTimeout(TUNING.uiMinLightEaseMs + TUNING.maxClockStepMs * 4);
+    const target = await page.locator('[data-target="lantern-0"]').boundingBox();
+    const play = await page.locator('.garden-play').boundingBox();
+    if (target === null || play === null) throw new Error('the lantern or the play area has no box');
+    const sample = {
+      x: (target.x + target.width / 2 - play.x) / play.width,
+      y: (target.y + target.height / 2 - play.y) / play.height,
+    };
+    const firstShot = await page.locator('.garden-play').screenshot();
+    // Half a cycle later the flicker is at the other end of its swing (the session clock is clamped, so the wait is a bound).
+    await page.waitForTimeout(FLICKER.cycleMs / 2);
+    const secondShot = await page.locator('.garden-play').screenshot();
+    const { a, b } = await pixelsAt(page, firstShot, secondShot, [sample]);
+    const pixelA = a[0] ?? [0, 0, 0];
+    const pixelB = b[0] ?? [0, 0, 0];
+    for (const [label, pixel] of [
+      ['first', pixelA],
+      ['second', pixelB],
+    ] as const) {
+      LIGHT_RGB.forEach((light, channel) => {
+        const value = pixel[channel] ?? 0;
+        // A channel is clipped at 255, so its upper bound is the lower of the two.
+        const upper = Math.min(255, light * (1 + FLICKER_BOUND)) + PIXEL_TOLERANCE;
+        const lower = light * (1 - FLICKER_BOUND) - PIXEL_TOLERANCE;
+        expect(value, `${label} reading, channel ${channel}`).toBeGreaterThanOrEqual(lower);
+        expect(value, `${label} reading, channel ${channel}`).toBeLessThanOrEqual(upper);
+      });
+    }
+    // The change between the two readings is within the bound: at most 30% of the light, from one end to the other.
+    LIGHT_RGB.forEach((light, channel) => {
+      const change = Math.abs((pixelA[channel] ?? 0) - (pixelB[channel] ?? 0));
+      expect(change, `change of channel ${channel}`).toBeLessThanOrEqual(light * 2 * FLICKER_BOUND + PIXEL_TOLERANCE);
+    });
+  });
+});
 
 test.describe('Whisper Glade arrival (requirements 2.4, 2.5, 8.5)', () => {
   test.setTimeout(ARRIVAL_BUDGET_MS);
