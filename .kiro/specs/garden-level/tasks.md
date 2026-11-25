@@ -112,12 +112,12 @@ Rules for every task:
   - Verification (11.8 deferred): typecheck, lint, test and `npm run test:e2e` pass, including the flicker pixel check of 11.6 and the head checks of 11.7. Then `npm run dev` and a keyboard-only walk through Home and Pause, reported in the commit body.
   - _Requirements: 7.3, 7.5, 9.3, 9.4, 13.1, 15.1, 15.2, 15.3, 16.1, 16.2, 16.3, 17.2, 17.3, 17.4, 17.5, 18.3, 18.6, 20.1, 20.2, 20.3, 20.4, 20.5, 24.1, 24.2, 24.3, 24.4, 24.5_
 
-- [ ] 12. End to end, repo checks and the deploy check
+- [x] 12. End to end, repo checks and the deploy check
   - 12.1 `tests/e2e/garden-level.spec.ts`: Home to the end card in simulated input, with Reduced motion and audio muted. The test asserts the test id `end-card`, and it runs without a camera. The same file covers Escape and keyboard activation, the touch move on the play area, `?start=bloom`, and an unknown `?start` id.
   - 12.2 Extend `tests/content-security-policy.test.ts`: parse the built CSP and assert `connect-src 'self'` (21.1, 21.3). Extend `tests/vendored-assets.test.ts` if the new files need it (21.2).
   - 12.3 `tests/no-image-files.test.ts` (new): no PNG, SVG, JPG or WebP file is added under `apps/garden-of-echoes` by this spec. The allowlist is the image files already tracked at `9243e22`, read with `git ls-tree`.
   - 12.4 Run `npm run simulate -- --seed 42 --runs 50` once more, and check that the dependency rules and the wall-clock test still pass. Check that `package.json` changes add no dependency (23.4).
   - 12.5 Camera tracks: `apps/garden-of-echoes/src/ui/cameraTracks.test.tsx` (jsdom, with a fake `MediaStream` whose track `stop` calls are recorded). Exiting to Home stops every track, and unmounting the app stops every track, so no track outlives its screen (21.4).
-  - 12.6 Deploy check on the public URL. Steering requires the owner's approval before a deploy, so this task stops and asks before deploying. After approval, run the Home-to-end-card path on the built URL in simulated input.
+  - [x] 12.6 Deploy check on the public URL. Steering requires the owner's approval before a deploy, so this task stops and asks before deploying. After approval, run the Home-to-end-card path on the built URL in simulated input.
   - Verification: typecheck, lint, test and `npm run test:e2e` pass locally. The public-URL check passes after the owner approves the deploy. The gate in `product.md` is met only when that check passes.
   - _Requirements: 3.1, 3.3, 9.3, 13.2, 18.5, 20.1, 20.2, 20.3, 20.4, 20.5, 21.1, 21.2, 21.3, 21.4, 22.1, 23.4_
