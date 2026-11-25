@@ -44,10 +44,11 @@ import {
   type GardenFrame,
   type GardenState,
 } from '../session/stageDriver';
-import type { StageId } from '../session/stageOrder';
+import type { StageId, TitleId } from '../session/stageOrder';
 import { SIMULATED_WRISTS, wholeFrameReach } from '../session/wholeFrame';
 import { browserFrames } from './frames';
 import { textOf } from './copyLookup';
+import { EndCard } from './EndCard';
 import { InstructionLine } from './InstructionLine';
 import { PauseScreen } from './PauseScreen';
 import { PlayArea } from './PlayArea';
@@ -161,6 +162,10 @@ export function GardenStage(props: GardenStageProps): ReactElement {
   // "Continue with help" counts presses in a ref. The frame loop sends one help request for each new press.
   const helpRef = useRef(0);
   const helpSeenRef = useRef(0);
+  // The level title on screen and the session time it has left (Req 9.4). It starts at the machine's titleShown effect.
+  const titleRef = useRef<{ readonly title: TitleId; readonly timerMs: number } | null>(null);
+  // The help offer "Want a hint?" (Req 7.3). It is on after the offerHelp output, and off when the presentation completes.
+  const offerRef = useRef(false);
   // The frame loop is set up once, so it reads the callback through a ref that holds the latest one.
   const noSlotRef = useRef(onNoSlot);
   noSlotRef.current = onNoSlot;
@@ -227,6 +232,17 @@ export function GardenStage(props: GardenStageProps): ReactElement {
         if (effect.kind === 'lanternLit') audio.playNote(effect.index);
         // No usable slot (Req 10.6): the app shows the no-usable-slot screen in place of the stage.
         if (effect.kind === 'noSlot') noSlotRef.current?.();
+        // A level title starts its time when the machine shows it (Req 9.4).
+        if (effect.kind === 'session' && effect.effect.kind === 'titleShown') {
+          titleRef.current = { title: effect.effect.title, timerMs: APP_SESSION_TUNING.entryTitleMs };
+        }
+        if (effect.kind === 'help' && effect.output.kind === 'offerHelp') offerRef.current = true;
+        if (effect.kind === 'attention' && effect.event.kind === 'presentationCompleted') offerRef.current = false;
+      }
+      // The title's time runs on the session clock, so a pause holds it (Req 9.4, art-and-motion.md).
+      const titleNow = titleRef.current;
+      if (titleNow !== null) {
+        titleRef.current = { ...titleNow, timerMs: Math.max(0, titleNow.timerMs - frameInput.sessionDt) };
       }
       const nextBackdrop = backdropOf(step.state.session, frameInput.motion, wanted);
       if (nextBackdrop !== wanted) {
@@ -330,9 +346,17 @@ export function GardenStage(props: GardenStageProps): ReactElement {
     setPlan((current) => ({ stage: RESTART_STAGE, count: current.count + 1 }));
   }
 
+  /** "Continue with help" in the stage (Req 7.3): one help request, for the next frame. */
+  function requestHelp(): void {
+    helpRef.current += 1;
+  }
+
   const leave = onExit ?? leaveToStartAddress;
 
   const state = gameRef.current;
+  const title = titleRef.current;
+  const ended = state !== null && state.session.phase === 'SAVED';
+  const inRound = state !== null && state.session.phase === 'PLAYING' && state.stage?.kind === 'whisper';
   const env = envRef.current;
   const targets = state !== null && env !== null ? drawnTargetsOf(state, env.reach.frame) : [];
   const line = state === null ? null : instructionKeyOf(state);
@@ -346,12 +370,20 @@ export function GardenStage(props: GardenStageProps): ReactElement {
       data-travel-length={state?.session.travel?.part?.remainingMs ?? 0}
     >
       <p className="garden-label">{textOf('label.simulated')}</p>
-      {state !== null && state.session.phase === 'ENTERING' ? (
-        <h1 className="garden-title" style={{ opacity: titleOpacity(state.session.timerMs) }}>
-          {textOf('title.lantern')}
+      {title !== null && title.timerMs > 0 ? (
+        <h1 className="garden-title" style={{ opacity: titleOpacity(title.timerMs) }}>
+          {textOf(title.title === 'lantern' ? 'title.lantern' : 'title.hall')}
         </h1>
       ) : null}
-      <InstructionLine required={line === null ? null : textOf(line)} />
+      <InstructionLine required={ended || line === null ? null : textOf(line)} />
+      {inRound ? (
+        <div className="garden-help">
+          {offerRef.current ? <p className="garden-help__offer">{textOf('help.offer')}</p> : null}
+          <button type="button" className="garden-button" onClick={requestHelp}>
+            {textOf('help.continue')}
+          </button>
+        </div>
+      ) : null}
       <PlayArea aspect={ASPECT} areaRef={playRef} onPointerDown={() => audioRef.current?.start({ kind: 'pointerdown' })}>
         {targets.map((target) =>
           target.centre === null ? null : (
@@ -377,6 +409,7 @@ export function GardenStage(props: GardenStageProps): ReactElement {
           ),
         )}
       </PlayArea>
+      {ended ? <EndCard onExit={leave} /> : null}
       {paused ? (
         <PauseScreen
           settings={settings}
