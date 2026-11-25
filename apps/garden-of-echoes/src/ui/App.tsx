@@ -6,14 +6,12 @@ import { createSettingsStore } from 'marrow/react';
 import { INITIAL_SETUP, stepSetup, type SetupEffect, type SetupEvent, type SetupState } from '../session/setupState';
 import type { StageId } from '../session/stageOrder';
 import { requestCameraAccess } from './cameraAccess';
-import { GardenStage } from './GardenStage';
+import { GardenStage, SETTINGS_PREFIX } from './GardenStage';
 import { Home } from './Home';
 import { NoUsableSlot } from './NoUsableSlot';
 import { Setup } from './Setup';
 import { ThemeProvider } from './themeProvider';
 
-/** The prefix of the settings this app keeps. Not player-facing text. */
-const SETTINGS_PREFIX = 'garden-of-echoes.';
 /** The stage that simulated input starts in: the first stage of the route. */
 const FIRST_STAGE: StageId = 'lantern-glade';
 const REDUCED_QUERY = '(prefers-reduced-motion:reduce)';
@@ -41,6 +39,12 @@ export function App(): ReactElement {
     }
   }
 
+  /** Exit from the stage's Pause screen goes to Home (Req 24.5). The setup flow starts again at Home. */
+  function leave(): void {
+    latest.current = INITIAL_SETUP;
+    setState(INITIAL_SETUP);
+  }
+
   if (state.screen === 'home') {
     return (
       <ThemeProvider>
@@ -51,7 +55,7 @@ export function App(): ReactElement {
   if (state.screen === 'simulated') {
     return (
       <ThemeProvider>
-        <GardenStage stage={FIRST_STAGE} onNoSlot={() => send({ kind: 'noSlot' })} />
+        <GardenStage stage={FIRST_STAGE} onNoSlot={() => send({ kind: 'noSlot' })} settings={settings} onExit={leave} />
       </ThemeProvider>
     );
   }

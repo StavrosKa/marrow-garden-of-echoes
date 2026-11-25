@@ -3,10 +3,11 @@
 // Source gives the pointer, and stepGarden does the rest. The Scene Manager (Pixi, loaded when the screen starts) draws
 // the forest and the lanterns, and the DOM draws the one instruction line, the label and the entry title. Each lantern
 // also has a transparent DOM marker at its position, so a test can aim at it.
-import { useEffect, useReducer, useRef, type ReactElement } from 'react';
+import { useEffect, useReducer, useRef, useState, type ReactElement } from 'react';
 import type { CSSProperties } from 'react';
 import { makeMapping, stepClocks, TUNING as MARROW_TUNING, type MotionLevel, type PointerInput } from 'marrow/core';
 import { createPointerSource, type PoseSource } from 'marrow/input';
+import { createSettingsStore, type SettingsStore } from 'marrow/react';
 import { TUNING as WORLD_TUNING } from 'world-view';
 import type { SceneManager } from 'world-view/pixi';
 import { createGardenAudio, type GardenAudio } from '../audio/gardenAudio';
@@ -48,6 +49,7 @@ import { SIMULATED_WRISTS, wholeFrameReach } from '../session/wholeFrame';
 import { browserFrames } from './frames';
 import { textOf } from './copyLookup';
 import { InstructionLine } from './InstructionLine';
+import { PauseScreen } from './PauseScreen';
 import { PlayArea } from './PlayArea';
 
 /** The play area is 16:9, as the playground's is. The scene's aspect and the pointer's aspect are both this. */
@@ -88,6 +90,11 @@ function motionNow(): MotionLevel {
   return typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_QUERY).matches ? 'reduced' : 'full';
 }
 
+/** Exit without an app above the stage: the page goes to its own address, which has no ?start value and so shows Home. */
+function leaveToStartAddress(): void {
+  window.location.assign(window.location.pathname);
+}
+
 /**
  * The opacity of the entry title over its time (Req 9.4, art-and-motion.md). It fades in and out over the world-view
  * fade length and is held in between. The timer is the session's time left in ENTERING.
@@ -124,8 +131,36 @@ function pointerOf(source: PoseSource): PointerInput[] {
   return [{ wrist: 'right', valid: true, pos: POINTER_MAPPING.toScreen(wrist.pos) }];
 }
 
-export function GardenStage(props: { readonly stage: StageId; readonly onNoSlot?: () => void }): ReactElement {
-  const { stage, onNoSlot } = props;
+/** The prefix of the settings this app keeps. The App and a bare ?start stage use the same store key (Req 17.4). */
+export const SETTINGS_PREFIX = 'garden-of-echoes.';
+
+/** The stage that a restart begins at (Req 24.5). */
+const RESTART_STAGE: StageId = 'lantern-glade';
+
+export interface GardenStageProps {
+  readonly stage: StageId;
+  readonly onNoSlot?: () => void;
+  /** Leaves the stage for Home (Pause "Exit", Req 24.5). Left out, the page goes to its address without the ?start value. */
+  readonly onExit?: () => void;
+  /** The settings store of the app. Left out, the stage keeps its own store of the same key. */
+  readonly settings?: SettingsStore;
+}
+
+export function GardenStage(props: GardenStageProps): ReactElement {
+  const { onNoSlot, onExit, settings: settingsProp } = props;
+  // A restart changes `plan`, which starts the frame loop again at RESTART_STAGE (Req 24.5, the same as Retry in 10.4).
+  const [plan, setPlan] = useState({ stage: props.stage, count: 0 });
+  const stage = plan.stage;
+  const [ownSettings] = useState(() =>
+    createSettingsStore({ prefix: SETTINGS_PREFIX, prefersReducedMotion: motionNow() === 'reduced' }),
+  );
+  const settings = settingsProp ?? ownSettings;
+  // Pause is a suspension flag (Req 1.4, 1.5). The ref is what the frame loop reads, and the state draws the screen.
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  // "Continue with help" counts presses in a ref. The frame loop sends one help request for each new press.
+  const helpRef = useRef(0);
+  const helpSeenRef = useRef(0);
   // The frame loop is set up once, so it reads the callback through a ref that holds the latest one.
   const noSlotRef = useRef(onNoSlot);
   noSlotRef.current = onNoSlot;
@@ -145,9 +180,16 @@ export function GardenStage(props: { readonly stage: StageId; readonly onNoSlot?
     gameRef.current = createGarden(segments, randomSeed());
     const audio = createGardenAudio(createTonePlayer(() => new AudioContext()));
     audioRef.current = audio;
+    // The sound setting (Req 18.5, 18.6) reaches the audio at once, and the stage plays fully with it muted.
+    const applySound = (): void => {
+      const sound = settings.get();
+      audio.setMuted(sound.mute);
+      audio.setVolume(sound.volume);
+    };
+    applySound();
+    const unsubscribe = settings.subscribe(applySound);
     const source = createPointerSource({ playArea: area, requestFrame: browserFrames.request, cancelFrame: browserFrames.cancel });
     void source.start();
-    const motion = motionNow();
     let last: number | null = null;
     let first = true;
     let handle = 0;
@@ -163,14 +205,20 @@ export function GardenStage(props: { readonly stage: StageId; readonly onNoSlot?
       if (current === null) return;
       const rawDt = last === null ? 0 : now - last;
       last = now;
-      const clocks = stepClocks(rawDt, { paused: false, hidden: document.hidden, holdActive: false }, MARROW_TUNING);
+      // Pause stops the presence clock and so the session clock too (marrow clocks). The motion setting is read here, so a
+      // change in the Pause screen takes effect in this frame (Req 17.4).
+      const paused = pausedRef.current;
+      const clocks = stepClocks(rawDt, { paused, hidden: document.hidden, holdActive: false }, MARROW_TUNING);
+      const helpRequested = helpRef.current !== helpSeenRef.current;
+      helpSeenRef.current = helpRef.current;
       const frameInput: GardenFrame = {
         event: first ? { kind: 'startAt', stage } : null,
         presenceDt: clocks.presenceDt,
         sessionDt: clocks.sessionDt,
-        motion,
-        suspension: { paused: false, holdActive: false },
+        motion: settings.get().motion,
+        suspension: { paused, holdActive: false },
         pointers: pointerOf(source),
+        helpRequested,
       };
       first = false;
       const step = stepGarden(env, current, frameInput);
@@ -180,7 +228,7 @@ export function GardenStage(props: { readonly stage: StageId; readonly onNoSlot?
         // No usable slot (Req 10.6): the app shows the no-usable-slot screen in place of the stage.
         if (effect.kind === 'noSlot') noSlotRef.current?.();
       }
-      const nextBackdrop = backdropOf(step.state.session, motion, wanted);
+      const nextBackdrop = backdropOf(step.state.session, frameInput.motion, wanted);
       if (nextBackdrop !== wanted) {
         wanted = nextBackdrop;
         sceneRef.current?.dispose();
@@ -244,13 +292,45 @@ export function GardenStage(props: { readonly stage: StageId; readonly onNoSlot?
     return () => {
       alive = false;
       browserFrames.cancel(handle);
+      unsubscribe();
       source.dispose();
       audio.dispose();
       sceneRef.current?.dispose();
       sceneRef.current = null;
       audioRef.current = null;
     };
-  }, [stage]);
+  }, [stage, plan.count, settings]);
+
+  // Escape opens Pause, and a second Escape closes it (Req 3.5). The listener belongs to the stage screen.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      pausedRef.current = !pausedRef.current;
+      setPaused(pausedRef.current);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  /** Shows the game again: the pause flag is cleared in the ref at once, so the next frame runs. */
+  function resume(): void {
+    pausedRef.current = false;
+    setPaused(false);
+  }
+
+  /** "Continue with help" from Pause (Req 24.4): the stage resumes and gets one help request in its next frame (Req 7.5). */
+  function continueWithHelp(): void {
+    helpRef.current += 1;
+    resume();
+  }
+
+  /** Restart and Recalibrate (Req 24.5): the stage begins again at RESTART_STAGE, with no confirmation. */
+  function restart(): void {
+    resume();
+    setPlan((current) => ({ stage: RESTART_STAGE, count: current.count + 1 }));
+  }
+
+  const leave = onExit ?? leaveToStartAddress;
 
   const state = gameRef.current;
   const env = envRef.current;
@@ -297,6 +377,16 @@ export function GardenStage(props: { readonly stage: StageId; readonly onNoSlot?
           ),
         )}
       </PlayArea>
+      {paused ? (
+        <PauseScreen
+          settings={settings}
+          onResume={resume}
+          onContinueHelp={continueWithHelp}
+          onRecalibrate={restart}
+          onRestart={restart}
+          onExit={leave}
+        />
+      ) : null}
     </main>
   );
 }

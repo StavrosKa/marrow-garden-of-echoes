@@ -77,3 +77,33 @@
   margin: 0;
   font-size: 1rem;
 }
+/* The Pause screen: a panel over the dimmed stage (requirements 17.5, 24.1). Its text and controls are theme tokens. */
+.garden-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: var(--marrow-color-scrim);
+  font-family: var(--marrow-font-ui);
+  color: var(--marrow-color-text);
+}
+.garden-panel {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+  width: min(100%, 26rem);
+  max-height: 100%;
+  overflow: auto;
+  padding: 1.5rem;
+  background: var(--marrow-color-surface);
+  border: 1px solid var(--marrow-color-border);
+  border-radius: 1rem;
+  font-size: 1rem;
+}
+.garden-panel__title {
+  margin: 0;
+  font-family: var(--marrow-font-title);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
