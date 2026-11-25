@@ -92,7 +92,7 @@ Rules for every task:
   - Verification: typecheck, lint and test pass. The default invocation exits 0 on a clean run and 1 on a seeded violation.
   - _Requirements: 1.3, 7.6, 12.2, 19.3, 19.4, 19.5, 19.6, 19.7_
 
-- [ ] 10. Home, setup flow and calibration screen
+- [x] 10. Home, setup flow and calibration screen
   - 10.1 `ui/Home.tsx`: "Start" and "Try without camera" as DOM buttons with a visible focus ring and an accessible name. The camera is requested only after Start, and the explanation is shown first. "Try without camera" and a denied camera enter simulated input with the label "Simulated input". Test `Home.test.tsx` (jsdom).
   - 10.2 Setup screens: camera permission, hand choice and calibration reuse `marrow/react` with `gardenMarrowCopy`. Escape is wired to open Pause once task 11 adds it. Enter and Space activate a focused control. Test `setup.test.tsx`.
   - 10.3 `ui/CalibrationExplainer.tsx`: the painted area, a progress ring with no number and no countdown, and the sentence `calibrate.edge`, with the accessible names and contrast of the steering. Test `CalibrationExplainer.test.tsx`.

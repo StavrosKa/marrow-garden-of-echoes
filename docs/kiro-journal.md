@@ -2236,5 +2236,30 @@ pm test exit 0: Test Files  60 passed (60), Tests  1076 passed (1076), Duration 
   - The blue spirit has no theme token. Either add one (a change to theme.ts) or keep the placeholder.
   - The backdrop switch lags the arrival by a few frames while the new scene starts.
 - Tool notes: the dev server ran under `control_pwsh_process`, and it was stopped afterwards. Redirected output went to `.scratch`. Two batched calls ran in parallel, so a copy and an edit in one batch can interleave. Mutation steps were run one per call from then on.
+- Fix before task 10 (job 1, `ce85a2f`): the candles target (1.30, 0.55) sat inside the gold leaf's hit circle at (1.30, 0.45). The spirits moved to y 0.38 and the path options to y 0.66. The probe table is in the commit body. y 0.70 gave the largest separation, but at the raised motor level the path round at travel 8 was `none`, so a player with mistakes could not finish the choice. That breaks Req 10.5. y 0.66 is the largest separation that keeps the stage completable. At the raised level, the travel 8 path round is `sequential` at every candidate height, and the hit circles overlap there. Both are open, and both come from help changing the hit radius during play. The duplicated JSDoc above `presentedTargetId` is moved to `stepWhisperGlade`.
+
+## 2026-11-25 - garden-level task 10: Home, setup flow and calibration screen
+- Kiro feature used: task 10 implemented directly, after the task 8 fix (model: Claude Haiku 5.5, Medium). Before the work the tree was clean and in sync with origin/main at c7f4f80, then ce85a2f. Commits, each pushed to origin/main:
+  - `cfc19bd` Add the Home screen with Start and Try without camera (10.1).
+  - `b5943e1` Wire the setup flow: Home, permission and hand choice (10.2).
+  - `8b67822` Add the calibration explainer: painted area, progress ring and sentence (10.3).
+  - `60fd30c` Add the no-usable-slot screen and its retry (10.4).
+  - This commit: the journal entry and the tick of task 10.
+- Gates: typecheck, lint and the full suite passed for every commit. The last one (10.4): 145 files and 1797 tests. No mutation check was run, as the brief asked.
+- Verification (10.4): a throwaway Playwright script against `npm run dev`, deleted afterwards. Home shows with no `?start`, and no camera call is made before Start. "Use the camera" makes one call, after the click. A refused camera enters simulated input with the label. "Try without camera" makes no call. `?start=lantern-glade` goes straight to the stage with the label and 4 targets. Page errors: 0. The no-usable-slot screen is not reached in the browser, because the whole-frame reach never leaves a slot unusable in play.
+- Decisions:
+  - The setup flow is a pure step function in `session/setupState.ts`. The only effect is the camera request, and the app runs it from the click that caused it.
+  - Requirement 3.3 says a denied camera enters simulated input. The flow does that at once and shows no failure screen. Design gap G7 pictured a failure screen with "Try without camera". The requirement is the rule that applies, and the failure is kept in the state. The owner should confirm this reading.
+  - `ui/cameraAccess.ts` asks for video and stops the stream at once, because camera play is not built. A granted camera goes to the hand choice and then to simulated input, with the stage's "Simulated input" label. No camera input is claimed.
+  - The marrow `CalibrationScreen` is not mounted. Its calibration comes from camera pose frames, which this task does not build. `CalibrationExplainer` is built and tested, but it is not mounted, because nothing fills its painting time yet.
+  - The no-usable-slot screen uses two DOM buttons, not marrow's `CalibrationScreen`. Marrow shows "Try without camera" on that screen only in camera mode.
+  - Retry starts the stage again, because simulated input has no calibration to repeat. The flow event is named `retryCalibration`, as the brief asked.
+  - The ring has no text. Its accessible name is the painting instruction from `copy.marrow`, because `GARDEN_COPY` has no key for the ring.
+- Open items for the owner:
+  - Mount the calibration screen (`CalibrationExplainer`, or marrow's `CalibrationScreen`) once camera calibration exists.
+  - Camera play is not built, so a granted camera does not start tracking.
+  - The raised-help placement problem above: the path round is `sequential` at travel 8 when the motor level is raised, and the hit circles overlap at that radius.
+  - `CalibrationExplainer` and the no-usable-slot screen have no caller in the browser path. The no-usable-slot screen is reached only through the `noSlot` effect of the stage.
+- Tool notes: the dev server ran under `control_pwsh_process`, and it was stopped afterwards. Every new file was written with the editor tool, and every commit message was written into `.scratch` first.
 
 
