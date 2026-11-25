@@ -75,6 +75,28 @@ describe('the setup flow (requirements 3.1 to 3.3)', () => {
     expect(effects).toEqual(['requestCamera']);
   });
 
+  it('10.6: a stage with no usable slot shows the no-usable-slot screen, and Retry starts the stage again', () => {
+    const playing = run([{ kind: 'tryWithout' }]).state;
+    const blocked = run([{ kind: 'noSlot' }], playing);
+    expect(blocked.state.screen).toBe('noUsableSlot');
+    expect(blocked.effects).toEqual([]);
+    const retried = run([{ kind: 'retryCalibration' }], blocked.state);
+    expect(retried.state.screen).toBe('simulated');
+    expect(retried.effects).toEqual([]);
+  });
+
+  it('10.6: "Try without camera" on the no-usable-slot screen enters simulated input, and requests no camera', () => {
+    const blocked = run([{ kind: 'tryWithout' }, { kind: 'noSlot' }]).state;
+    const step = stepSetup(blocked, { kind: 'tryWithout' });
+    expect(step.state.screen).toBe('simulated');
+    expect(step.effects).toEqual([]);
+  });
+
+  it('10.6: no-slot and retry do nothing on the screens they do not belong to', () => {
+    expect(run([{ kind: 'noSlot' }]).state).toEqual(INITIAL_SETUP);
+    expect(run([{ kind: 'retryCalibration' }]).state).toEqual(INITIAL_SETUP);
+  });
+
   it('3.2: an event that does not apply to the screen changes nothing', () => {
     expect(run([{ kind: 'useCamera' }]).state).toEqual(INITIAL_SETUP);
     expect(run([{ kind: 'cameraOutcome', outcome: 'ready' }]).state).toEqual(INITIAL_SETUP);

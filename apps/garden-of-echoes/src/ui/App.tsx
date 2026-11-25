@@ -8,6 +8,7 @@ import type { StageId } from '../session/stageOrder';
 import { requestCameraAccess } from './cameraAccess';
 import { GardenStage } from './GardenStage';
 import { Home } from './Home';
+import { NoUsableSlot } from './NoUsableSlot';
 import { Setup } from './Setup';
 import { ThemeProvider } from './themeProvider';
 
@@ -50,7 +51,14 @@ export function App(): ReactElement {
   if (state.screen === 'simulated') {
     return (
       <ThemeProvider>
-        <GardenStage stage={FIRST_STAGE} />
+        <GardenStage stage={FIRST_STAGE} onNoSlot={() => send({ kind: 'noSlot' })} />
+      </ThemeProvider>
+    );
+  }
+  if (state.screen === 'noUsableSlot') {
+    return (
+      <ThemeProvider>
+        <NoUsableSlot onRetry={() => send({ kind: 'retryCalibration' })} onTryWithout={() => send({ kind: 'tryWithout' })} />
       </ThemeProvider>
     );
   }

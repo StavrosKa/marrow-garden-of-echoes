@@ -11,7 +11,7 @@ export type CameraFailure = 'denied' | 'no-camera' | 'model-failed';
 /** The outcome of a camera request: ready, or a failure. */
 export type CameraOutcome = 'ready' | CameraFailure;
 
-export type SetupScreen = 'home' | 'cameraPermission' | 'handChoice' | 'simulated';
+export type SetupScreen = 'home' | 'cameraPermission' | 'handChoice' | 'simulated' | 'noUsableSlot';
 
 export interface SetupState {
   readonly screen: SetupScreen;
@@ -31,7 +31,12 @@ export type SetupEvent =
   /** The result of a camera request. */
   | { readonly kind: 'cameraOutcome'; readonly outcome: CameraOutcome }
   /** Continue on the hand choice. The hand is stored by marrow/react, so the flow stores nothing. */
-  | { readonly kind: 'handChosen' };
+  | { readonly kind: 'handChosen' }
+  /** A stage placed no target: no usable slot (Req 10.6). */
+  | { readonly kind: 'noSlot' }
+  /** "Retry calibration" on the no-usable-slot screen (Req 10.6). Simulated input has no calibration of its own, so
+   *  retry starts the stage again. */
+  | { readonly kind: 'retryCalibration' };
 
 export type SetupEffect = { readonly kind: 'requestCamera' };
 
@@ -67,5 +72,11 @@ export function stepSetup(state: SetupState, event: SetupEvent): SetupStep {
 
     case 'handChosen':
       return state.screen === 'handChoice' ? unchanged({ ...state, screen: 'simulated' }) : unchanged(state);
+
+    case 'noSlot':
+      return state.screen === 'simulated' ? unchanged({ ...state, screen: 'noUsableSlot' }) : unchanged(state);
+
+    case 'retryCalibration':
+      return state.screen === 'noUsableSlot' ? unchanged({ ...state, screen: 'simulated' }) : unchanged(state);
   }
 }

@@ -124,8 +124,11 @@ function pointerOf(source: PoseSource): PointerInput[] {
   return [{ wrist: 'right', valid: true, pos: POINTER_MAPPING.toScreen(wrist.pos) }];
 }
 
-export function GardenStage(props: { readonly stage: StageId }): ReactElement {
-  const { stage } = props;
+export function GardenStage(props: { readonly stage: StageId; readonly onNoSlot?: () => void }): ReactElement {
+  const { stage, onNoSlot } = props;
+  // The frame loop is set up once, so it reads the callback through a ref that holds the latest one.
+  const noSlotRef = useRef(onNoSlot);
+  noSlotRef.current = onNoSlot;
   const playRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<GardenState | null>(null);
   const envRef = useRef<GardenEnv | null>(null);
@@ -174,6 +177,8 @@ export function GardenStage(props: { readonly stage: StageId }): ReactElement {
       gameRef.current = step.state;
       for (const effect of step.effects) {
         if (effect.kind === 'lanternLit') audio.playNote(effect.index);
+        // No usable slot (Req 10.6): the app shows the no-usable-slot screen in place of the stage.
+        if (effect.kind === 'noSlot') noSlotRef.current?.();
       }
       const nextBackdrop = backdropOf(step.state.session, motion, wanted);
       if (nextBackdrop !== wanted) {
