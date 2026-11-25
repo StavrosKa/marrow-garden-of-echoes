@@ -2,7 +2,7 @@
 // apps/garden-of-echoes. The allowlist is the image files already tracked at the commit where the spec's placeholder art
 // began (9243e22), read with git ls-tree. Any other image file under the app, tracked or not yet ignored by git, fails
 // with its path.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -20,8 +20,20 @@ function gitLines(args: readonly string[]): string[] {
     .filter((line) => line !== '');
 }
 
+/**
+ * Throws a readable error when the base commit is not in this checkout. A shallow clone (the CI checkout's default) lacks
+ * older commits, so the raw git error would not say what to do.
+ */
+function assertCommitPresent(commit: string): void {
+  const probe = spawnSync('git', ['cat-file', '-e', `${commit}^{commit}`], { cwd: repoRoot });
+  if (probe.status !== 0) {
+    throw new Error(`${commit} is not in this checkout; fetch full history (git fetch --unshallow, or fetch-depth: 0 in CI)`);
+  }
+}
+
 /** The image files under the app that a commit tracks. */
 function imagesAt(commit: string): string[] {
+  assertCommitPresent(commit);
   return gitLines(['ls-tree', '-r', '--name-only', commit, '--', APP_DIR]).filter((file) => IMAGE_FILE.test(file));
 }
 
